@@ -1,0 +1,37 @@
+name: openlaunch checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  software:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - run: npm ci
+      - run: npm run check
+      - run: npm run typecheck --workspace @openlaunch/cloud
+      - run: npm run build --workspace @openlaunch/cloud
+        env:
+          CF_SEND_TELEMETRY: 'false'
+      - run: npm run build --workspace @openlaunch/web
+      - run: cd devices/pi && go test ./... && go build -o ../../dist/openlaunch-device-host ./cmd/openlaunch-device
+      - run: node scripts/e2e.mjs
+      - run: cd devices/pi && GOOS=linux GOARCH=arm64 go build -o ../../dist/openlaunch-device-linux-arm64 ./cmd/openlaunch-device
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.5.1'
+      - run: arduino-cli core update-index && arduino-cli core install arduino:renesas_uno@1.6.0
+      - run: arduino-cli lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
+      - run: arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi firmware/uno-r4-wifi/openlaunch

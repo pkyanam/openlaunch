@@ -1,0 +1,261 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #e9f0eb;
+  background: #101713;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  padding: 24px 5vw;
+  border-bottom: 1px solid #2c3930;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.brand {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: inherit;
+  text-decoration: none;
+}
+.brand span {
+  color: #819387;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+main {
+  max-width: 1180px;
+  margin: auto;
+  padding: 48px 24px;
+}
+.hero {
+  padding: 15px 0 35px;
+}
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #bfec94;
+}
+h1 {
+  font-size: clamp(36px, 5vw, 66px);
+  font-weight: 550;
+  letter-spacing: -2.5px;
+  line-height: 1.04;
+  margin: 18px 0;
+}
+h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+h2 span {
+  color: #90a294;
+}
+h3 {
+  font-size: 23px;
+  margin: 15px 0 5px;
+}
+p {
+  color: #a9baae;
+  line-height: 1.6;
+}
+.panel {
+  background: #17221b;
+  border: 1px solid #304235;
+  border-radius: 18px;
+  padding: 24px;
+}
+.warning {
+  border-left: 3px solid #c1d29b;
+  padding: 12px 18px;
+  background: #202b20;
+  color: #c9d4bd;
+  line-height: 1.5;
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+.session {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.session p {
+  margin: 0;
+  font-size: 13px;
+}
+.session input {
+  flex: 1;
+  min-width: 220px;
+}
+.notice {
+  padding: 20px 4px;
+  color: #c5d6c8;
+  font-size: 14px;
+  min-height: 64px;
+}
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 20px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 20px;
+}
+.device > p {
+  margin: 0 0 15px;
+}
+.device .row {
+  margin-top: 16px;
+}
+.device code {
+  font-size: 11px;
+  color: #9baa9d;
+  word-break: break-all;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0;
+}
+.tags span,
+.badge {
+  border: 1px solid #3c503f;
+  border-radius: 99px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #bed0c2;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  background: #7a867e;
+  border-radius: 50%;
+}
+.dot.online {
+  background: #c1ec91;
+}
+input,
+textarea {
+  background: #0e1711;
+  color: #e9f0eb;
+  border: 1px solid #3d5142;
+  border-radius: 9px;
+  padding: 11px;
+  font: inherit;
+  font-size: 13px;
+  max-width: 100%;
+}
+input:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid #c1ec91;
+  outline-offset: 2px;
+}
+textarea {
+  display: block;
+  width: 100%;
+  margin: 16px 0;
+  resize: vertical;
+}
+button {
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  border: 0;
+  border-radius: 9px;
+  padding: 11px 14px;
+  background: #c1ec91;
+  color: #172016;
+  font-weight: 650;
+}
+button.secondary {
+  background: #283b2d;
+  color: #d7e5da;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.danger {
+  color: #f2c4b7;
+  background: transparent;
+  margin-top: 20px;
+  padding-left: 0;
+}
+details {
+  border-top: 1px solid #304235;
+  margin-top: 22px;
+  padding-top: 18px;
+}
+summary {
+  cursor: pointer;
+  color: #bdcfc1;
+}
+details input {
+  width: 100%;
+  margin-bottom: 12px;
+}
+details button {
+  margin: 0 6px 5px 0;
+}
+.result {
+  margin-top: 24px;
+}
+pre {
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 400px;
+}
+.empty {
+  padding: 40px;
+}
+.enrollment {
+  margin-bottom: 24px;
+}
+footer {
+  padding-top: 40px;
+  text-align: center;
+  font-size: 12px;
+  color: #8c9d90;
+}
+@media (max-width: 650px) {
+  header {
+    padding: 18px;
+  }
+  .brand span {
+    display: none;
+  }
+  main {
+    padding: 25px 16px;
+  }
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .session > * {
+    width: 100%;
+  }
+  h1 {
+    letter-spacing: -1px;
+  }
+}

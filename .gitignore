@@ -1,0 +1,19 @@
+node_modules/
+.tools/
+.cache/
+.cloudflare/
+.wrangler/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log
+dist/
+build/
+.DS_Store
+# Device credentials / journals, never versioned
+**/device.json
+**/device.json.*
+**/secrets.h
+**/provisioning.json

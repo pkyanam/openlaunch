@@ -1,0 +1,32 @@
+{
+  "scope": "developer alpha; local end-to-end implementation",
+  "targets": ["Arduino Uno R4 WiFi", "Raspberry Pi 4 Model B 4GB/8GB"],
+  "tools": {
+    "node": "24.19.0",
+    "cf": "1.0.0-beta.12",
+    "go": "1.27.1",
+    "arduino-cli": "1.5.1",
+    "arduino:renesas_uno": "1.6.0"
+  },
+  "checks": {
+    "foundationTests": 14,
+    "workerBuild": "passed",
+    "webBuild": "passed",
+    "piCrossBuilds": ["linux/arm64", "linux/armv7"],
+    "r4Compile": {
+      "flashBytes": 90540,
+      "sramBytes": 9728
+    },
+    "goTests": 3,
+    "httpGoE2E": "passed with simulated hardware, SQLite restart and revocation"
+  },
+  "notDone": [
+    "Cloudflare deployment",
+    "OAuth authorization server and browser sign-in",
+    "ChatGPT production connection",
+    "real hardware tests",
+    "websocket transport",
+    "firmware OTA/signing",
+    "GitHub sync pending repo destination"
+  ]
+}

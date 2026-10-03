@@ -1,0 +1,36 @@
+{
+  "name": "openlaunch",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "description": "Provider-neutral device capabilities for agents",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "node --import tsx --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "cf": "cf",
+    "check": "npm run typecheck && npm run typecheck --workspace @openlaunch/cloud && npm run typecheck --workspace @openlaunch/web && npm run typecheck --workspace @openlaunch/local && npm test",
+    "dev:local": "node --import tsx apps/local/src/server.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261003.1",
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "@types/node": "26.6.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "cf": "1.0.0-beta.12",
+    "jose": "6.2.12",
+    "prettier": "3.9.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "zod": "4.6.5"
+  }
+}
