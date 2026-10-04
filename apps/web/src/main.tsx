@@ -119,7 +119,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const codexConnectCommand =
     "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
   const usbSetupCommand = (filename: string) =>
-    `(ol_helper=$(mktemp) && trap 'rm -f "$ol_helper"' EXIT && curl -fsS --proto '=https' --max-redirs 0 ${quoteShellValue(`${window.location.origin}/downloads/${filename}`)} -o "$ol_helper" && python3 "$ol_helper" --port ${quoteShellValue(deviceSetupPort)} --origin ${quoteShellValue(window.location.origin)})`;
+    `(ol_helper=$(mktemp) && trap 'rm -f "$ol_helper"' EXIT && curl -fsS --proto '=https' --max-redirs 0 ${quoteShellValue(`${window.location.origin}/downloads/${filename}`)} -o "$ol_helper" && python3 "$ol_helper" ${deviceSetupKind === "esp32" ? `--port ${quoteShellValue(deviceSetupPort)} ` : ""}--origin ${quoteShellValue(window.location.origin)})`;
   const unoSetupCommand = usbSetupCommand("provision-uno.py");
   const esp32SetupCommand = usbSetupCommand("provision-esp32.py");
   const deviceSetupCommand =
@@ -327,7 +327,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     run(async () => {
       if (!deviceSetupKind) throw new Error("Choose a device type first.");
       if (
-        (deviceSetupKind === "uno" || deviceSetupKind === "esp32") &&
+        deviceSetupKind === "esp32" &&
         !deviceSetupPort.trim()
       )
         throw new Error("Enter the confirmed USB serial port first.");
@@ -1714,7 +1714,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     [
                       "uno",
                       "Arduino Uno R4 WiFi",
-                      "Configure matching flashed firmware over its confirmed USB port.",
+                      "Connect by USB; setup detects your Uno automatically.",
                     ],
                     [
                       "esp32",
@@ -1741,14 +1741,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               {deviceSetupKind && (
                 <div className="enrollment-steps">
                   {deviceSetupKind === "uno" && (
-                    <label>
-                      Confirmed Uno USB serial port
-                      <input
-                        value={deviceSetupPort}
-                        placeholder="/dev/cu.usbmodem… or /dev/ttyACM0"
-                        onChange={(e) => setDeviceSetupPort(e.target.value)}
-                      />
-                    </label>
+                    <p>Connect your Uno by USB. The setup helper detects it on your computer; you don’t need to enter a port here.</p>
                   )}
                   {deviceSetupKind === "esp32" && (
                     <>
@@ -1821,8 +1814,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                           busy ||
                           !deviceSetupName.trim() ||
                           connectionSecret !== null ||
-                          ((deviceSetupKind === "uno" ||
-                            deviceSetupKind === "esp32") &&
+                          (deviceSetupKind === "esp32" &&
                             !deviceSetupPort.trim())
                         }
                         onClick={startDeviceSetup}
@@ -1840,8 +1832,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       <button
                         disabled={
                           busy ||
-                          ((deviceSetupKind === "uno" ||
-                            deviceSetupKind === "esp32") &&
+                          (deviceSetupKind === "esp32" &&
                             !deviceSetupPort.trim())
                         }
                         onClick={startDeviceSetup}

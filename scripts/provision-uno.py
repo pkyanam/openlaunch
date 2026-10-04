@@ -6,6 +6,7 @@ import json
 import os
 import re
 import select
+import subprocess
 import ssl
 import sys
 import termios
@@ -137,6 +138,27 @@ def validate_port(port):
             re.fullmatch(r"/dev/ttyACM[0-9]+", port) or
             re.fullmatch(r"/dev/ttyUSB[0-9]+", port)):
         raise ValueError("Use the confirmed USB serial device path, not a file")
+
+
+def detect_uno_port():
+    """Read board metadata only; never guess from arbitrary serial devices."""
+    try:
+        result = subprocess.run(["arduino-cli", "board", "list", "--format", "json"],
+                                capture_output=True, text=True, timeout=15, check=True)
+        ports = json.loads(result.stdout).get("detected_ports", [])
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise ValueError("Could not detect the Uno. Install arduino-cli or supply --port with its confirmed USB path.") from exc
+    candidates = sorted(set(item.get("port", {}).get("address", "") for item in ports
+                            if any(board.get("fqbn") == "arduino:renesas_uno:unor4wifi"
+                                   for board in item.get("matching_boards", []))))
+    for port in candidates:
+        validate_port(port)
+    if not candidates:
+        raise ValueError("No Uno R4 WiFi detected. Connect it by USB and close serial monitors, then retry.")
+    if len(candidates) != 1:
+        raise ValueError("Multiple Uno boards detected. Disconnect the others or supply --port with the intended board's USB path.")
+    print("Detected Uno R4 WiFi: " + candidates[0])
+    return candidates[0]
 
 
 class SerialSession:
@@ -300,7 +322,7 @@ def provision(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", required=True, help="Confirmed Uno USB serial port")
+    parser.add_argument("--port", help="Optional confirmed USB port; a single connected Uno is detected automatically")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--status", action="store_true", help="Read public pairing/configuration status")
     modes.add_argument("--reset", action="store_true", help="Explicitly erase saved configuration and identity")
@@ -309,6 +331,7 @@ def main(argv=None):
     parser.add_argument("--legacy-enrollment", action="store_true", help="Use the older one-time enrollment token flow")
     args = parser.parse_args(argv)
     try:
+        args.port = args.port or detect_uno_port()
         validate_port(args.port)
         if args.status:
             show_status(args.port)

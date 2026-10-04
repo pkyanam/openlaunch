@@ -97,5 +97,17 @@ class ProvisionTests(unittest.TestCase):
             self.assertEqual(session.read_event(1)["event"], "paired")
 
 
+
+
+class UnoDiscoveryTests(unittest.TestCase):
+    def test_detects_only_matching_uno_without_opening_serial(self):
+        ports = [{"port": {"address": "/dev/cu.usbmodemTEST"}, "matching_boards": [{"fqbn": "arduino:renesas_uno:unor4wifi"}]}, {"port": {"address": "/dev/cu.Bluetooth"}}]
+        with mock.patch.object(p.subprocess, "run", return_value=mock.Mock(stdout=json.dumps({"detected_ports": ports}))), mock.patch.object(p.os, "open", side_effect=AssertionError("serial must stay closed")):
+            self.assertEqual(p.detect_uno_port(), "/dev/cu.usbmodemTEST")
+    def test_absent_or_ambiguous_uno_is_not_guessed(self):
+        for ports in [[], [{"port": {"address": x}, "matching_boards": [{"fqbn": "arduino:renesas_uno:unor4wifi"}]} for x in ["/dev/ttyACM0", "/dev/ttyACM1"]]]:
+            with mock.patch.object(p.subprocess, "run", return_value=mock.Mock(stdout=json.dumps({"detected_ports": ports}))):
+                with self.assertRaises(ValueError): p.detect_uno_port()
+
 if __name__ == "__main__":
     unittest.main()
