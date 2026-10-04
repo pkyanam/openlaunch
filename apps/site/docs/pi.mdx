@@ -1,45 +1,41 @@
 ---
 title: Raspberry Pi 4
-description: Install and pair the openlaunch agent on a Raspberry Pi 4 Model B over trusted HTTPS, with private credentials and real process health.
+description: Install the openlaunch agent on a Raspberry Pi 4 with one owner-issued SDK token and private device credentials.
 ---
 
 ## Install and pair
 
-On Raspberry Pi OS running on a Raspberry Pi 4 Model B (4 GB or 8 GB), open a terminal and run:
+In **Connections**, create a token with device attachment enabled. On Raspberry Pi OS running on a Raspberry Pi 4 Model B (4 GB or 8 GB), run:
 
 ```sh
 curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
 ```
 
-The installer downloads the release manifest and matching Linux ARM binary over trusted HTTPS, then checks the binary's SHA-256 before running it. It supports 64-bit ARM64 and 32-bit ARMv7 systems. You need `curl` and Python 3, which are included in current Raspberry Pi OS images. It does not need Go or Node.js, use `sudo`, change boot settings, or flash firmware.
+When prompted, enter the SDK token; the prompt is hidden. The installer derives the workspace from the token and attaches the Pi. It downloads the matching ARM binary over HTTPS and verifies its SHA-256. It supports 64-bit ARM64 and 32-bit ARMv7 systems. You need `curl` and Python 3; it does not need Go or Node.js, `sudo`, boot changes or a firmware flash.
 
-When prompted, enter the workspace ID and the one-time Pi enrollment code from the openlaunch portal. The code prompt is hidden. The installer passes the code to the device process through its environment, never as a command-line argument. It stores the executable at `~/.local/bin/openlaunch-device` and the device credential at `~/.config/openlaunch/device.json` with private file permissions. It will stop if either destination already exists, preserving an existing identity.
+The installer stores the executable at `~/.local/bin/openlaunch-device` and the private per-device credential at `~/.config/openlaunch/device.json`. It never stores the SDK token and stops if either file already exists. If attachment is interrupted, rerun the installer with the same token within 10 minutes. If that window has passed, inspect **Devices** before starting another attachment.
 
-After installation, start the agent using the command printed by the installer. It runs in the foreground; press Ctrl-C to stop it. To start it again, run the same command. The optional hardened systemd unit is available in the source repository at `devices/pi/openlaunch-device.service`; installing it requires preparing an unprivileged service account and paths yourself.
+After installation, start the agent with the command printed by the installer. It runs in the foreground; press Ctrl-C to stop it. Run the same command to start it again. The optional systemd unit is in the [source repository](https://github.com/pkyanam/openlaunch/blob/main/devices/pi/openlaunch-device.service); setting it up requires a service account and paths.
 
-Enrollment expires after 10 minutes and can be used once. If enrollment reports an error or the installer is interrupted while enrolling, check the portal inventory before retrying because the code may have been consumed. If a device was created but no credential was saved, revoke that entry in the portal and create a new enrollment. Keep the credential file out of Git and backups you do not control.
+When the Pi appears in the console, open its **Access** view and grant the agent only the functions it needs. The grant is separate from the SDK token and expires on its own. See [Pairing and permissions](/pairing).
 
 ## Current capability
 
-The real Pi runtime reports process health only. GPIO and display adapters are not implemented, and setup never claims that physical hardware has been verified. Pairing registers the device; a separate owner grant is required before an agent can use its advertised capability. Review the [pairing and permission guide](/pairing) for grants, expiry, and revocation.
+The Pi runtime reports process health only. GPIO and display control are not implemented. Pairing and a successful software result do not prove physical hardware behavior; see [Verification](/status).
 
 ## Build from source
 
-For development, build the Linux binaries from the repository with Go installed:
+For development, build the Linux binary with Go:
 
 ```sh
 npm run build:pi
 ```
 
-Copy `dist/openlaunch-device-linux-arm64` to a 64-bit system or `dist/openlaunch-device-linux-arm` to a 32-bit ARMv7 system. On the Pi, pair the binary with the same portal workspace ID and one-time enrollment code:
+Load the SDK token into `OPENLAUNCH_SDK_TOKEN` from your secret store, then attach and start the agent:
 
 ```sh
-read -r -s -p 'One-time enrollment code: ' OPENLAUNCH_ENROLLMENT_TOKEN
-printf '\n'
-export OPENLAUNCH_ENROLLMENT_TOKEN
-./openlaunch-device --enroll --url https://www.openlaunch.dev --workspace WORKSPACE_ID_FROM_PORTAL --config "$HOME/.config/openlaunch/device.json"
-unset OPENLAUNCH_ENROLLMENT_TOKEN
+./openlaunch-device --attach --url https://www.openlaunch.dev --config "$HOME/.config/openlaunch/device.json"
 ./openlaunch-device --config "$HOME/.config/openlaunch/device.json"
 ```
 
-The enrollment code is not included in the command arguments. Do not use `--simulate` for device acceptance. Confirm the real health result and test grant boundaries, expiry, reconnect, and revocation with the [pairing checklist](/pairing). Physical hardware acceptance remains pending.
+The token is used only during attachment. Keep the child device credential file private and outside Git. Do not use `--simulate` for hardware acceptance.

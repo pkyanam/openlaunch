@@ -9,9 +9,9 @@ The web console, MCP and device clients use the same command service and permiss
 
 Owner management uses an authenticated Clerk owner session. Google is the enabled sign-in provider; email/password sign-in is disabled. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant. OAuth uses PKCE.
 
-Other agents and applications use an owner-created bridge SDK token. Choose read-only or action access and a lifetime of up to 30 days. The service still requires a separate grant for each device function. See [Bridge SDK](/sdk) for setup and client examples.
+Agents and device adapters use an owner-created SDK token (`ol_sdk_…`). Choose read or action access, an expiry, and whether it can attach devices with a limit of 1–20. The same token can authenticate an SDK agent and attach devices. Each attached device gets a separate credential, and function grants remain separate. Legacy `ol_agent_` tokens can still authenticate agents but cannot attach devices. See the [SDK guide](/sdk) for the short setup path.
 
-Device requests use their own enrollment-issued bearer credential. On the hosted bridge they also include `x-openlaunch-workspace`, returned during pairing. Keep credentials out of logs and source control.
+Device polling and result reports use a private per-device bearer credential. Never put the owner SDK token in firmware, device identity files, prompts or logs. Legacy enrollment-issued credentials remain supported. Keep every credential out of source control.
 
 ## Routes
 
@@ -19,10 +19,11 @@ Device requests use their own enrollment-issued bearer credential. On the hosted
 | ------ | ----------------------------------- | ----------------------------------------------------------------------- |
 | GET    | `/healthz`                          | Service health; not a device result                                     |
 | GET    | `/v1/devices`                       | Devices visible to the current principal                                |
+| POST   | `/v1/sdk/devices`                   | Attach a device using an SDK token and stable request ID                 |
 | POST   | `/v1/enrollments`                   | Owner creates a 10-minute, single-use enrollment                        |
-| GET    | `/v1/agent-connections`             | Owner lists active SDK connections; secrets are omitted                 |
-| POST   | `/v1/agent-connections`             | Owner creates a named, expiring SDK token shown once                    |
-| POST   | `/v1/agent-connections/{id}/revoke` | Owner revokes the connection and its grants                             |
+| GET    | `/v1/sdk-tokens`                    | Owner lists SDK tokens and attachment settings; secrets are omitted      |
+| POST   | `/v1/sdk-tokens`                    | Owner creates a named SDK token, shown once                              |
+| POST   | `/v1/sdk-tokens/{id}/revoke`        | Owner revokes a token, its grants and future attachment access           |
 | POST   | `/v1/device/{id}/manifest`          | Device publishes implemented functions; changed manifests revoke grants |
 | POST   | `/v1/device/enroll`                 | Device exchanges an enrollment for its credential                       |
 | GET    | `/v1/grants`                        | Owner lists active saved grants                                         |
@@ -38,19 +39,45 @@ Device requests use their own enrollment-issued bearer credential. On the hosted
 | POST   | `/v1/device/{id}/result`            | Device reports success or failure                                       |
 | POST   | `/mcp`                              | Stateless device MCP requests                                           |
 
-## Create an agent connection
+## Create an SDK token
 
-An authenticated owner sends `POST /v1/agent-connections` with:
+An authenticated owner sends `POST /v1/sdk-tokens` with:
 
 ```json
-{ "name": "workbench agent", "access": "act", "ttlSeconds": 86400 }
+{
+  "name": "workbench agent",
+  "access": "act",
+  "ttlSeconds": 604800,
+  "canAttach": true,
+  "deviceLimit": 1
+}
 ```
 
-`access` is `read` or `act`; the token lifetime is 60–2,592,000 seconds. Save the returned token in protected storage when it is shown. Listing connections never returns the token again. A connection cannot enroll devices, approve itself or create another connection. Revocation removes its grants and cancels queued actions; it cannot undo an action already delivered.
+`access` is `read` or `act`; the token lifetime is 60–2,592,000 seconds. Set `canAttach` to allow device setup and choose `deviceLimit` from 1 to 20. Save the returned token in protected storage; listing tokens never returns the secret again. The token cannot approve its own function grants. Revoking it removes the agent's grants, cancels its queued actions and blocks later attachments. Already attached devices remain paired until separately removed by the owner.
+
+The older `/v1/agent-connections` route names remain aliases for existing clients; tokens created through those legacy routes cannot attach devices.
+
+## Attach a device
+
+An SDK token with attachment enabled sends `POST /v1/sdk/devices` with a function manifest and UUID request ID:
+
+```json
+{
+  "requestId": "2fd1a6d4-d177-4ec9-9f0f-e2d5ad5368d9",
+  "manifest": {
+    "name": "Workshop sensor",
+    "kind": "custom.rp2040",
+    "capabilities": ["device.health"],
+    "functions": []
+  }
+}
+```
+
+The response contains `deviceId` and a private child credential `token`. Keep those in the device's protected identity store; do not persist the SDK token there. A retry must use the same request ID and identical manifest for 10 minutes to recover the same attachment. After that, inspect the device inventory before starting another request. Attaching does not grant the token's agent access to device functions.
 
 ## Publish device functions
 
-A device authenticates with its own credential and sends `{ "manifest": ... }` to `POST /v1/device/{id}/manifest`. Its kind must match enrollment. Publishing an identical manifest keeps grants intact. A changed manifest removes previous device grants, cancels queued actions and marks outstanding received actions uncertain. The owner approves the functions again. Use the SDK's `publishManifest()` or adapter CLI `publish` command rather than copying credentials into commands.
+A device authenticates with its own credential and sends `{ "manifest": ... }` to `POST /v1/device/{id}/manifest`. Its kind must match attachment. Publishing an identical manifest keeps grants intact. A changed manifest removes previous device grants, cancels queued actions and marks outstanding received actions uncertain. The owner approves the functions again. Use the SDK's `publishManifest()` or adapter CLI `publish` command rather than copying credentials into commands.
 
 ## Request an action
 

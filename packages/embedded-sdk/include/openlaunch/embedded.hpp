@@ -38,6 +38,8 @@ using DeviceId = Text<kDeviceIdSize>;
 using Credential = Text<kCredentialSize>;
 using WorkspaceId = Text<kWorkspaceSize>;
 using EnrollmentToken = Text<kTokenSize>;
+using SdkToken = Text<139>;
+using RequestId = Text<37>;
 using ActionId = Text<kActionIdSize>;
 
 struct Manifest {
@@ -86,6 +88,9 @@ enum class TransportStatus : std::uint8_t {
 // POST /v1/device/enroll {token, manifest}; serialize functionsJson as the
 // manifest's functions array when hasFunctions, and validate it is a JSON array
 // of bridge-compatible definitions before sending.
+// POST /v1/sdk/devices {requestId, manifest} with x-openlaunch-workspace and
+// the owner-issued SDK token as bearer authorization; requestId must be reused
+// for retries of the same attachment request.
 // POST /v1/device/{deviceId}/next {} with x-openlaunch-workspace and bearer
 // POST /v1/device/{deviceId}/result {actionId,status,result} with same headers
 // HTTP adapters must use HTTPS with certificate/hostname verification. The
@@ -95,6 +100,13 @@ class Transport {
   virtual ~Transport() = default;
   virtual TransportStatus enroll(const WorkspaceId &, const EnrollmentToken &,
                                  const Manifest &, Identity &) = 0;
+  // Optional owner-authorized attachment route. Existing transports may omit
+  // it; callers then receive InvalidResponse without changing enrollment.
+  virtual TransportStatus attachSdkToken(const WorkspaceId &, const SdkToken &,
+                                         const RequestId &, const Manifest &,
+                                         Identity &) {
+    return TransportStatus::InvalidResponse;
+  }
   virtual TransportStatus next(const WorkspaceId &, const Identity &,
                                Action &) = 0;
   virtual TransportStatus submitResult(const WorkspaceId &, const Identity &,
@@ -159,6 +171,24 @@ class DeviceClient {
     return Status::Ok;
   }
 
+  Status attachSdkToken(const SdkToken &token, const RequestId &requestId,
+                        const Manifest &manifest) {
+    if (workspace_.empty() || token.empty() || requestId.empty() ||
+        !validManifest(manifest)) return Status::InvalidArgument;
+    Identity saved;
+    const auto identityStatus = storage_.loadIdentity(saved);
+    if (identityStatus == Persistence::ReadStatus::Error) return Status::StorageError;
+    if (identityStatus == Persistence::ReadStatus::Found) return Status::AlreadyPaired;
+    Identity fresh;
+    const auto result = transport_.attachSdkToken(workspace_, token, requestId, manifest, fresh);
+    if (result != TransportStatus::Ok) return Status::TransportError;
+    if (fresh.deviceId.empty() || fresh.credential.empty()) return Status::TransportError;
+    if (!storage_.saveIdentity(fresh)) return Status::StorageError;
+    identity_ = fresh;
+    paired_ = true;
+    return Status::Ok;
+  }
+
   Status resume() {
     Identity saved;
     const auto read = storage_.loadIdentity(saved);
@@ -177,20 +207,19 @@ class DeviceClient {
   // side-effecting work by a client that deliberately polls only once.
   Status nextAction(Action &out) {
     if (!paired_) return Status::NotPaired;
-    ResultReport pending;
-    const auto pendingStatus = storage_.loadPendingResult(pending);
+    const auto pendingStatus = storage_.loadPendingResult(scratchReport_);
     if (pendingStatus == Persistence::ReadStatus::Error) return Status::StorageError;
     if (pendingStatus == Persistence::ReadStatus::Found) return Status::PendingResult;
-    Action candidate;
-    const auto result = transport_.next(workspace_, identity_, candidate);
+    const auto result = transport_.next(workspace_, identity_, scratchAction_);
     if (result == TransportStatus::NoContent) return Status::NoAction;
     if (result != TransportStatus::Ok) return Status::TransportError;
-    if (candidate.id.empty() || candidate.capability.empty() || candidate.argumentsJson.empty())
+    if (scratchAction_.id.empty() || scratchAction_.capability.empty() ||
+        scratchAction_.argumentsJson.empty())
       return Status::InvalidArgument;
     std::uint64_t now = 0;
     if (!clock_.unixTimeMs(now)) return Status::ClockUnavailable;
-    if (now >= candidate.expiresAtMs) return Status::Expired;
-    out = candidate;
+    if (now >= scratchAction_.expiresAtMs) return Status::Expired;
+    out = scratchAction_;
     return Status::Ok;
   }
 
@@ -202,31 +231,29 @@ class DeviceClient {
     std::uint64_t now = 0;
     if (!clock_.unixTimeMs(now)) return Status::ClockUnavailable;
     if (now >= action.expiresAtMs) return Status::Expired;
-    ResultReport report;
-    report.actionId = action.id;
-    report.status = status;
-    report.expiresAtMs = action.expiresAtMs;
-    if (!report.resultJson.set(resultJson)) return Status::InvalidArgument;
-    ResultReport existing;
-    const auto pendingStatus = storage_.loadPendingResult(existing);
+    const auto pendingStatus = storage_.loadPendingResult(scratchReport_);
     if (pendingStatus == Persistence::ReadStatus::Error) return Status::StorageError;
     if (pendingStatus == Persistence::ReadStatus::Found) return Status::PendingResult;
-    if (!storage_.savePendingResult(report)) return Status::StorageError;
+    scratchReport_.actionId = action.id;
+    scratchReport_.status = status;
+    scratchReport_.expiresAtMs = action.expiresAtMs;
+    if (!scratchReport_.resultJson.set(resultJson)) return Status::InvalidArgument;
+    if (!storage_.savePendingResult(scratchReport_)) return Status::StorageError;
     return retryResult();
   }
 
   Status retryResult() {
     if (!paired_) return Status::NotPaired;
-    ResultReport report;
-    const auto pendingStatus = storage_.loadPendingResult(report);
+    const auto pendingStatus = storage_.loadPendingResult(scratchReport_);
     if (pendingStatus == Persistence::ReadStatus::Error) return Status::StorageError;
     if (pendingStatus == Persistence::ReadStatus::Empty) return Status::NoAction;
-    if (report.actionId.empty() || report.resultJson.empty() || report.expiresAtMs == 0)
+    if (scratchReport_.actionId.empty() || scratchReport_.resultJson.empty() ||
+        scratchReport_.expiresAtMs == 0)
       return Status::StorageError;
     std::uint64_t now = 0;
     if (!clock_.unixTimeMs(now)) return Status::ClockUnavailable;
-    if (now >= report.expiresAtMs) return Status::Expired;
-    const auto result = transport_.submitResult(workspace_, identity_, report);
+    if (now >= scratchReport_.expiresAtMs) return Status::Expired;
+    const auto result = transport_.submitResult(workspace_, identity_, scratchReport_);
     if (result != TransportStatus::Ok) return Status::TransportError;
     if (!storage_.clearPendingResult()) return Status::StorageError;
     return Status::Ok;
@@ -236,8 +263,7 @@ class DeviceClient {
   // replay the action; the bridge may already expose it as unknown at expiry.
   Status discardPendingResult() {
     if (!paired_) return Status::NotPaired;
-    ResultReport report;
-    const auto pendingStatus = storage_.loadPendingResult(report);
+    const auto pendingStatus = storage_.loadPendingResult(scratchReport_);
     if (pendingStatus == Persistence::ReadStatus::Error) return Status::StorageError;
     if (pendingStatus == Persistence::ReadStatus::Empty) return Status::NoAction;
     return storage_.clearPendingResult() ? Status::Ok : Status::StorageError;
@@ -266,6 +292,11 @@ class DeviceClient {
   Persistence &storage_;
   WorkspaceId workspace_;
   Identity identity_{};
+  // Scratch lives with the client so nested protocol calls do not place several
+  // multi-kilobyte fixed buffers on the small Arduino task stack. The client is
+  // intentionally single-threaded and its methods are not reentrant.
+  Action scratchAction_{};
+  ResultReport scratchReport_{};
   bool paired_ = false;
 };
 

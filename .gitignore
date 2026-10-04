@@ -27,3 +27,9 @@ __pycache__/
 /apps/site/public/downloads/openlaunch-plugin.zip
 /apps/site/public/downloads/openlaunch-sdk.tgz
 /apps/site/public/downloads/provision-uno.py
+
+/apps/site/public/downloads/openlaunch-esp32.zip
+
+/apps/site/public/downloads/provision-esp32.py
+
+/apps/site/public/downloads/installers.json

@@ -1,13 +1,13 @@
 ---
 title: Connect an agent
-description: Connect ChatGPT, Codex or another agent to openlaunch through OAuth or a bridge SDK token, grant device functions and follow their action results.
+description: Connect ChatGPT, Codex or any JavaScript agent to openlaunch, approve device functions and inspect each action result.
 ---
 
-openlaunch supports MCP clients and direct SDK clients. ChatGPT and Codex can link through OAuth; any agent or app can use an owner-issued bridge SDK token. Both paths use the same per-device function grants. Linking an agent does not enroll a device or authorize every device in the workspace.
+ChatGPT and Codex can connect over MCP with OAuth. Any JavaScript agent can use the openlaunch SDK and an owner-issued SDK token. Both routes follow the same per-device function grants. A token does not grant access to every device automatically.
 
 ## ChatGPT and Codex
 
-Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Choose ChatGPT or Codex under **Devices → Access**, select its functions, and select **Save grant**. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
+Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Open the device's **Access** view, choose ChatGPT or Codex, select its functions, and save the grant. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
 
 For Codex CLI:
 
@@ -20,9 +20,9 @@ OAuth consent and device grants are separate. Reconnect your MCP client after gr
 
 ## Any agent with the bridge SDK
 
-In **Agents**, create a named bridge SDK token, set its expiry, and copy it when shown. The secret is shown once. Provide the bridge URL and token to your agent as environment secrets. Revoke it in Agents to end that connection. Never put the token in a prompt, source file, shell command, or log.
+In **Connections**, create a named SDK token, choose read or action access, and set an expiry. To let the same token pair devices, enable device attachment and choose a device limit. The token is shown once. Provide it to your agent through a secret environment variable; never put it in a prompt, source file, shell command, or log. Revoke it in Connections to stop agent requests and new attachments.
 
-Install `@openlaunch/sdk` in the agent's runtime and use `createClient({ url, token })`. The client can list devices visible to that connection, request a granted function, and inspect or cancel its action. Use `broadcast()` for the same function on several devices. The owner grants functions separately for each device and can choose an expiry. Without a grant, a valid token cannot see or operate that device.
+Install the SDK archive and use `createClient({ url, token })`. The client lists devices visible to that token, requests approved functions, and reads or cancels actions. The owner grants functions for each device with an expiry. Without a grant, the agent cannot operate that device.
 
 ```sh
 npm install https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
@@ -32,19 +32,17 @@ See the [Bridge SDK guide](/sdk) for a minimal code example, action lifecycle, a
 
 ## Codex on your computer
 
-For the local MCP bridge, start with [Get started](/setup). The launcher prints a command tailored to your installation. For the default installation:
+For the local MCP bridge, start with [Get started](/setup). For the default installation:
 
 ```sh
 codex mcp add openlaunch -- node ~/.local/share/openlaunch/scripts/local-mcp.mjs
 ```
 
-The adapter reads only its protected agent credential. It never forwards your owner session key. Restart Codex or refresh its MCP connections, then ask it to list its granted openlaunch devices. In Connections, grant this connection only the functions it needs on each device.
+The adapter reads only its protected agent credential. It never forwards your owner session key. Restart Codex or refresh its MCP connections, then ask it to list the devices you granted.
 
 ## MCP connections
 
-Hosted MCP clients use the openlaunch MCP service with OAuth or an owner-issued connection token sent as an HTTP bearer credential. Use the exact MCP URL and client setup shown by your deployed console. Do not substitute the documentation MCP address or give an owner session key to an agent. A connection token cannot expand its own grants.
-
-Each connection token belongs to one named agent connection. It has an expiry and can be revoked independently. Grant expiry, token expiry and device enrollment are separate controls; see [Pairing and permissions](/pairing).
+Hosted MCP uses OAuth. Other agents can use the SDK token directly. Keep the owner session key private; an agent must never use it. Token expiry, device grants and device credentials are separate controls; see [Pairing and permissions](/pairing).
 
 ## Device tools
 

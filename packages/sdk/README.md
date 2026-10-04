@@ -10,7 +10,7 @@ Source: [pkyanam/openlaunch/packages/sdk](https://github.com/pkyanam/openlaunch/
 
 ## Agent quick start
 
-Create an agent connection in the openlaunch console, then keep the generated token in your agent's secret store. Give the connection only the device capabilities it needs.
+Create an SDK token in the openlaunch console and keep it in your secret store. The same token can authenticate an agent and attach devices when the owner enables a bounded device limit. Device access still requires separate owner-approved grants.
 
 ```ts
 import { createClient } from "@openlaunch/sdk";
@@ -40,19 +40,18 @@ Use a new idempotency key for each new action. Reuse the same key only when retr
 
 ## Bring a device online
 
-Pairing produces a short lived, one-use enrollment token. Pass it directly to the device process; the bridge returns its own long lived device credential. Store that credential in the device's secret store and pass it back through `credential` after a restart.
+Use an owner-issued SDK token with device attachment enabled. It is used only to exchange the device manifest for a private device credential; the device polls with that child credential. The token's workspace is encoded in the token, so setup does not ask for a separate workspace ID.
 
 ```ts
 import { createDevice } from "@openlaunch/sdk";
 
 const bridge = createDevice({
   url: "https://www.openlaunch.dev",
-  workspace: process.env.OPENLAUNCH_WORKSPACE!,
+  token: process.env.OPENLAUNCH_SDK_TOKEN!,
 });
 
-const enrolled = await bridge.enroll({
-  token: process.env.OPENLAUNCH_ENROLLMENT_TOKEN!,
-  manifest: {
+const identity = await bridge.attach(
+  {
     name: "Workshop sensor",
     kind: "custom.device", // Any short lowercase kind identifier is allowed.
     capabilities: ["custom.sensor.read"],
@@ -71,9 +70,11 @@ const enrolled = await bridge.enroll({
       },
     ],
   },
-});
+  crypto.randomUUID(),
+);
 
-// Persist enrolled.token securely. For a managed poll loop with a durable
+// Persist identity.token securely. Reuse the same request ID and manifest if
+// retrying attach after a network failure. For a managed poll loop with a durable
 // execution/result journal, use openlaunch-device setup/run below.
 const action = await bridge.nextAction();
 if (action) {
@@ -105,7 +106,7 @@ Choose **Pair another device** in the portal, then run:
 npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup
 ```
 
-The command prompts for the workspace and one-use code, creates `adapter.mjs`, saves a private device identity and starts outbound polling. The starter's health result describes the adapter process. Connect your own library, serial board or local service in `handlers`, then declare those implemented operations in `manifest.functions`.
+The command prompts once for the SDK token (or reads `OPENLAUNCH_SDK_TOKEN`), creates `adapter.mjs`, saves the private device credential and starts outbound polling. It stores a non-secret request ID before attaching, so rerunning setup after a network failure safely retries the same request. It never saves the SDK token. The starter's health result describes the adapter process. Connect your own library, serial board or local service in `handlers`, then declare those implemented operations in `manifest.functions`.
 
 Publish your changed manifest with the same command ending in `publish`, approve its functions in the portal, and restart with `run`. Existing device grants are removed when a manifest changes. The runner keeps a private action journal to avoid rerunning handlers after result-upload failures or interrupted execution. No operation is promised to execute exactly once across physical power loss.
 
@@ -113,4 +114,4 @@ Publish your changed manifest with the same command ending in `publish`, approve
 
 All agent and device operations use HTTPS. HTTP is allowed for `localhost`, `127.0.0.1`, and `::1` during local development. Both factories accept a `fetch` override for testing and alternate runtimes. For a local bridge, pass its workspace routing ID; hosted credentials are bound to their workspace.
 
-Failures throw `OpenLaunchError` with `status` and a safe `code`. Error messages intentionally omit server response text and credentials. Device credentials remain in memory inside the SDK instance; the caller is responsible for securely persisting the credential returned by enrollment.
+Failures throw `OpenLaunchError` with `status` and a safe `code`. Error messages intentionally omit server response text and credentials. Device credentials remain in memory inside the SDK instance; the caller is responsible for securely persisting the credential returned by attach. The legacy one-use enrollment API remains available for existing integrations.

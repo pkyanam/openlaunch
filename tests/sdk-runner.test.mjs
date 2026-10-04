@@ -77,6 +77,7 @@ test("runner retries a saved result without executing its handler again", async 
     let polls = 0;
     await runDevice({
       directory,
+      events: false,
       pollMs: 0,
       input: { isTTY: false },
       output: { write() {} },
@@ -144,6 +145,7 @@ test("runner reports outcome_unknown after restart without replaying a pending a
     let polls = 0;
     await runDevice({
       directory,
+      events: false,
       pollMs: 0,
       input: { isTTY: false },
       output: { write() {} },
@@ -205,6 +207,7 @@ test("runner leaves expired result delivery unacknowledged and reports uncertain
     let message = "";
     await runDevice({
       directory,
+      events: false,
       pollMs: 0,
       input: { isTTY: false },
       output: {
@@ -255,6 +258,7 @@ test("runner records terminal result rejection and does not retry it", async () 
     let message = "";
     await runDevice({
       directory,
+      events: false,
       pollMs: 0,
       input: { isTTY: false },
       output: {

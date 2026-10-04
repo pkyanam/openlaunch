@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 
-if (!process.env.CLERK_SECRET_KEY || !process.env.CLERK_PUBLISHABLE_KEY)
+if (
+  !process.env.CLERK_SECRET_KEY ||
+  !process.env.CLERK_PUBLISHABLE_KEY ||
+  !process.env.DEVICE_CREDENTIAL_KEYS
+)
   throw new Error("Clerk deployment configuration is required");
 const commit =
   process.env.GITHUB_SHA ??
@@ -15,7 +19,10 @@ try {
   const secrets = join(directory, "secrets.json");
   await writeFile(
     secrets,
-    JSON.stringify({ CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY }),
+    JSON.stringify({
+      CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+      DEVICE_CREDENTIAL_KEYS: process.env.DEVICE_CREDENTIAL_KEYS,
+    }),
     { mode: 0o600 },
   );
   const child = spawn(

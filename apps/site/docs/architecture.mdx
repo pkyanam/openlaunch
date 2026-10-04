@@ -20,7 +20,7 @@ description: Learn how openlaunch separates hosted identity, device permissions,
 
 Clerk verifies hosted owner sessions and agent OAuth tokens. OAuth uses PKCE and resource audiences; only configured agent identities are admitted. Google is the enabled sign-in provider, and email/password sign-in is disabled. Owner sessions and agent identities have separate roles.
 
-An owner pairs a device with a single-use enrollment token, then grants an agent selected capabilities on that device with an expiry. OAuth scopes authorize API operations but do not create device grants. The service checks the current scope and per-device grant whenever an agent calls a tool, including a custom function discovered earlier.
+An owner can issue one SDK token for agent access and bounded device attachment. Each attachment receives its own private device credential. The owner still grants selected functions on each device with an expiry; a token does not approve its own grants. OAuth scopes authorize API operations but do not create device grants. The service checks the current access setting and device grant whenever an agent calls a tool, including a custom function discovered earlier. Legacy one-use enrollment remains available for older integrations.
 
 Hosted workspace storage uses SQLite-backed Durable Objects identified from the verified Clerk issuer and user identity. A workspace cannot use another workspace's device records or grants.
 

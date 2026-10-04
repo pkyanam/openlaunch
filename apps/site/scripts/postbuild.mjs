@@ -1,3 +1,4 @@
+import { installerManifest } from "./installers.mjs";
 import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { cpSync } from "node:fs";
@@ -8,6 +9,10 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 for (const [source, destination] of [
   ["../../scripts/install.sh", "dist/client/install.sh"],
   ["../../scripts/provision-uno.py", "dist/client/downloads/provision-uno.py"],
+  [
+    "../../scripts/provision-esp32.py",
+    "dist/client/downloads/provision-esp32.py",
+  ],
 ]) {
   const { mkdirSync } = await import("node:fs");
   const { dirname } = await import("node:path");
@@ -74,7 +79,12 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 }).trim();
 // Pin GitHub backup links to the deployed commit, never the moving main branch.
 const pinInstallerBackup = (text) => {
-  for (const filename of ["install.sh", "install-pi.sh", "provision-uno.py"])
+  for (const filename of [
+    "install.sh",
+    "install-pi.sh",
+    "provision-uno.py",
+    "provision-esp32.py",
+  ])
     text = text.replaceAll(
       `https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/${filename}`,
       `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/${filename}`,
@@ -95,43 +105,8 @@ function pinGeneratedLinks(directory) {
 pinGeneratedLinks("dist/client");
 writeFileSync(
   "dist/client/downloads/installers.json",
-  JSON.stringify(
-    {
-      commit,
-      installers: [
-        {
-          url: `${origin}/install.sh`,
-          sha256: createHash("sha256")
-            .update(readFileSync("../../scripts/install.sh"))
-            .digest("hex"),
-          backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/install.sh`,
-        },
-        {
-          url: `${origin}/downloads/provision-uno.py`,
-          sha256: createHash("sha256")
-            .update(readFileSync("../../scripts/provision-uno.py"))
-            .digest("hex"),
-          backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/provision-uno.py`,
-        },
-        {
-          url: `${origin}/install-pi.sh`,
-          sha256: createHash("sha256")
-            .update(readFileSync("../../scripts/install-pi.sh"))
-            .digest("hex"),
-          backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/install-pi.sh`,
-        },
-      ],
-      sdk: {
-        url: `${origin}/downloads/openlaunch-sdk.tgz`,
-        sha256: createHash("sha256")
-          .update(readFileSync("dist/client/downloads/openlaunch-sdk.tgz"))
-          .digest("hex"),
-        source: `https://github.com/pkyanam/openlaunch/tree/${commit}/packages/sdk`,
-      },
-    },
-    null,
-    2,
-  ) + "\n",
+  JSON.stringify(installerManifest("dist/client/downloads", origin), null, 2) +
+    "\n",
 );
 for (const architecture of ["arm64", "arm"]) {
   const name = `openlaunch-device-linux-${architecture}`;
@@ -173,7 +148,7 @@ writeFileSync(
   (existsSync("dist/client/_headers")
     ? readFileSync("dist/client/_headers", "utf8")
     : "") +
-    "\n/install-pi.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/install.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-uno.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
+    "\n/install-pi.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/install.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-uno.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-esp32.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
 );
 // Blume 2.1.1's generated 404 ignores the custom Logo slot and omits raster dimensions.
 const notFoundPath = "dist/client/404.html";

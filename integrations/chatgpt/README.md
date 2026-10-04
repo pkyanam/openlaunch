@@ -2,7 +2,7 @@
 
 The canonical device MCP endpoint is `https://www.openlaunch.dev/mcp`. It uses Clerk OAuth and the MCP protected-resource metadata at `https://www.openlaunch.dev/.well-known/oauth-protected-resource`. The separate `https://www.openlaunch.dev/docs-mcp` endpoint is read-only documentation search; it does not grant access to devices. Do not register the docs endpoint as the device server or substitute it for `/mcp`.
 
-The hosted endpoint is deployed and responds with the expected OAuth `401 Unauthorized` challenge when called without an approved agent token. This verifies reachability and authentication enforcement only. Hosted device controls remain disabled until deployment connection checks pass; do not present the plugin as able to control hosted devices until the owner enables controls and a granted-device action is verified.
+The hosted endpoint is deployed and responds with the expected OAuth `401 Unauthorized` challenge when called without an approved agent token. This verifies reachability and authentication enforcement only. Hosted controls are enabled after authenticated software acceptance. Physical device acceptance remains separate; see the verification guide.
 
 An owner must first connect the openlaunch account through OAuth and consent to requested MCP scopes. OAuth consent only connects the account. In the openlaunch console, the owner separately grants a particular agent specific functions on a particular device with an expiry. No device is enrolled and no hardware permission is created by installing the plugin or signing in.
 

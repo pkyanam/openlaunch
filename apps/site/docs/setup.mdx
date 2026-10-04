@@ -3,14 +3,14 @@ title: Get started
 description: Sign in to your openlaunch console, pair a device and choose the functions your agent can use. Developers can also run the bridge locally.
 ---
 
-## Connect your first device
+## Connect an agent and device
 
 1. [Open your console](https://www.openlaunch.dev/console/) and continue with Google.
-2. Choose **Devices → Add device**, then choose your board or **Custom device**. Your console creates a single-use enrollment that lasts 10 minutes.
-3. Follow the [Pi installer](/pi) or [Uno USB setup](/uno-r4). The device appears in your console when it connects.
-4. Open **Agent permission**, choose ChatGPT or Codex, select its functions and set an expiry. [Connect the agent](/agents).
+2. In **Connections**, create a named SDK token. Choose its access and expiry; enable device attachment if you will pair hardware. The default attachment limit is one device.
+3. Follow the [Pi installer](/pi), [Uno USB setup](/uno-r4), or the [one-command custom adapter setup](/sdk).
+4. When the device appears, its **Access** view opens. Choose the functions your agent may use and set an expiry. [Connect your agent](/agents).
 
-You can run a function yourself from the device card, or ask a linked agent to use an approved function. Inspect the action receipt for the result. To add your own hardware behavior, see [Build your own functions](/functions).
+The SDK token can also authenticate a JavaScript agent. ChatGPT and Codex connect through MCP OAuth. In either case, an owner must approve each device's functions. Inspect the action receipt for the result. To add hardware behavior, see [Build your own functions](/functions).
 
 ## Run a local developer console
 
@@ -33,15 +33,15 @@ npm run start:local
 
 ## Add your board
 
-In the console, select **Uno R4 WiFi** or **Pi** and create an enrollment. Follow the [Uno guide](/uno-r4) or [Pi guide](/pi) to connect it within 10 minutes.
+Create a token with device attachment enabled in **Connections**, then use the [Uno guide](/uno-r4), [Pi guide](/pi), or [custom adapter guide](/sdk). The older one-use enrollment flow remains for existing integrations.
 
 For a real board, the bridge needs a trusted HTTPS address the board can reach. Your Mac's loopback address only works on that Mac. See [network setup](/troubleshooting#my-board-cannot-reach-the-bridge).
 
 ## Connect your agent
 
-Follow [agent connections](/agents). Then grant that agent **health** for your device in the console. Ask it to check the board's health and inspect the result. Add LED or matrix access when you want the Uno to use those capabilities.
+Follow [agent connections](/agents). Grant that connection **health** for your device in **Access**, then ask it to check the board's health and inspect the result. Add LED or matrix access when you want the Uno to use those functions.
 
-A grant is a permission slip: it names the agent, device, allowed capability, and expiry. Pairing alone doesn't give an agent permission.
+A grant names the connection, device, allowed functions, and expiry. Pairing alone does not give an agent permission.
 
 ## Work on the source
 

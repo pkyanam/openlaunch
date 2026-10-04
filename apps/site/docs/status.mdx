@@ -11,7 +11,7 @@ description: See the hosted software and device behaviors that have been checked
 - OAuth scopes and device capability grants are separate. Owners must approve capabilities for each device and agent.
 - The hosted API uses SQLite-backed Durable Objects keyed to the verified Clerk workspace identity.
 - Custom manifest functions are schema-validated, exposed as device-specific MCP tools after an owner grant, and checked against the live grant at invocation.
-- Live software acceptance verified generic SDK enrollment, rejection of a reused code, ungranted action denial, manifest publication and reapproval, custom MCP execution, and a completed software result. The approved Codex OAuth connection successfully discovered and listed its granted device.
+- Earlier hosted acceptance covered legacy one-use enrollment, permission denial, manifest publication and reapproval, custom MCP execution, and a completed software result. The unified SDK-token attachment flow is in the upcoming release; hosted release verification is still pending.
 - Broadcast requests support up to 20 devices and return an independent result for each device.
 
 ## Software and firmware behavior

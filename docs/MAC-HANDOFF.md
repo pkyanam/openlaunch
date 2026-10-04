@@ -23,7 +23,7 @@ Set distinct random development-only OPENLAUNCH_OWNER_TOKEN and OPENLAUNCH_AGENT
 
     npm run dev:local
 
-Open http://127.0.0.1:8788. Enter the owner token in the development session field. Tokens remain only in page memory. Create an enrollment for the desired board. Agent tools cannot issue enrollments or elevate grants; approve capabilities from the owner console. Default local agent principal is `local-agent`.
+Open http://127.0.0.1:8788. Enter the owner token in the development session field. Tokens remain only in page memory. Create an SDK token with device attachment enabled in Connections, then use Add device to choose an adapter. Agent tools cannot issue enrollments or elevate grants; approve capabilities from the owner console. Default local agent principal is `local-agent`.
 
 For a simulated Pi, pass its enrollment token through OPENLAUNCH_ENROLLMENT_TOKEN in the terminal environment, then run:
 
@@ -93,7 +93,7 @@ The proxy must target http://127.0.0.1:8788 and preserve either the configured p
 
 No tunnel is provisioned automatically. Configuring a public route is an explicit owner setup step. R4 needs a publicly trusted certificate on port 443; do not bypass certificate validation. An expired certificate, missing board CA support or unavailable clock is a blocker to fix, not an excuse to turn verification off.
 
-The pairing console now shows the bridge origin and workspace ID beside the one-time enrollment token. In local mode the workspace ID is 64 zeros; it is a development routing marker, not a credential. In hosted mode use the actual workspace ID returned by the server. Never copy the local marker to a hosted workspace.
+Primary setup uses an SDK token that includes its public workspace routing ID, so no separate workspace prompt is needed. The advanced legacy enrollment view still shows the bridge origin and workspace ID beside a one-time enrollment code. In local mode the workspace ID is 64 zeros; it is a development routing marker, not a credential. In hosted mode use the actual workspace ID returned by the server. Never copy the local marker to a hosted workspace.
 
 ### Uno R4 WiFi from macOS
 
@@ -104,10 +104,10 @@ The pairing console now shows the bridge origin and workspace ID beside the one-
 
    For the repaired board, explicitly build `console-mux` and use `build/firmware/console-mux/compiled` instead. The existing matching custom ESP bridge must remain installed. Upload is a separate owner action; build commands never flash.
 
-3. Open the HTTPS console and select Devices → Add device → Arduino Uno R4 WiFi. Copy the workspace ID.
-4. Run the interactive helper. It prompts for Wi-Fi credentials and enrollment token with sensitive entries hidden, asks before sending, and does not write them to a file:
+3. Open the HTTPS console, select Devices → Add device, and create or select an SDK token with an available attachment slot. Copy its secret once.
+4. Run the interactive helper. It prompts for Wi-Fi credentials and SDK token with sensitive entries hidden, asks before sending, and does not write them to a file:
 
-       npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE
+       npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE
 
 5. Wait for the board's pairing confirmation. Refresh inventory, request health and confirm it comes back succeeded with the real board name/RSSI. Explicitly approve LED or text actions and observe the actual board. Then grant the local agent only the capabilities needed for the test.
 
@@ -115,14 +115,15 @@ If confirmation times out, inspect inventory before re-enrolling: the identity m
 
 ### Pi 4 from macOS
 
-Use Raspberry Pi OS, enable SSH through your chosen normal setup, and copy the appropriate artifact from `dist/` to the Pi (arm64 for 64-bit OS, arm for 32-bit OS). This repo does not enable SSH, configure networking, or flash an SD card for you.
+Use Raspberry Pi OS with working networking. In the hosted console choose Add device → Raspberry Pi, then paste its installer command on the Pi:
 
-On the Pi, set the one-time enrollment token in the process environment and run the binary with the HTTPS origin, workspace ID and an explicit config path outside your checkout:
+```sh
+curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
+```
 
-    ./openlaunch-device --enroll --url https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE --config "$HOME/.config/openlaunch/device.json"
-    ./openlaunch-device --config "$HOME/.config/openlaunch/device.json"
+The installer prompts for one SDK token and derives the workspace automatically. It verifies the native binary checksum, saves only the returned device credential in a private config file, and retains a private request record for uncertain pairing retries. It refuses to overwrite an existing identity. After an expired retry, inspect the portal inventory before starting another attachment.
 
-Do not pass `--simulate` on real hardware acceptance. This implementation advertises health only on a real Pi; GPIO/display require future adapters. An optional hardened systemd unit is provided at `devices/pi/openlaunch-device.service`; installing it requires preparing its unprivileged user, binary and credential path. That installation is intentionally not automatic.
+The maintained runtime exposes process health. To control GPIO or peripherals, implement and advertise handlers through a custom adapter; a manifest alone cannot make hardware functions work. Do not pass `--simulate` during physical acceptance. An optional hardened systemd unit is provided at `devices/pi/openlaunch-device.service`; installation requires an unprivileged user and the actual binary/config paths.
 
 ### Hardware acceptance checklist
 
@@ -136,3 +137,9 @@ Do not pass `--simulate` on real hardware acceptance. This implementation advert
 - Never count queued, simulated, or uncertain receipts as real hardware success
 
 Hosted owner sign-in, Codex OAuth approval and authenticated software pairing/action flows are verified; controls are enabled. The above path makes real-board testing possible; physical acceptance remains unverified.
+
+## SDK attachment credential keys
+
+Production `DEVICE_CREDENTIAL_KEYS` is a deployment secret containing a JSON version-to-key map. Each key is independently generated 32-byte random hex. `DEVICE_CREDENTIAL_KEY_VERSION` selects the current version (default `v1`). Rotation adds a new version and retains old versions for outstanding 10-minute retries; never replace a key under an existing version. Existing device credentials continue to authenticate against their stored hashes. A missing or changed retry key fails closed. Local setup creates a private ignored keyring under `.cache/local/credential-keys.json`; preserve it when restarting the local bridge.
+
+SDK token revocation and device revocation are separate: revoke a token to stop its agent requests and future attachments, then revoke a device explicitly when retiring it. A paired board keeps only its private child credential. Uno storage migration recognizes the exact older EEPROM layout and verifies CRC/readback; unknown storage is preserved and blocks setup until an explicit owner reset.

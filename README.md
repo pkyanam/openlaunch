@@ -1,41 +1,52 @@
 # openlaunch
 
-Provider-neutral device capabilities for agents. Initial hardware: Arduino Uno R4 WiFi and Raspberry Pi 4 Model B. ChatGPT/Codex are the first integration targets; other harnesses and ESP32 boards are deferred.
+Connect agents to your hardware. openlaunch provides a shared API, MCP server and SDKs for devices and agents, with owner-approved functions and visible action results.
 
-**Developer alpha, not production-ready.** The local bridge and MCP lifecycle have been tested with simulated hardware. No live Cloudflare deployment, completed browser OAuth flow or physical-device validation is claimed.
+[Website](https://www.openlaunch.dev) · [Console](https://www.openlaunch.dev/console/) · [Documentation](https://www.openlaunch.dev/docs) · [Downloads](https://www.openlaunch.dev/docs/resources)
 
-## Implemented
-- Single-use, expiring enrollment; hashed per-device credentials and revocation
-- Owner-only capability grants; an agent cannot grant itself access
-- Typed LED, text-display and health commands; idempotency, TTL, cancellation and explicit uncertain outcomes
-- SQLite local persistence and a Cloudflare Durable Object storage adapter
-- Six tools through the official MCP SDK / Streamable HTTP
-- Developer console for enrollment, inventory, grants and action receipts
-- Go Pi client with a persistent action journal and explicit simulator mode
-- Uno R4 WiFi firmware for HTTPS polling, built-in LED, matrix text and health
-- Unit, MCP/HTTP integration, Go and firmware compile checks
+## Connect a device
 
-## Start here
-See [Mac handoff](docs/MAC-HANDOFF.md) for installation, local end-to-end testing, Cloudflare setup, real-board testing and the remaining production gates.
+Sign in with Google, create an SDK token in **Connections**, and choose **Add device**. Device and agent libraries accept the same token. The device keeps its own private credential after pairing; an agent still needs your approval for each device's functions.
 
-    npm ci
-    npm run check
-    npm run build --workspace @openlaunch/web
-    npm run build --workspace @openlaunch/cloud
+On Raspberry Pi OS:
 
-The cloud workspace's scripts/env.sh uses staged local toolchains and should not be sourced on a Mac. Go client build and E2E instructions are in the handoff.
+```sh
+curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
+```
 
-## Monorepo commands
+For a custom Linux or desktop adapter:
 
-`npm run doctor` checks tool availability. `npm run build` builds web/cloud and host/Pi binaries. `npm run prepare:firmware` validates and stages the isolated stock transport without compiling; install its pinned dependencies using the [Mac handoff](docs/MAC-HANDOFF.md), then run `npm run build:firmware`. `npm run verify` runs the software tests, stock firmware compilation and simulated end-to-end test. The [transport profiles](docs/UNO-R4-PROFILES.md) also cover explicit opt-in support for a repaired Uno R4 WiFi. See the handoff for the secure HTTPS real-board test path and interactive Uno USB provisioning.
+```sh
+npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url https://www.openlaunch.dev
+```
 
-## Modules
-protocol / core / authorization / http / mcp packages; cloud / local / web applications; Go Pi runtime; Arduino firmware; independent host integrations.
+Both prompt for one SDK token. Follow the [Uno guide](https://www.openlaunch.dev/docs/uno-r4) for USB setup or the [SDK guide](https://www.openlaunch.dev/docs/sdk) for ESP32 and custom adapters. Native downloads and commit-pinned GitHub backups are built from the same sources.
 
-Keep real credentials outside Git. The cloud bridge does not run an LLM; clients bring an authorized agent. API scope, device grant and physical execution are separate trust boundaries.
+## Build functions
 
-## Website
+Write handlers in your adapter and publish a manifest describing their inputs. Owners approve individual functions before linked agents discover and invoke them. Custom board kinds use the same API. Built-in Uno functions cover health, LED and matrix text; the maintained Pi runtime reports health. Physical board acceptance is tracked separately in [verification](https://www.openlaunch.dev/docs/status).
 
-The static Blume website lives in `apps/site`, within the npm workspace. Run `npm run build:site` and `npm run check:site`; `npm run build` includes it. It contains a custom product homepage and searchable setup, pairing, architecture, status and hardware guides. It exposes no device-control or login endpoints.
+Actions have TTLs, idempotency keys and separate queued, received and terminal outcomes. Broadcasts report each device independently. Device output cannot grant permissions. See [architecture](docs/architecture.md) for trust and transport boundaries.
 
-See [website deployment](docs/WEBSITE-DEPLOYMENT.md) for the cf CLI workflow, verified infrastructure state and remaining deployment gates.
+## Develop locally
+
+```sh
+npm run setup
+```
+
+This installs dependencies, builds the console and starts the loopback bridge. [Mac handoff](docs/MAC-HANDOFF.md) covers development credentials, tests, deployment and hardware acceptance.
+
+`npm run check` checks TypeScript and software tests. `npm run build` builds website, console, cloud service and host/Pi binaries. `npm run test:e2e` checks the real local HTTP/Go/SQLite flow using simulated hardware. `npm run verify` additionally compiles firmware; install pinned Arduino dependencies first.
+
+Stock and repaired console-mux Uno profiles remain isolated. Read [transport profiles](docs/UNO-R4-PROFILES.md) before building or uploading. Builds never flash either chip or distribute repair assets.
+
+## Repository
+
+- `apps/site`: Blume website, searchable guides, Markdown exports and documentation MCP
+- `apps/web`: owner console
+- `apps/cloud`, `apps/local`: hosted Cloudflare and local SQLite bridges
+- `packages`: protocol, authorization, core, HTTP, MCP, JavaScript and embedded SDKs
+- `devices/pi`, `firmware/uno-r4-wifi`: maintained device runtimes
+- `integrations`: ChatGPT, Codex and portable plugin guidance
+
+Keep credentials outside Git. Provider credentials stay off hardware. [Deployment](docs/WEBSITE-DEPLOYMENT.md) records infrastructure and domain configuration.

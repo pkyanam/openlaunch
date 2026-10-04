@@ -27,6 +27,9 @@ type Connection = {
   name: string;
   expiresAt: number;
   access: "read" | "act";
+  canAttach?: boolean;
+  deviceLimit?: number;
+  attachedDeviceCount?: number;
 };
 type Grant = {
   id?: string;
@@ -53,9 +56,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [broadcastDevices, setBroadcastDevices] = useState<string[]>([]),
     [broadcastFunction, setBroadcastFunction] = useState("device.health"),
     [broadcastResults, setBroadcastResults] = useState<any[]>([]);
-  const [page, setPage] = useState<"Devices" | "Agents" | "Activity" | "Build">(
-    "Devices",
-  );
+  const [page, setPage] = useState<
+    "Devices" | "Connections" | "Activity" | "Build"
+  >("Devices");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<
     "Functions" | "Access" | "Details"
@@ -87,22 +90,49 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     setConfirmation(null);
   };
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [connectionName, setConnectionName] = useState("My agent");
-  const [connectionLifetime, setConnectionLifetime] = useState(86400);
+  const [connectionName, setConnectionName] = useState("My app");
+  const [connectionLifetime, setConnectionLifetime] = useState(604800);
   const [connectionAccess, setConnectionAccess] = useState<"read" | "act">(
     "act",
   );
+  const [connectionCanAttach, setConnectionCanAttach] = useState(true);
+  const [connectionDeviceLimit, setConnectionDeviceLimit] = useState(1);
   const [connectionSecret, setConnectionSecret] = useState<string | null>(null);
-  const adapterSetupCommand =
-    enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
-      ? `OPENLAUNCH_WORKSPACE=${enrollment.workspace} npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(enrollment.origin)}`
-      : null;
+  const [secretContext, setSecretContext] = useState<"connections" | "device">(
+    "connections",
+  );
+  const [deviceSetupTokenId, setDeviceSetupTokenId] = useState("new");
+  const [deviceSetupName, setDeviceSetupName] = useState(
+    "Device and agent token",
+  );
+  const [deviceSetupLifetime, setDeviceSetupLifetime] = useState(604800);
+  const [deviceSetupKind, setDeviceSetupKind] = useState<
+    "custom" | "pi" | "uno" | "esp32" | null
+  >(null);
+  const [deviceSetupPort, setDeviceSetupPort] = useState("");
+  const [legacyKind, setLegacyKind] = useState("custom.device");
+  const [setupConnection, setSetupConnection] = useState<Connection | null>(
+    null,
+  );
+  const adapterSetupCommand = `npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(window.location.origin)}`;
   const codexConnectCommand =
     "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-resource https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
   const piSetupCommand =
     enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
       ? `curl -fsSL https://www.openlaunch.dev/install-pi.sh | OPENLAUNCH_WORKSPACE_ID=${enrollment.workspace} bash`
       : "curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash";
+  const usbSetupCommand = (filename: string) =>
+    `(ol_helper=$(mktemp) && trap 'rm -f "$ol_helper"' EXIT && curl -fsS --proto '=https' --max-redirs 0 ${quoteShellValue(`${window.location.origin}/downloads/${filename}`)} -o "$ol_helper" && python3 "$ol_helper" --port ${quoteShellValue(deviceSetupPort)} --origin ${quoteShellValue(window.location.origin)})`;
+  const unoSetupCommand = usbSetupCommand("provision-uno.py");
+  const esp32SetupCommand = usbSetupCommand("provision-esp32.py");
+  const deviceSetupCommand =
+    deviceSetupKind === "pi"
+      ? "curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash"
+      : deviceSetupKind === "uno"
+        ? unoSetupCommand
+        : deviceSetupKind === "esp32"
+          ? esp32SetupCommand
+          : adapterSetupCommand;
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -157,11 +187,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             setPage("Devices");
             setDetailTab("Access");
             setEnrollment(null);
+            setSetupConnection(null);
+            if (secretContext === "device") setConnectionSecret(null);
             setEnrollmentRevealed(false);
             setPairingBaseline(null);
             setAddOpen(false);
             setNotice(
-              `${paired.name} is paired. Review its saved access before connecting an agent.`,
+              `${paired.name} is connected. Review its saved access; the SDK token does not grant itself permission to use functions.`,
             );
           }
         }
@@ -245,7 +277,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       const [inventory, agentConnections, activity, savedGrants] =
         await Promise.all([
           api("/v1/devices"),
-          api("/v1/agent-connections"),
+          api("/v1/sdk-tokens"),
           api("/v1/actions"),
           api("/v1/grants"),
         ]);
@@ -262,11 +294,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           setPage("Devices");
           setDetailTab("Access");
           setEnrollment(null);
+          setSetupConnection(null);
+          if (secretContext === "device") setConnectionSecret(null);
           setEnrollmentRevealed(false);
           setPairingBaseline(null);
           setAddOpen(false);
           setNotice(
-            `${paired.name} is paired. Review its saved access before connecting an agent.`,
+            `${paired.name} is connected. Review its saved access; the SDK token does not grant itself permission to use functions.`,
           );
         } else {
           setNotice(
@@ -278,6 +312,55 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       setNotice(
         "Device inventory refreshed. Online means seen within 45 seconds.",
       );
+    });
+  const startDeviceSetup = () =>
+    run(async () => {
+      if (!deviceSetupKind) throw new Error("Choose a device type first.");
+      if (
+        (deviceSetupKind === "uno" || deviceSetupKind === "esp32") &&
+        !deviceSetupPort.trim()
+      )
+        throw new Error("Enter the confirmed USB serial port first.");
+      setEnrollment(null);
+      setEnrollmentRevealed(false);
+      if (deviceSetupTokenId === "new") {
+        if (connectionSecret) {
+          throw new Error(
+            "Copy or finish the SDK token already being shown before creating another one.",
+          );
+        }
+        setSecretContext("device");
+        const created = await api("/v1/sdk-tokens", "POST", {
+          name: deviceSetupName,
+          ttlSeconds: deviceSetupLifetime,
+          access: "act",
+          canAttach: true,
+          deviceLimit: 1,
+        });
+        setPairingBaseline(devices.map((device) => device.id));
+        const { token: newSecret, ...safeConnection } = created;
+        setSetupConnection(safeConnection);
+        setConnectionSecret(newSecret);
+        setConnections(await api("/v1/sdk-tokens"));
+        setPrincipal(created.principal);
+        setNotice(
+          "One-device SDK token created. Copy it now, then enter it when the setup command prompts.",
+        );
+      } else {
+        const connection = connections.find(
+          (item) => item.id === deviceSetupTokenId,
+        );
+        if (!connection || !connection.canAttach)
+          throw new Error(
+            "Choose an active token that can attach devices, or create a new one.",
+          );
+        setPairingBaseline(devices.map((device) => device.id));
+        setSetupConnection(connection);
+        setPrincipal(connection.principal);
+        setNotice(
+          "Use the selected token when the setup command prompts. New device access still needs a saved grant.",
+        );
+      }
     });
   const request = (d: Device, capability: string, args: unknown) =>
     run(async () => {
@@ -335,7 +418,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         </a>
         <div className="console-header-tools">
           <nav className="console-nav mobile-nav" aria-label="Console sections">
-            {(["Devices", "Agents", "Activity", "Build"] as const).map(
+            {(["Devices", "Connections", "Activity", "Build"] as const).map(
               (item) => (
                 <button
                   key={item}
@@ -355,7 +438,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       <div className="console-layout">
         <aside className="console-sidebar" aria-label="Console sections">
           <nav className="console-nav">
-            {(["Devices", "Agents", "Activity", "Build"] as const).map(
+            {(["Devices", "Connections", "Activity", "Build"] as const).map(
               (item) => (
                 <button
                   key={item}
@@ -436,7 +519,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     disabled={busy || (!session && !token)}
                     onClick={() => {
                       setEnrollment(null);
+                      setSetupConnection(null);
                       setEnrollmentRevealed(false);
+                      setDeviceSetupTokenId("new");
+                      setDeviceSetupKind(null);
+                      setDeviceSetupPort("");
                       setAddOpen(true);
                     }}
                   >
@@ -448,12 +535,19 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 <section className="empty-state panel">
                   <h2>Connect your first device</h2>
                   <p>
-                    Choose a device type to get its setup instructions. Pairing
-                    does not give an agent permission to control it.
+                    Connect an SDK adapter with a token. Function access is
+                    approved separately for each device.
                   </p>
                   <button
                     disabled={busy || (!session && !token)}
-                    onClick={() => setAddOpen(true)}
+                    onClick={() => {
+                      setSetupConnection(null);
+                      setEnrollment(null);
+                      setDeviceSetupTokenId("new");
+                      setDeviceSetupKind(null);
+                      setDeviceSetupPort("");
+                      setAddOpen(true);
+                    }}
                   >
                     Add a device
                   </button>
@@ -791,23 +885,23 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             </>
           )}
 
-          {page === "Agents" && (
+          {page === "Connections" && (
             <>
               <div className="page-header">
                 <div>
-                  <h1>Agents</h1>
+                  <h1>Connections</h1>
                   <p>
-                    Connect through OAuth or create a short-lived SDK
-                    connection, then grant specific device functions.
+                    One SDK token can connect an adapter and act as an agent,
+                    within the access you approve.
                   </p>
                 </div>
               </div>
               <section className="panel help-panel">
-                <h2>ChatGPT and Codex</h2>
+                <h2>Connect ChatGPT or Codex</h2>
                 <p>
-                  Sign in with Google here, then connect ChatGPT or Codex
-                  through their openlaunch OAuth flow. Their access is
-                  controlled by the saved device grants shown on each device.
+                  Use OAuth for ChatGPT and Codex. These connections do not need
+                  an SDK token; control each one's access with the saved grants
+                  on a device.
                 </p>
                 <div className="setup-command">
                   <code>https://www.openlaunch.dev/mcp</code>
@@ -820,9 +914,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                         await navigator.clipboard.writeText(
                           "https://www.openlaunch.dev/mcp",
                         );
-                        setNotice(
-                          "MCP URL copied. Add it in your agent’s connector settings.",
-                        );
+                        setNotice("MCP URL copied.");
                       })
                     }
                   >
@@ -852,35 +944,37 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 </details>
               </section>
               <section className="panel">
-                <h2>Create an SDK connection</h2>
+                <h2>Create an SDK token</h2>
                 <p>
-                  For another agent or application, create a token. The token
-                  appears once; copy it into your app's secret settings.
+                  Start with agent access and a one-device attachment limit.
+                  Change its name and expiry below; advanced options can narrow
+                  its access.
                 </p>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     run(async () => {
-                      const connection = await api(
-                        "/v1/agent-connections",
-                        "POST",
-                        {
-                          name: connectionName,
-                          ttlSeconds: connectionLifetime,
-                          access: connectionAccess,
-                        },
-                      );
+                      const connection = await api("/v1/sdk-tokens", "POST", {
+                        name: connectionName,
+                        ttlSeconds: connectionLifetime,
+                        access: connectionAccess,
+                        canAttach: connectionCanAttach,
+                        deviceLimit: connectionCanAttach
+                          ? connectionDeviceLimit
+                          : 0,
+                      });
                       setConnectionSecret(connection.token);
+                      setSecretContext("connections");
                       setPrincipal(connection.principal);
-                      setConnections(await api("/v1/agent-connections"));
+                      setConnections(await api("/v1/sdk-tokens"));
                       setNotice(
-                        "Connection created. Choose its device functions under Devices → Access.",
+                        "SDK token created. Copy it now; it is shown only once.",
                       );
                     });
                   }}
                 >
                   <label>
-                    Connection name
+                    Token name
                     <input
                       value={connectionName}
                       maxLength={64}
@@ -889,7 +983,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     />
                   </label>
                   <label>
-                    Token expires
+                    Expires
                     <select
                       value={connectionLifetime}
                       onChange={(e) =>
@@ -902,56 +996,96 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       <option value={2592000}>In 30 days</option>
                     </select>
                   </label>
-                  <label>
-                    Access
-                    <select
-                      value={connectionAccess}
-                      onChange={(e) =>
-                        setConnectionAccess(e.target.value as "read" | "act")
-                      }
-                    >
-                      <option value="act">Request granted functions</option>
-                      <option value="read">
-                        Read granted health and results
-                      </option>
-                    </select>
-                  </label>
-                  <button disabled={busy || !connectionName.trim()}>
+                  <details>
+                    <summary>Advanced access and device options</summary>
+                    <label>
+                      Agent access
+                      <select
+                        value={connectionAccess}
+                        onChange={(e) =>
+                          setConnectionAccess(e.target.value as "read" | "act")
+                        }
+                      >
+                        <option value="act">
+                          Request functions approved for this token
+                        </option>
+                        <option value="read">
+                          Read health and action results only
+                        </option>
+                      </select>
+                    </label>
+                    <label className="permission">
+                      <input
+                        type="checkbox"
+                        checked={connectionCanAttach}
+                        onChange={(e) =>
+                          setConnectionCanAttach(e.target.checked)
+                        }
+                      />
+                      Allow this token to attach devices
+                    </label>
+                    {connectionCanAttach && (
+                      <label>
+                        Device limit
+                        <select
+                          value={connectionDeviceLimit}
+                          onChange={(e) =>
+                            setConnectionDeviceLimit(Number(e.target.value))
+                          }
+                        >
+                          {[1, 2, 5, 10, 20].map((limit) => (
+                            <option key={limit} value={limit}>
+                              {limit} {limit === 1 ? "device" : "devices"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </details>
+                  <button
+                    disabled={
+                      busy ||
+                      !connectionName.trim() ||
+                      connectionSecret !== null
+                    }
+                  >
                     Create SDK token
                   </button>
                 </form>
-                {connectionSecret && (
+                {connectionSecret && secretContext === "connections" && (
                   <div className="connection-secret">
                     <label>
-                      SDK token (shown once)
+                      SDK token · shown once
                       <textarea readOnly value={connectionSecret} />
                     </label>
                     <p>
-                      Save this token in your app now. It clears when you hide
-                      it or reload.
+                      Copy this token into your app's secret settings. The same
+                      token can connect its allowed devices and request
+                      functions you grant.
                     </p>
-                    <button
-                      className="secondary"
-                      onClick={() =>
-                        run(async () => {
-                          await navigator.clipboard.writeText(connectionSecret);
-                          setNotice("SDK token copied.");
-                        })
-                      }
-                    >
-                      Copy SDK token
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setConnectionSecret(null)}
-                    >
-                      Hide token
-                    </button>
+                    <div className="row">
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          run(async () => {
+                            await navigator.clipboard.writeText(
+                              connectionSecret,
+                            );
+                            setNotice("SDK token copied.");
+                          })
+                        }
+                      >
+                        Copy token
+                      </button>
+                      <button onClick={() => setConnectionSecret(null)}>
+                        Done
+                      </button>
+                    </div>
                   </div>
                 )}
               </section>
               <section className="panel">
-                <h2>Active SDK connections</h2>
+                <h2>Active SDK tokens</h2>
                 {connections.length ? (
                   <ul className="connection-list">
                     {connections.map((c) => (
@@ -961,29 +1095,44 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                           <span>
                             Expires {new Date(c.expiresAt).toLocaleString()}
                           </span>
-                          <details>
-                            <summary>Connection details</summary>
-                            <span>{c.principal}</span>
-                            <code>{c.id}</code>
-                          </details>
+                          <span>
+                            {c.access === "read"
+                              ? "Read health and results"
+                              : "Can request functions approved for this token"}
+                          </span>
+                          <span>
+                            {c.canAttach
+                              ? `${c.attachedDeviceCount ?? 0} of ${c.deviceLimit ?? 1} ${(c.deviceLimit ?? 1) === 1 ? "device" : "devices"} attached`
+                              : "Cannot attach new devices"}
+                          </span>
                         </div>
                         <button
                           className="secondary"
                           disabled={busy}
                           onClick={() =>
                             run(async () => {
+                              if (
+                                !(await confirmAction(
+                                  `Revoke ${c.name}? Devices already attached with this token remain paired, but the token can no longer authorize agent requests or attach devices.`,
+                                ))
+                              )
+                                return;
                               await api(
-                                `/v1/agent-connections/${c.id}/revoke`,
+                                `/v1/sdk-tokens/${c.id}/revoke`,
                                 "POST",
                                 {},
                               );
+                              if (principal === c.principal)
+                                setPrincipal(
+                                  session
+                                    ? "https://chatgpt.com/oauth/codex/client.json"
+                                    : "local-agent",
+                                );
                               setConnectionSecret(null);
-                              setConnections(
-                                await api("/v1/agent-connections"),
-                              );
+                              setConnections(await api("/v1/sdk-tokens"));
                               setGrants(await api("/v1/grants"));
                               setNotice(
-                                "Connection revoked. Its grants and queued actions are cancelled.",
+                                "SDK token revoked. Previously attached devices remain paired and can be revoked individually.",
                               );
                             })
                           }
@@ -994,7 +1143,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     ))}
                   </ul>
                 ) : (
-                  <p>No active SDK connections.</p>
+                  <p>No active SDK tokens.</p>
                 )}
               </section>
             </>
@@ -1243,31 +1392,43 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 <h2>Start a custom adapter</h2>
                 <p>
                   Run the SDK setup command on the machine connected to your
-                  hardware. It creates a starter adapter and asks for the
-                  one-time enrollment code.
+                  hardware. It creates a starter adapter and prompts for the SDK
+                  token in the terminal.
                 </p>
                 <button
                   disabled={busy || (!session && !token)}
                   onClick={() => {
                     setEnrollment(null);
+                    setSetupConnection(null);
                     setEnrollmentRevealed(false);
+                    setDeviceSetupTokenId("new");
+                    setDeviceSetupKind(null);
+                    setDeviceSetupPort("");
                     setAddOpen(true);
                   }}
                 >
-                  Get an enrollment command
+                  Set up an SDK adapter
                 </button>
               </section>
               <section className="panel">
                 <h2>SDK command</h2>
-                <pre>
-                  npx --yes
-                  --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
-                  openlaunch-device setup
-                </pre>
+                <pre>{adapterSetupCommand}</pre>
                 <p>
-                  Pair an adapter with an enrollment code, edit its function
-                  manifest and handlers, then publish and run it.
+                  The token is entered at the prompt and stays out of the
+                  command. Create one under Connections, or start setup from
+                  Devices to create a one-device token.
                 </p>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    run(async () => {
+                      await navigator.clipboard.writeText(adapterSetupCommand);
+                      setNotice("Setup command copied.");
+                    })
+                  }
+                >
+                  Copy SDK setup command
+                </button>
               </section>
             </>
           )}
@@ -1286,17 +1447,25 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           event.preventDefault();
           setAddOpen(false);
           setEnrollment(null);
+          setSetupConnection(null);
+          if (secretContext === "device") setConnectionSecret(null);
         }}
       >
         <div className="page-header">
           <div>
             <h2 id="connect-title">
-              {enrollment ? "Finish device setup" : "Add a device"}
+              {setupConnection
+                ? `Set up ${deviceSetupKind === "pi" ? "Raspberry Pi 4" : deviceSetupKind === "uno" ? "Uno R4 WiFi" : deviceSetupKind === "esp32" ? "ESP32" : "Node adapter"}`
+                : enrollment
+                  ? "Legacy enrollment"
+                  : "Add a device"}
             </h2>
             <p>
-              {enrollment
-                ? "Follow the setup steps, then refresh inventory to find the paired device."
-                : "Choose what you want to connect."}
+              {setupConnection
+                ? "Use the same SDK token for device attachment and later agent requests."
+                : enrollment
+                  ? "Compatibility flow for an adapter that already uses one-time enrollment."
+                  : "Choose a board or adapter to see its setup command."}
             </p>
           </div>
           <button
@@ -1304,186 +1473,390 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             onClick={() => {
               setAddOpen(false);
               setEnrollment(null);
+              setSetupConnection(null);
+              if (secretContext === "device") setConnectionSecret(null);
             }}
           >
             Close
           </button>
         </div>
-        {!enrollment ? (
-          <div className="connect-options">
-            {(
-              [
-                [
-                  "raspberry-pi-4",
-                  "Raspberry Pi 4",
-                  "Run the adapter on your Pi.",
-                ],
-                [
-                  "uno-r4-wifi",
-                  "Arduino Uno R4 WiFi",
-                  "Use the supported board setup guide.",
-                ],
-                [
-                  "custom.device",
-                  "Custom device",
-                  "Connect an adapter using the openlaunch SDK.",
-                ],
-              ] as const
-            ).map(([kind, title, description]) => (
-              <button
-                key={kind}
-                className="connect-option"
-                disabled={busy}
-                onClick={() =>
-                  run(async () => {
-                    setPairingBaseline(devices.map((d) => d.id));
-                    setEnrollment(
-                      await api("/v1/enrollments", "POST", { kind }),
-                    );
-                    setEnrollmentRevealed(false);
-                  })
-                }
-              >
-                <strong>{title}</strong>
-                <span>{description}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
+        {setupConnection ? (
           <div className="enrollment-steps">
             <h3>
-              {enrollment.kind === "raspberry-pi-4"
-                ? "On your Raspberry Pi"
-                : enrollment.kind === "uno-r4-wifi"
-                  ? "On your Uno R4 WiFi"
-                  : "On the machine connected to your device"}
+              {deviceSetupKind === "pi"
+                ? "Raspberry Pi 4"
+                : deviceSetupKind === "uno"
+                  ? "Arduino Uno R4 WiFi"
+                  : deviceSetupKind === "esp32"
+                    ? "Standalone ESP32"
+                    : "Linux / desktop Node adapter"}
             </h3>
-            {enrollment.kind === "raspberry-pi-4" ? (
+            {deviceSetupKind === "pi" ? (
+              <p>
+                Run this installer on Raspberry Pi OS. It prompts for the SDK
+                token privately, downloads the matching runtime, and attaches
+                the device.
+              </p>
+            ) : deviceSetupKind === "uno" ? (
               <>
                 <p>
-                  Run the installer in a terminal on the Pi, then follow its
-                  prompts.
+                  This helper sends Wi-Fi settings and the SDK token over USB
+                  after you confirm. It does not flash firmware.
                 </p>
-                <div className="setup-command">
-                  <code>{piSetupCommand}</code>
-                </div>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    run(async () => {
-                      await navigator.clipboard.writeText(piSetupCommand);
-                      setNotice("Installer command copied.");
-                    })
-                  }
-                >
-                  Copy installer command
-                </button>
+                <p>
+                  Flash the matching stock or console-mux profile first and
+                  confirm the USB port. See the{" "}
+                  <a href="/docs/uno-r4">Uno setup guide</a>.
+                </p>
               </>
-            ) : enrollment.kind === "custom.device" ? (
+            ) : deviceSetupKind === "esp32" ? (
               <>
                 <p>
-                  Run the setup command on the machine hosting your adapter.
-                  Enter the one-time code when prompted.
+                  Upload the ESP32 firmware first. The helper configures Wi-Fi
+                  and the SDK token over USB; it does not flash firmware.
                 </p>
-                {adapterSetupCommand ? (
-                  <>
-                    <div className="setup-command">
-                      <code>{adapterSetupCommand}</code>
-                    </div>
-                    <button
-                      className="secondary"
-                      onClick={() =>
-                        run(async () => {
-                          await navigator.clipboard.writeText(
-                            adapterSetupCommand,
-                          );
-                          setNotice("Setup command copied.");
-                        })
-                      }
-                    >
-                      Copy setup command
-                    </button>
-                  </>
-                ) : (
-                  <p>
-                    Setup command is unavailable. Do not run a partial command.
-                  </p>
-                )}
+                <p>
+                  For the hosted openlaunch origin, it uses its embedded
+                  verified public CA. Custom origins need an explicit CA
+                  configured in firmware. See{" "}
+                  <a href="/docs/sdk">ESP32 setup notes</a>.
+                </p>
               </>
             ) : (
-              <>
-                <p>
-                  Connect the board by USB, then follow the provisioning guide
-                  for your stock or repaired board profile.
-                </p>
-                <a href="/docs/uno-r4">Open Uno R4 setup guide</a>
-              </>
+              <p>
+                Run this command on a Linux or desktop machine with Node.js 22
+                or newer and access to your hardware library.
+              </p>
             )}
-            {enrollment.kind !== "custom.device" && enrollment.workspace && (
-              <label>
-                Workspace ID
-                <input readOnly value={enrollment.workspace} />
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    run(async () => {
-                      await navigator.clipboard.writeText(
-                        enrollment.workspace!,
-                      );
-                      setNotice("Workspace ID copied.");
-                    })
-                  }
-                >
-                  Copy workspace ID
-                </button>
-              </label>
+            <div className="setup-command">
+              <code>{deviceSetupCommand}</code>
+            </div>
+            <button
+              className="secondary"
+              onClick={() =>
+                run(async () => {
+                  await navigator.clipboard.writeText(deviceSetupCommand);
+                  setNotice("Setup command copied.");
+                })
+              }
+            >
+              Copy setup command
+            </button>
+            {connectionSecret && secretContext === "device" && (
+              <div className="connection-secret">
+                <label>
+                  SDK token · shown once
+                  <textarea readOnly value={connectionSecret} />
+                </label>
+                <p>
+                  Copy it now. The setup command prompts for this token without
+                  placing it in shell history. This same token can later act as
+                  an agent within the grants you approve.
+                </p>
+                <div className="row">
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      run(async () => {
+                        await navigator.clipboard.writeText(connectionSecret);
+                        setNotice("SDK token copied.");
+                      })
+                    }
+                  >
+                    Copy token
+                  </button>
+                  <button onClick={() => setConnectionSecret(null)}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+            {!(connectionSecret && secretContext === "device") && (
+              <p>
+                When prompted, enter this token from your password manager. The
+                secret is shown once when created.
+              </p>
             )}
             <p>
-              {Date.now() >= enrollment.expiresAt
-                ? "This code has expired. Close setup and create a new enrollment."
-                : `This code works once and expires at ${new Date(enrollment.expiresAt).toLocaleTimeString()}.`}{" "}
-              Agent access is approved separately.
+              Attaching the device does not approve any function grants. After
+              it appears, review its Access tab.
             </p>
+            <div className="row">
+              <button className="secondary" disabled={busy} onClick={refresh}>
+                Refresh inventory
+              </button>
+              <a
+                href={
+                  deviceSetupKind === "uno"
+                    ? "/docs/uno-r4"
+                    : deviceSetupKind === "pi"
+                      ? "/docs/pi"
+                      : "/docs/sdk"
+                }
+              >
+                Setup guide
+              </a>
+            </div>
+          </div>
+        ) : enrollment ? (
+          <div className="enrollment-steps">
+            <h3>One-time enrollment · compatibility</h3>
+            <p>
+              This code is for an existing adapter that already supports the
+              legacy enrollment endpoint. New installations should use an SDK
+              token from the setup flow.
+            </p>
+            <p>
+              {Date.now() >= enrollment.expiresAt
+                ? "This code expired. Close setup and create another if your legacy adapter needs it."
+                : `This code works once and expires at ${new Date(enrollment.expiresAt).toLocaleTimeString()}.`}
+            </p>
+            <details>
+              <summary>Workspace routing value</summary>
+              <code>{enrollment.workspace}</code>
+            </details>
             {enrollmentRevealed ? (
               <>
                 <label>
                   One-time enrollment code
                   <textarea readOnly value={enrollment.token} />
                 </label>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    run(async () => {
-                      await navigator.clipboard.writeText(enrollment.token);
-                      setNotice(
-                        "Enrollment code copied. Keep it private; it works once.",
-                      );
-                    })
-                  }
-                >
-                  Copy enrollment code
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => setEnrollmentRevealed(false)}
-                >
-                  Hide code
-                </button>
+                <div className="row">
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      run(async () => {
+                        await navigator.clipboard.writeText(enrollment.token);
+                        setNotice("Legacy enrollment code copied.");
+                      })
+                    }
+                  >
+                    Copy code
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setEnrollmentRevealed(false)}
+                  >
+                    Hide code
+                  </button>
+                </div>
               </>
             ) : (
               <button
                 disabled={Date.now() >= enrollment.expiresAt}
                 onClick={() => setEnrollmentRevealed(true)}
               >
-                Show one-time enrollment code
+                Show one-time code
               </button>
             )}
             <div className="row">
               <button className="secondary" disabled={busy} onClick={refresh}>
                 Refresh inventory
               </button>
-              <a href="/docs/sdk">Setup help</a>
+              <a href="/docs/api">Legacy API reference</a>
             </div>
+          </div>
+        ) : (
+          <div className="connect-options">
+            {connectionSecret && secretContext === "connections" && (
+              <p>
+                Finish copying the SDK token shown on Connections before
+                creating another. You can continue with an existing token.
+              </p>
+            )}
+            <section className="panel">
+              <h3>Choose a device or adapter</h3>
+              <div className="device-grid">
+                {(
+                  [
+                    [
+                      "custom",
+                      "Linux / desktop Node adapter",
+                      "Run the Node SDK beside your hardware or service.",
+                    ],
+                    [
+                      "pi",
+                      "Raspberry Pi 4",
+                      "Install the native Linux runtime on Raspberry Pi OS.",
+                    ],
+                    [
+                      "uno",
+                      "Arduino Uno R4 WiFi",
+                      "Configure matching flashed firmware over its confirmed USB port.",
+                    ],
+                    [
+                      "esp32",
+                      "Standalone ESP32",
+                      "Configure uploaded firmware over its confirmed USB port.",
+                    ],
+                  ] as const
+                ).map(([kind, title, description]) => (
+                  <button
+                    type="button"
+                    key={kind}
+                    className="connect-option"
+                    aria-pressed={deviceSetupKind === kind}
+                    onClick={() => {
+                      setDeviceSetupKind(kind);
+                      setDeviceSetupPort("");
+                    }}
+                  >
+                    <strong>{title}</strong>
+                    <span>{description}</span>
+                  </button>
+                ))}
+              </div>
+              {deviceSetupKind && (
+                <div className="enrollment-steps">
+                  {deviceSetupKind === "uno" && (
+                    <label>
+                      Confirmed Uno USB serial port
+                      <input
+                        value={deviceSetupPort}
+                        placeholder="/dev/cu.usbmodem… or /dev/ttyACM0"
+                        onChange={(e) => setDeviceSetupPort(e.target.value)}
+                      />
+                    </label>
+                  )}
+                  {deviceSetupKind === "esp32" && (
+                    <>
+                      <label>
+                        Confirmed ESP32 USB serial port
+                        <input
+                          value={deviceSetupPort}
+                          placeholder="/dev/cu.usbserial… or /dev/ttyUSB0"
+                          onChange={(e) => setDeviceSetupPort(e.target.value)}
+                        />
+                      </label>
+                      <p>
+                        The standalone ESP32 helper uses the embedded verified
+                        public root for the hosted openlaunch origin.
+                      </p>
+                    </>
+                  )}
+                  <label>
+                    SDK token
+                    <select
+                      value={deviceSetupTokenId}
+                      onChange={(e) => setDeviceSetupTokenId(e.target.value)}
+                    >
+                      <option value="new">Create a new one-device token</option>
+                      {connections
+                        .filter((c) => c.canAttach && c.expiresAt > Date.now())
+                        .map((c) => (
+                          <option
+                            key={c.id}
+                            value={c.id}
+                            disabled={
+                              (c.attachedDeviceCount ?? 0) >=
+                              (c.deviceLimit ?? 1)
+                            }
+                          >
+                            {c.name} · {c.attachedDeviceCount ?? 0}/
+                            {c.deviceLimit ?? 1} devices ·{" "}
+                            {c.access === "read" ? "read-only" : "agent access"}{" "}
+                            · expires{" "}
+                            {new Date(c.expiresAt).toLocaleDateString()}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {deviceSetupTokenId === "new" ? (
+                    <>
+                      <label>
+                        Token name
+                        <input
+                          value={deviceSetupName}
+                          maxLength={64}
+                          onChange={(e) => setDeviceSetupName(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Token expires
+                        <select
+                          value={deviceSetupLifetime}
+                          onChange={(e) =>
+                            setDeviceSetupLifetime(Number(e.target.value))
+                          }
+                        >
+                          <option value={86400}>In 24 hours</option>
+                          <option value={604800}>In 7 days</option>
+                          <option value={2592000}>In 30 days</option>
+                        </select>
+                      </label>
+                      <button
+                        disabled={
+                          busy ||
+                          !deviceSetupName.trim() ||
+                          connectionSecret !== null ||
+                          ((deviceSetupKind === "uno" ||
+                            deviceSetupKind === "esp32") &&
+                            !deviceSetupPort.trim())
+                        }
+                        onClick={startDeviceSetup}
+                      >
+                        Create token and continue
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        The token secret is shown only when first created. Have
+                        it ready for the helper prompt. Its device limit is
+                        enforced when the adapter attaches.
+                      </p>
+                      <button
+                        disabled={
+                          busy ||
+                          ((deviceSetupKind === "uno" ||
+                            deviceSetupKind === "esp32") &&
+                            !deviceSetupPort.trim())
+                        }
+                        onClick={startDeviceSetup}
+                      >
+                        Continue with selected token
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+            <details>
+              <summary>Compatibility: existing one-time enrollment</summary>
+              <p>
+                For an already-installed adapter that implements the old
+                one-time enrollment endpoint. This does not create an SDK token
+                or grant agent permissions.
+              </p>
+              <label>
+                Adapter type
+                <select
+                  value={legacyKind}
+                  onChange={(e) => setLegacyKind(e.target.value)}
+                >
+                  <option value="custom.device">Custom adapter</option>
+                  <option value="uno-r4-wifi">Uno R4 WiFi</option>
+                  <option value="raspberry-pi-4">Raspberry Pi 4</option>
+                </select>
+              </label>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    const legacy = await api("/v1/enrollments", "POST", {
+                      kind: legacyKind,
+                    });
+                    setPairingBaseline(devices.map((d) => d.id));
+                    setSetupConnection(null);
+                    setEnrollment(legacy);
+                    setEnrollmentRevealed(false);
+                  })
+                }
+              >
+                Create one-time code
+              </button>
+            </details>
           </div>
         )}
       </dialog>

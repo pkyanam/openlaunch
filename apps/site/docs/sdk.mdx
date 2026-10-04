@@ -1,108 +1,112 @@
 ---
-title: Device & agent SDK
-description: Connect Linux machines, custom boards and agents using one device protocol, typed SDK clients and owner-approved functions.
+title: Device and agent SDK
+description: Use one owner-issued SDK token to connect agents and attach devices, with separate owner approval for each device function.
 ---
 
-The bridge SDK is the shortest path from an agent to the devices an owner has approved. An owner creates a named bridge token in the console and gives it to the agent. The token authenticates that agent to the workspace; it does not enroll a device or grant access to every device by itself.
+The openlaunch SDK connects agents to devices through one bridge token. That token can authenticate an agent and, when enabled by the owner, attach devices to the workspace. Attaching a device does not grant the agent permission to use its functions; the owner approves those separately.
 
-## Choose your runtime
+## Make a token
 
-| Your setup                                               | Use                                                  | What you supply                                             |
-| -------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------- |
-| Raspberry Pi with the maintained health adapter          | [Pi installer](/pi)                                  | A one-time pairing code                                     |
-| Linux computer, Mac, gateway or custom service with Node | The adapter command below                            | Functions in `adapter.mjs`                                  |
-| Stock or repaired Uno R4 WiFi                            | [Uno guide](/uno-r4)                                 | Wi-Fi settings and the matching transport profile           |
-| Standalone ESP32 or another microcontroller              | A firmware adapter using the [device HTTP API](/api) | Verified HTTPS, credential storage and implemented handlers |
-| An agent, app or automation                              | `createClient()`                                     | A bridge token and owner-approved functions                 |
+In the console, open **Connections** and create a named SDK token. Choose read or action access, set an expiry, and enable device attachment with a limit from 1 to 20 devices if the token will pair hardware. The default is one device for seven days. Copy the token when it appears; it is shown once. Save it in a secret manager or environment variable. Do not put it in source code, prompts, shell history, or logs.
 
-The Node adapter does not need Bluetooth, a phone app or a Raspberry Pi. It can run beside a USB board, connect to a local device library or implement a service directly. A standalone ESP32 is a different target from the Uno R4's ESP connectivity chip: do not replace that chip's firmware to install an ESP32 application.
+Revoke a token in **Connections** to stop agent requests and future device attachments. Devices already attached remain paired until you remove them from **Devices**. Per-device function grants are separate and can also be revoked or allowed to expire.
 
-## Create a bridge token
+## Connect an agent
 
-In the console, open **Agents**, create a named bridge SDK token, and choose an expiry. Copy it when it is shown. The secret is displayed once; create a replacement if you lose it. Revoke the token from Connections when the agent no longer needs the connection.
-
-Keep the token in a secret manager or environment variable. Do not paste it into prompts, source code, issue reports, shell history, or logs. An agent should read it from its runtime environment. The owner can separately grant that connection specific functions on each device, with an expiry. A token with no device grants cannot inspect or operate devices. Revoking a device grant blocks that device even if the bridge token remains valid; revoking the token ends the entire connection.
-
-## JavaScript and TypeScript
-
-Install the package in the agent or service that will call the bridge:
+Install the SDK from the hosted archive:
 
 ```sh
 npm install https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
 ```
 
-Create a client using the bridge URL and a bridge token supplied through the environment:
+Read the token from a private environment variable and create a client:
 
 ```ts
 import { createClient } from "@openlaunch/sdk";
 
 const openlaunch = createClient({
-  url: process.env.OPENLAUNCH_URL!,
-  token: process.env.OPENLAUNCH_TOKEN!,
+  url: "https://www.openlaunch.dev",
+  token: process.env.OPENLAUNCH_SDK_TOKEN!,
 });
 
 const devices = await openlaunch.listDevices();
 const device = devices[0];
-if (!device) throw new Error("No devices are granted to this connection");
+if (!device) throw new Error("No devices are granted to this agent");
 
 const action = await openlaunch.requestAction(device.id, {
   capability: "device.health",
-  arguments: {},
   idempotencyKey: crypto.randomUUID(),
-  ttlSeconds: 60,
 });
-console.log(await openlaunch.getAction(action.id));
+
+let result = action;
+while (["queued", "received"].includes(result.status)) {
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  result = await openlaunch.getAction(action.id);
+}
+console.log(result.status, result.result);
 ```
 
-`listDevices()` returns only devices visible to the connection. `requestAction(deviceId, request)` checks the current device grant and the capability manifest before queueing an action. The request accepts `capability`, `arguments`, `idempotencyKey`, and optional `ttlSeconds`. Use a unique idempotency key for each logical action and reuse it only when retrying the same request. The returned action is a receipt, not proof that hardware acted. Call `getAction(id)` until the action reaches a terminal state. Use `cancelAction(id)` for a command that has not been delivered. `broadcast({ deviceIds, capability, arguments, idempotencyKey, ttlSeconds })` returns an independent outcome for each device; a broadcast is not atomic.
+Choose action access for this example; a read token can list devices and inspect actions but cannot request them. Device grants still decide which functions the agent can use. A queued action is not a completed action; check the final result. See [Connect an agent](/agents) for MCP clients and other connection options.
 
-The SDK does not assume a board type. It speaks to the bridge API, so any device with an openlaunch-compatible adapter can appear in `listDevices()`. Today, the maintained hardware integrations are Uno R4 WiFi and Raspberry Pi. Other boards can use the adapter and manifest contract in [Build your own functions](/functions).
+Use `cancelAction(id)` before a device receives an action. `broadcast({ deviceIds, capability, arguments, idempotencyKey })` requests the same function from several devices and returns a result per device. Retry a request with the same idempotency key only when its arguments are identical. Agents written in other languages can use the same HTTP endpoints with `Authorization: Bearer <SDK token>`; see the [API reference](/api).
 
-## Connect a device adapter
+## Attach a device with one command
 
-For a new adapter on a machine with Node 22.18 or newer, choose **Devices → Add device → Custom device** in your console, then paste:
+For a Linux machine, gateway or Node adapter, open **Devices → Add device** and choose **Create a new one-device token**. Give it a name and expiry, then select **Create token and continue**. The console shows the one-time token and a setup command. Copy the command and run it on the machine beside your hardware:
 
 ```sh
-npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup
+npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url https://www.openlaunch.dev
 ```
 
-Enter the workspace and one-time code when prompted. This creates your adapter files, saves a private device identity, and starts polling. The starter reports that its own process is running; it does not pretend to detect connected hardware. For microcontrollers, run this gateway beside the board or implement the same HTTP protocol in firmware.
+The command asks only for the SDK token, with the input hidden. It gets the workspace from the token, creates a starter adapter, saves a private per-device credential, and starts polling. It never saves the SDK token. If setup loses its connection, rerun the same command with the same token within 10 minutes to resume the saved request.
 
-To add functions, edit the generated `openlaunch-device/adapter.mjs`: declare the input schema in `manifest.functions` and implement the corresponding entry in `handlers`. Publish the change with:
+After the device appears, the console opens its **Access** view. Choose which functions the agent connection may use and set a grant expiry. The starter reports the adapter process health; connect your hardware library and implement its functions in `adapter.mjs` to control real hardware.
+
+Change and publish the function list with:
 
 ```sh
 npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device publish
 ```
 
-Then approve the new functions in your console and restart the adapter using the same command with `run` instead of `publish`. Publishing changed functions clears previous device grants and cancels queued actions. The credential stays private; no fresh enrollment is needed. Commands already delivered cannot be undone by publishing a new manifest.
+Then approve the published functions in the console and restart the adapter:
 
-An adapter owns the device credential and its hardware protocol. Provisioning uses a separate one-time enrollment token:
+```sh
+npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device run
+```
+
+Publishing a changed manifest clears earlier grants and cancels queued actions. It cannot undo a command already delivered to a device.
+
+## Use the SDK directly
+
+The same token can attach a device from JavaScript or TypeScript. Use a stable UUID request ID for retries of the same attachment and manifest:
 
 ```ts
 import { createDevice } from "@openlaunch/sdk";
 
 const device = createDevice({
-  url: process.env.OPENLAUNCH_URL!,
-  workspace: process.env.OPENLAUNCH_WORKSPACE!,
+  url: "https://www.openlaunch.dev",
+  token: process.env.OPENLAUNCH_SDK_TOKEN!,
 });
-
-const identity = await device.enroll({
-  token: process.env.OPENLAUNCH_ENROLLMENT_TOKEN!,
-  manifest,
-});
-await secretStore.set("openlaunch-device", identity); // use your OS or deployment secret store
+const identity = await device.attach(manifest, crypto.randomUUID());
+// Store identity.deviceId and identity.token in protected device storage.
 ```
 
-Enrollment is single-use and expires after 10 minutes. It returns `{ deviceId, token }` and keeps the credential in this client instance's memory. Persist the returned identity in protected storage if the adapter must survive restarts. To resume it, pass `deviceId` and `credential: identity.token` to `createDevice()`. The enrolled client can call `nextAction()` and `submitResult(actionId, result)`. Never use the agent's bridge token as a device credential, or a device enrollment token as an agent token. See [Pairing and permissions](/pairing) for credential lifecycle and revocation details.
+`createDevice()` uses the SDK token only to attach; the device polls with the private child credential. The SDK keeps credentials in memory, so store the returned device identity securely if the process must restart. `nextAction()` retrieves one action and `submitResult()` reports its outcome.
 
-The built-in Pi integration currently reports `device.health`. The built-in Uno R4 integration supports `device.health`, `led.set`, and `display.text`. These are the available built-in hardware functions; a manifest entry alone does not make a board implement one.
+## Bring another board
 
-## Bring another board or setup
+Use the Node adapter beside the board, or implement the same HTTPS attach, poll and result flow in firmware. A custom device kind such as `custom.rp2040` does not need a built-in board profile. Declare only the functions your adapter implements, using bounded input fields. A manifest is a description and input schema; it does not install firmware or create hardware support.
 
-An openlaunch adapter can run on a microcontroller, a small computer, a gateway, or a process beside a device. The adapter enrolls once, advertises a manifest, polls for actions, validates bounded arguments, invokes its own implementation, and reports the result. It can use the SDK device client or implement the documented HTTP protocol directly. It does not need a board-specific change in the bridge service.
+The maintained integrations are Uno R4 WiFi and Raspberry Pi. Their real board behavior is still subject to the hardware checks in the [verification guide](/status). See [Build your own functions](/functions) for input and permission rules, and the [API reference](/api) for request routes.
 
-Use a bounded custom kind such as `custom.sensor` and lower-case dot-separated capability names. The manifest supports at most 16 functions and 16 input fields per function. Inputs are a flat object of bounded strings, booleans, numbers or integers. Do not publish executable schemas, external schema references, arbitrary code, or capabilities that the adapter does not implement. Owners grant functions per device and connection. See [Build your own functions](/functions) for a manifest example and limits.
+The former one-use enrollment flow remains available for existing integrations. New agent and device connections should use the SDK token flow above.
 
-## Agent usage
+## Standalone ESP32
 
-Give an agent the SDK package documentation, the bridge URL, and the token through its secret environment. The agent can list its granted devices, request an approved function, and inspect the action result. It cannot expand its own grants or turn a queued receipt into a success result. For MCP clients, the same connection and per-device grants are available through the [agent integration](/agents).
+The [ESP32 Arduino library](/downloads/openlaunch-esp32.zip) includes a health example and portable C++ SDK. Download the [USB provisioner](/downloads/provision-esp32.py) and verify it against the checksum in [`installers.json`](/downloads/installers.json). After uploading the firmware, configure the board over USB:
+
+```sh
+python3 provision-esp32.py --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://www.openlaunch.dev
+```
+
+The helper prompts for Wi-Fi details and an SDK token with hidden input, then asks before sending settings. It does not ask you to edit a `secrets.h` file or flash firmware. The hosted origin uses a bundled, fingerprint-checked public CA. For another origin, supply its trusted public root certificate with `--ca-file`. The archive is compile-verified; physical ESP32 operation remains unverified. See [downloads and resources](/resources).

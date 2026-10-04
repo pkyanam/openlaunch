@@ -50,13 +50,16 @@ struct FakeStorage : Persistence {
 
 struct FakeTransport : Transport {
   TransportStatus enrollStatus = TransportStatus::Ok;
+  TransportStatus attachStatus = TransportStatus::Ok;
   TransportStatus nextStatus = TransportStatus::NoContent;
   TransportStatus resultStatus = TransportStatus::Ok;
-  int enrollCalls = 0, nextCalls = 0, resultCalls = 0;
+  int enrollCalls = 0, attachCalls = 0, nextCalls = 0, resultCalls = 0;
   Identity identity{};
   Action action{};
   ResultReport lastResult{};
   Manifest sentManifest{};
+  RequestId sentRequestId{};
+  SdkToken sentSdkToken{};
 
   TransportStatus enroll(const WorkspaceId &, const EnrollmentToken &,
                          const Manifest &manifest, Identity &out) override {
@@ -64,6 +67,16 @@ struct FakeTransport : Transport {
     sentManifest = manifest;
     out = identity;
     return enrollStatus;
+  }
+  TransportStatus attachSdkToken(const WorkspaceId &, const SdkToken &token,
+                                 const RequestId &requestId, const Manifest &manifest,
+                                 Identity &out) override {
+    ++attachCalls;
+    sentSdkToken = token;
+    sentRequestId = requestId;
+    sentManifest = manifest;
+    out = identity;
+    return attachStatus;
   }
   TransportStatus next(const WorkspaceId &, const Identity &,
                        Action &out) override {
@@ -122,6 +135,23 @@ int main() {
                                            transport.identity.deviceId.value) == 0);
   assert(client.nextAction(action) == Status::NoAction);
   assert(transport.nextCalls == 1);
+
+  FakeTransport attachTransport;
+  FakeClock attachClock;
+  FakeStorage attachStorage;
+  assert(attachTransport.identity.deviceId.set("00000000-0000-4000-8000-000000000003"));
+  assert(attachTransport.identity.credential.set("private-device-credential"));
+  auto attachClient = makeClient(attachTransport, attachClock, attachStorage, workspace);
+  SdkToken sdkToken;
+  assert(sdkToken.set("ol_sdk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+  RequestId requestId;
+  assert(requestId.set("00000000-0000-4000-8000-000000000004"));
+  assert(attachClient.attachSdkToken(sdkToken, requestId, manifest) == Status::Ok);
+  assert(attachStorage.hasIdentity && attachTransport.attachCalls == 1);
+  assert(std::strcmp(attachTransport.sentSdkToken.value, sdkToken.value) == 0);
+  assert(std::strcmp(attachTransport.sentRequestId.value, requestId.value) == 0);
+  assert(attachClient.attachSdkToken(sdkToken, requestId, manifest) == Status::AlreadyPaired);
+  assert(attachTransport.attachCalls == 1);
 
   assert(transport.action.id.set("00000000-0000-4000-8000-000000000002"));
   assert(transport.action.capability.set("device.health"));

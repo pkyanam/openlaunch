@@ -16,7 +16,7 @@ codex mcp login openlaunch \
 
 `--oauth-resource` preserves the canonical MCP resource through authorization and token exchange. `CIMD` uses Codex's issuer-bound public client identity, `https://chatgpt.com/oauth/codex/client.json`; it is not a client secret. The signed-in owner separately approves OAuth scopes, then grants this agent specific functions on a specific device in the openlaunch console. OAuth approval does not enroll or authorize hardware. To search product documentation, add `openlaunch-docs` at `https://www.openlaunch.dev/docs-mcp`; that server is read-only and does not provide device access.
 
-The hosted MCP currently responds with the expected OAuth `401` challenge when called anonymously. That confirms endpoint reachability, not a working connected device: hosted device controls remain unavailable until deployment connection checks pass. Verify sign-in, tool discovery, a real owner-granted function and its reported device result before describing hosted control as working.
+Hosted Google sign-in, Codex OAuth and granted custom-function discovery/actions have passed software acceptance. Controls require an owner-approved device grant. Physical hardware acceptance is recorded separately in the [verification guide](../../apps/site/docs/status.mdx); queued or simulated results are not physical execution.
 
 ## Local bridge
 

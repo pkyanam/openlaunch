@@ -1,9 +1,16 @@
+import {
+  createDeviceEvents,
+  type DeviceEventSocketFactory,
+} from "./events.js";
+export { createDeviceEvents } from "./events.js";
+export type { DeviceEventOptions, DeviceEventSocket, DeviceEventSocketFactory } from "./events.js";
+
 /** Small, provider-neutral SDK for openlaunch agent and device integrations. */
 
 export interface ClientOptions {
   /** openlaunch API origin, for example https://www.openlaunch.dev. */
   url: string;
-  /** Owner-issued agent connection token. Keep it server-side and private. */
+  /** Owner-issued SDK token. Keep it server-side and private. */
   token: string;
   /** Optional workspace routing ID for self-hosted/local bridges. */
   workspace?: string;
@@ -14,13 +21,22 @@ export interface ClientOptions {
 export interface DeviceOptions {
   /** openlaunch API origin. */
   url: string;
-  /** Workspace routing ID shown by the openlaunch console. */
-  workspace: string;
+  /** Owner-issued SDK token, used only to attach this device. */
+  token?: string;
+  /** Workspace routing ID for legacy enrollment or local device credentials. */
+  workspace?: string;
   /** Existing device credential, for a previously enrolled device process. */
   credential?: string;
   /** Existing device ID, required when resuming with credential. */
   deviceId?: string;
   fetch?: typeof fetch;
+  /** Optional WebSocket factory for runtimes or tests without global WebSocket. */
+  webSocketFactory?: DeviceEventSocketFactory;
+}
+
+/** Return the workspace encoded in an owner-issued SDK or legacy agent token. */
+export function sdkTokenWorkspace(token: string): string | undefined {
+  return /^ol_(?:sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}$/.exec(token)?.[1];
 }
 
 export interface DeviceManifest {
@@ -186,7 +202,7 @@ function validateIdempotencyKey(key: string) {
     throw new TypeError("idempotencyKey must be 1–128 characters");
 }
 
-/** Create a client authenticated as an owner-issued openlaunch agent connection. */
+/** Create a client authenticated as an owner-issued openlaunch SDK connection. */
 export function createClient(options: ClientOptions) {
   if (!options.token || /\s/.test(options.token))
     throw new TypeError("token must be a non-empty bearer credential");
@@ -246,22 +262,33 @@ export function createClient(options: ClientOptions) {
 }
 
 /**
- * Create an outbound-polling device bridge. Enrollment credentials are held in
- * memory by this instance and returned once so the caller can persist them in
- * its own secret store. No credentials are written to disk or logged.
+ * Create an outbound-polling device bridge. The issued per-device credential
+ * remains in memory and is returned so callers can persist it securely.
+ * The owner-issued SDK token is used only for attach and is never returned.
  */
 export function createDevice(options: DeviceOptions) {
-  if (!options.workspace || !/^[a-f0-9]{64}$/.test(options.workspace))
+  const tokenWorkspace = options.token ? sdkTokenWorkspace(options.token) : undefined;
+  if (options.token && !tokenWorkspace)
+    throw new TypeError("token must be an owner-issued openlaunch SDK token");
+  const workspace = tokenWorkspace ?? options.workspace;
+  if (!workspace || !/^[a-f0-9]{64}$/.test(workspace))
     throw new TypeError(
       "workspace must be the 64-character ID from the openlaunch console",
     );
+  if (tokenWorkspace && options.workspace && options.workspace !== tokenWorkspace)
+    throw new TypeError("workspace does not match the SDK token");
   if (options.credential && !options.deviceId)
     throw new TypeError("deviceId is required when resuming with a credential");
   const base = normalizeUrl(options.url);
+  const fetchImpl = options.fetch ?? globalThis.fetch;
   let deviceId = options.deviceId;
   let credential = options.credential;
-  const publicRequest = transport(base, options.fetch ?? globalThis.fetch, {
-    "x-openlaunch-workspace": options.workspace,
+  const publicRequest = transport(base, fetchImpl, {
+    "x-openlaunch-workspace": workspace,
+  });
+  const attachRequest = transport(base, fetchImpl, {
+    "x-openlaunch-workspace": workspace,
+    ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
   });
   const deviceRequest = <T>(
     path: string,
@@ -269,10 +296,10 @@ export function createDevice(options: DeviceOptions) {
   ): Promise<T> => {
     if (!deviceId || !credential)
       throw new TypeError(
-        "Enroll this device before polling or reporting results",
+        "Attach or enroll this device before polling or reporting results",
       );
-    return transport(base, options.fetch ?? globalThis.fetch, {
-      "x-openlaunch-workspace": options.workspace,
+    return transport(base, fetchImpl, {
+      "x-openlaunch-workspace": workspace,
       authorization: `Bearer ${credential}`,
     })<T>(path, init);
   };
@@ -280,13 +307,27 @@ export function createDevice(options: DeviceOptions) {
     get deviceId() {
       return deviceId;
     },
+    /** Start optional event wakeups; callers must still poll over HTTP. */
+    openEvents(onWake: () => void) {
+      if (!deviceId || !credential)
+        throw new TypeError("Attach or enroll this device before opening events");
+      return createDeviceEvents({
+        url: base,
+        workspace,
+        deviceId,
+        credential,
+        fetch: fetchImpl,
+        webSocketFactory: options.webSocketFactory,
+        onWake,
+      });
+    },
     /** Publish implemented functions. Changed manifests revoke previous device grants. */
     publishManifest: (manifest: DeviceManifest) =>
       deviceRequest<{ ok: true; grantsRevoked: boolean }>(
         `/v1/device/${encodeURIComponent(deviceId ?? "")}/manifest`,
         json("POST", { manifest }),
       ),
-    /** Exchange a one-use enrollment token for this device's private credential. */
+    /** Legacy: exchange a one-use enrollment token for a device credential. */
     async enroll(input: { token: string; manifest: DeviceManifest }) {
       if (!input.token || !input.manifest)
         throw new TypeError("token and manifest are required");
@@ -297,6 +338,27 @@ export function createDevice(options: DeviceOptions) {
       deviceId = enrolled.deviceId;
       credential = enrolled.token;
       return { deviceId, token: enrolled.token };
+    },
+    /** Attach with an owner-issued SDK token; retries must reuse requestId and manifest. */
+    async attach(manifest: DeviceManifest, requestId: string) {
+      if (!options.token)
+        throw new TypeError("An SDK token is required to attach this device");
+      if (deviceId && credential)
+        throw new TypeError(
+          "This device client already has an identity; create a new client to attach another device",
+        );
+      if (!manifest) throw new TypeError("manifest is required");
+      if (
+        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId)
+      )
+        throw new TypeError("requestId must be a UUID");
+      const attached = await attachRequest<{ deviceId: string; token: string }>(
+        "/v1/sdk/devices",
+        json("POST", { requestId, manifest }),
+      );
+      deviceId = attached.deviceId;
+      credential = attached.token;
+      return { deviceId, token: attached.token };
     },
     /** Poll once. `null` means no work is queued; queued does not mean completed. */
     nextAction: () =>

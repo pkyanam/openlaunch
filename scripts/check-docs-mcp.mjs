@@ -24,28 +24,51 @@ const deployment = JSON.parse(
   await readFile(new URL("deployment.json", root), "utf8"),
 );
 assert.equal(installerManifest.commit, deployment.commit);
-for (const [index, source] of [
-  "../scripts/install.sh",
-  "../scripts/provision-uno.py",
-  "../scripts/install-pi.sh",
-].entries()) {
-  const original = await readFile(new URL(source, import.meta.url));
-  const hosted = await readFile(
-    new URL(["install.sh", "downloads/provision-uno.py", "install-pi.sh"][index], root),
+for (const filename of [
+  "install.sh",
+  "install-pi.sh",
+  "provision-uno.py",
+  "provision-esp32.py",
+]) {
+  const path = filename.startsWith("provision-")
+    ? `downloads/${filename}`
+    : filename;
+  const original = await readFile(
+    new URL(`../scripts/${filename}`, import.meta.url),
+  );
+  const hosted = await readFile(new URL(path, root));
+  const metadata = installerManifest.installers.find(
+    (installer) => new URL(installer.url).pathname === `/${path}`,
   );
   assert.deepEqual(hosted, original);
-  assert.equal(installerManifest.installers[index].sha256, createHash("sha256").update(hosted).digest("hex"));
-  assert(
-    installerManifest.installers[index].backup.includes(
-      `/${deployment.commit}/scripts/`,
-    ),
+  assert.equal(
+    metadata.sha256,
+    createHash("sha256").update(hosted).digest("hex"),
+  );
+  assert(metadata.backup.includes(`/${deployment.commit}/scripts/${filename}`));
+}
+for (const field of ["embeddedSdk", "sdk"]) {
+  const metadata = installerManifest[field];
+  const bytes = await readFile(
+    new URL("." + new URL(metadata.url).pathname, root),
+  );
+  assert.equal(
+    metadata.sha256,
+    createHash("sha256").update(bytes).digest("hex"),
   );
 }
-const piManifest = JSON.parse(await readFile(new URL("downloads/pi/manifest.json", root), "utf8"));
+const piManifest = JSON.parse(
+  await readFile(new URL("downloads/pi/manifest.json", root), "utf8"),
+);
 assert.equal(piManifest.commit, deployment.commit);
 for (const artifact of Object.values(piManifest.artifacts)) {
-  const bytes = await readFile(new URL("." + new URL(artifact.url).pathname, root));
-  assert.equal(artifact.sha256, createHash("sha256").update(bytes).digest("hex"));
+  const bytes = await readFile(
+    new URL("." + new URL(artifact.url).pathname, root),
+  );
+  assert.equal(
+    artifact.sha256,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
 }
 const client = new Client({
   name: "openlaunch-docs-acceptance",

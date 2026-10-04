@@ -5,6 +5,8 @@ import {
   deviceKind,
   capabilityName,
   type Principal,
+  agentTokenWorkspace,
+  type DeviceCredentialDeriver,
 } from "../../core/src/index.ts";
 import { createMcp } from "../../mcp/src/index.ts";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -23,10 +25,35 @@ const json = (data: unknown, status = 200) =>
     },
   );
 const body = async (r: Request) => {
-  const t = await r.text();
-  if (t.length > 16384) throw new Fault("too_large", 413, "Request too large");
+  const reader = r.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 16384) {
+          await reader.cancel();
+          throw new Fault("too_large", 413, "Request too large");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   try {
-    return JSON.parse(t);
+    return JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes),
+    );
   } catch {
     throw new Fault("invalid_json", 400, "Invalid JSON");
   }
@@ -35,7 +62,10 @@ export async function handle(
   request: Request,
   hub: Hub,
   resolve: (r: Request) => Promise<Principal>,
-  context: { workspace?: string } = {},
+  context: {
+    workspace?: string;
+    deviceCredentials?: DeviceCredentialDeriver;
+  } = {},
 ): Promise<Response> {
   try {
     const path = new URL(request.url).pathname;
@@ -81,7 +111,7 @@ export async function handle(
       throw new Fault("method", 405, "Method not allowed");
     }
     const token = bearer(request);
-    const p = token.startsWith("ol_agent_")
+    const p = agentTokenWorkspace(token)
       ? await hub.authenticateConnection(token, context.workspace ?? "")
       : await resolve(request);
     if (path === "/mcp") {
@@ -100,6 +130,28 @@ export async function handle(
         await server.close();
       }
     }
+    if (path === "/v1/sdk/devices" && method === "POST") {
+      const b = z
+        .object({ requestId: z.string().uuid(), manifest: z.unknown() })
+        .strict()
+        .parse(await body(request));
+      if (!context.deviceCredentials)
+        throw new Fault(
+          "setup_required",
+          503,
+          "Device attachment is not configured",
+        );
+      return json(
+        await hub.attachDevice(
+          p,
+          context.workspace ?? "",
+          b.requestId,
+          b.manifest,
+          context.deviceCredentials,
+        ),
+        201,
+      );
+    }
     if (path === "/v1/devices" && method === "GET") return json(hub.list(p));
     if (path === "/v1/actions" && method === "GET") return json(hub.history(p));
     if (path === "/v1/grants" && method === "GET") return json(hub.grants(p));
@@ -110,14 +162,27 @@ export async function handle(
         .parse(await body(request));
       return json(await hub.enrollment(p, b.kind), 201);
     }
-    if (path === "/v1/agent-connections" && method === "GET")
+    if (
+      ["/v1/agent-connections", "/v1/sdk-tokens"].includes(path) &&
+      method === "GET"
+    )
       return json(hub.connections(p));
-    if (path === "/v1/agent-connections" && method === "POST") {
+    if (
+      ["/v1/agent-connections", "/v1/sdk-tokens"].includes(path) &&
+      method === "POST"
+    ) {
       const b = z
         .object({
           name: z.string().min(1).max(64),
           ttlSeconds: z.number().int().min(60).max(2592000).default(86400),
           access: z.enum(["read", "act"]).default("act"),
+          canAttach: z.boolean().default(path === "/v1/sdk-tokens"),
+          deviceLimit: z
+            .number()
+            .int()
+            .min(0)
+            .max(20)
+            .default(path === "/v1/sdk-tokens" ? 1 : 0),
         })
         .strict()
         .parse(await body(request));
@@ -128,12 +193,15 @@ export async function handle(
           b.name,
           b.ttlSeconds,
           b.access,
+          { canAttach: b.canAttach, deviceLimit: b.deviceLimit },
         ),
         201,
       );
     }
     const connectionRevoke =
-      /^\/v1\/agent-connections\/([a-f0-9-]{36})\/revoke$/.exec(path);
+      /^\/v1\/(?:agent-connections|sdk-tokens)\/([a-f0-9-]{36})\/revoke$/.exec(
+        path,
+      );
     if (connectionRevoke && method === "POST")
       return json(hub.revokeConnection(p, connectionRevoke[1]!));
     if (path === "/v1/grants" && method === "POST") {

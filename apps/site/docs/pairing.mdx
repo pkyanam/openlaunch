@@ -1,32 +1,30 @@
 ---
-title: Pairing and permissions
-description: Learn how single-use device enrollment, separate capability grants, command expiry and revocation keep openlaunch agent access under owner control.
+title: Pairing, access and permissions
+description: Pair agents and devices with one SDK token, then approve device functions separately and revoke each credential when needed.
 ---
 
-## Enroll once
+## Create one SDK token
 
-An owner creates an enrollment bound to the selected board kind. It is single-use and expires after 10 minutes. The device exchanges it for its own credential; the bridge stores only a credential hash. Copy the bridge origin and workspace ID from the authenticated console response.
+In **Connections**, create a named token and choose read or action access and an expiry. To use it for device setup, enable device attachment and set a limit of 1–20 devices. The default is one device for seven days. Copy the token when shown; the console cannot show it again.
 
-In local development the workspace ID is 64 zeros, a routing marker rather than a secret. Never use that marker for a hosted workspace.
+The same token can authenticate an SDK agent and attach new devices. Device attachment creates a separate, private credential for each device. The setup command keeps the SDK token out of the device identity file.
 
-## Approve separately
+## Grant device functions
 
-Pairing does not authorize any agent. The owner separately chooses an agent principal, device, capabilities and bounded grant lifetime. Both API scopes and device grants are checked. Revoke a grant to block later agent commands, or revoke a device identity to block its polling.
+An attached device appears in **Devices**. Open its **Access** view and choose which agent connection may call which functions, then set a grant expiry. Pairing alone does not grant function access, and a token cannot approve its own grants. A changed function manifest clears earlier grants; review and grant the updated functions again.
 
-## Observe the lifecycle
+Revoking an SDK token removes that connection's grants, stops its agent requests and blocks future attachments. A device already attached stays paired until you remove it from **Devices**. Removing a device revokes its private device credential. You can also revoke one device grant without revoking the connection or removing the device.
 
-Commands carry TTLs. Delivery polls every 10 seconds today. Track the action ID through queued, received and terminal outcomes. Completed actions can succeed or fail; cancellation and expiry are separate outcomes. A queued response is not execution confirmation.
+## Safe retries and action results
 
-Disconnects, power loss or lost acknowledgments can leave the physical outcome unknown. There is no exactly-once execution guarantee.
+Device attachment uses a request ID saved before setup begins. If the network drops, rerun the same setup command with the same token within 10 minutes so the service can return the same device identity. If that retry window expires, inspect **Devices** before starting a new setup.
 
-## Acceptance checklist
+Actions expire after their time-to-live. Devices poll the bridge about every 10 seconds. `queued` and `received` are intermediate states; check for a terminal result before deciding an operation succeeded. A disconnect or lost reply can leave the physical outcome uncertain. The service does not promise exactly-once hardware execution.
 
-1. Pair Pi and R4 separately; inspect identities and advertised capabilities.
-2. Confirm the agent sees no device without a grant.
-3. Grant only intended capabilities and inspect a real result.
-4. Revoke the grant and confirm subsequent commands are rejected.
-5. Queue while offline, wait beyond TTL, reconnect and confirm no execution.
-6. Restart bridge and board and inspect persistence and uncertain outcomes.
-7. Revoke the device and confirm polling is rejected.
+## Older integrations
 
-Never count simulated, queued or uncertain receipts as physical success.
+The one-use enrollment code flow remains for older clients. It is bound to a workspace, can be used once, and expires after 10 minutes. Use the SDK token flow for new integrations; see the [SDK guide](/sdk).
+
+## Hardware checks
+
+Software pairing does not prove a physical board acted. Confirm the real device result, then test grant boundaries, expiry, reconnect, duplicate requests and revocation on each supported setup. See the [verification guide](/status) for current hardware acceptance status.

@@ -13,7 +13,7 @@ export const deviceKind = z
   .max(64)
   .regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/);
 export function agentTokenWorkspace(token: string): string | undefined {
-  return /^ol_agent_([a-f0-9]{64})_[a-f0-9]{64}$/.exec(token)?.[1];
+  return /^ol_(?:sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}$/.exec(token)?.[1];
 }
 const boundedText = z
   .string()
@@ -69,6 +69,7 @@ export interface Device extends Manifest {
   tokenHash: string;
   revoked: boolean;
   lastSeen: number;
+  attachedConnectionId?: string;
 }
 export interface Action extends ActionEnvelope {
   dispatchedAt?: number;
@@ -98,6 +99,20 @@ interface AgentConnection {
   expiresAt: number;
   revoked: boolean;
   access: "read" | "act";
+  canAttach?: boolean;
+  deviceLimit?: number;
+}
+export interface DeviceCredentialDeriver {
+  keyVersion: string;
+  derive(version: string, context: string): Promise<string>;
+}
+interface AttachAttempt {
+  connectionId: string;
+  requestId: string;
+  fingerprint: string;
+  deviceId: string;
+  keyVersion: string;
+  expiresAt: number;
 }
 export interface State {
   version: 1;
@@ -106,6 +121,7 @@ export interface State {
   enrollments: Enrollment[];
   grants: Grant[];
   agentConnections?: AgentConnection[];
+  attachAttempts?: AttachAttempt[];
   audit: { at: number; event: string; target: string; principal: string }[];
 }
 export interface Principal {
@@ -130,6 +146,7 @@ export function emptyState(): State {
     enrollments: [],
     grants: [],
     agentConnections: [],
+    attachAttempts: [],
     audit: [],
   };
 }
@@ -162,6 +179,7 @@ export class Hub {
   ) {
     if (state.version !== 1) throw new Error("Unsupported state version");
     state.agentConnections ??= [];
+    state.attachAttempts ??= [];
   }
   private audit(event: string, target: string, principal: string) {
     this.state.audit.push({ at: this.now(), event, target, principal });
@@ -234,7 +252,7 @@ export class Hub {
                 g.expiresAt > this.now(),
             )),
       )
-      .map(({ tokenHash, ...d }) => ({
+      .map(({ tokenHash, attachedConnectionId, ...d }) => ({
         ...d,
         online: this.now() - d.lastSeen < 45000,
       }));
@@ -261,6 +279,9 @@ export class Hub {
   }
   async enrollment(p: Principal, kind: Manifest["kind"]) {
     this.owner(p);
+    return this.issueEnrollment(kind, p.id);
+  }
+  private async issueEnrollment(kind: Manifest["kind"], principal: string) {
     deviceKind.parse(kind);
     const token = secret();
     this.state.enrollments = this.state.enrollments.filter(
@@ -275,10 +296,17 @@ export class Hub {
       used: false,
       kind,
     });
-    this.audit("enrollment.created", kind, p.id);
+    this.audit("enrollment.created", kind, principal);
     return { token, expiresInSeconds: 600, expiresAt };
   }
   async enroll(token: string, input: unknown) {
+    return this.consumeEnrollment(token, input);
+  }
+  private async consumeEnrollment(
+    token: string,
+    input: unknown,
+    identity?: { deviceId: string; credential: string },
+  ) {
     const m = manifestSchema.parse(input);
     const tokenHash = await hash(token);
     const e = this.state.enrollments.find(
@@ -292,10 +320,10 @@ export class Hub {
       );
     if (this.state.devices.filter((d) => !d.revoked).length >= 20)
       throw new Fault("limit", 429, "Device limit reached");
-    const credential = secret();
+    const credential = identity?.credential ?? secret();
     const d: Device = {
       ...m,
-      id: crypto.randomUUID(),
+      id: identity?.deviceId ?? crypto.randomUUID(),
       tokenHash: await hash(credential),
       revoked: false,
       lastSeen: this.now(),
@@ -347,7 +375,13 @@ export class Hub {
     this.owner(p);
     return this.state
       .agentConnections!.filter((c) => !c.revoked && c.expiresAt > this.now())
-      .map(({ tokenHash, ...connection }) => connection);
+      .map(({ tokenHash, ...connection }) => ({
+        ...connection,
+        attachedDeviceCount: this.state.devices.filter(
+          (device) =>
+            !device.revoked && device.attachedConnectionId === connection.id,
+        ).length,
+      }));
   }
   async createConnection(
     p: Principal,
@@ -355,6 +389,10 @@ export class Hub {
     name: string,
     ttlSeconds = 86400,
     access: "read" | "act" = "act",
+    attachment: { canAttach: boolean; deviceLimit: number } = {
+      canAttach: false,
+      deviceLimit: 0,
+    },
   ) {
     this.owner(p);
     if (
@@ -364,7 +402,14 @@ export class Hub {
       !Number.isInteger(ttlSeconds) ||
       ttlSeconds < 60 ||
       ttlSeconds > 2592000 ||
-      !["read", "act"].includes(access)
+      !["read", "act"].includes(access) ||
+      typeof attachment.canAttach !== "boolean" ||
+      !Number.isInteger(attachment.deviceLimit) ||
+      attachment.deviceLimit < 0 ||
+      attachment.deviceLimit > 20 ||
+      (attachment.canAttach
+        ? attachment.deviceLimit < 1
+        : attachment.deviceLimit !== 0)
     )
       throw new Fault("invalid", 400, "Invalid agent connection");
     this.state.agentConnections = this.state.agentConnections!.filter(
@@ -373,7 +418,7 @@ export class Hub {
     if (this.state.agentConnections.length >= 20)
       throw new Fault("limit", 429, "Agent connection limit reached");
     const id = crypto.randomUUID();
-    const token = `ol_agent_${workspace}_${secret()}`;
+    const token = `ol_sdk_${workspace}_${secret()}`;
     const connection: AgentConnection = {
       id,
       principal: `connection:${id}`,
@@ -382,11 +427,125 @@ export class Hub {
       expiresAt: this.now() + ttlSeconds * 1000,
       revoked: false,
       access,
+      ...attachment,
     };
     this.state.agentConnections.push(connection);
     this.audit("connection.created", id, p.id);
     const { tokenHash, ...safe } = connection;
     return { ...safe, token };
+  }
+  async attachDevice(
+    p: Principal,
+    workspace: string,
+    requestId: string,
+    input: unknown,
+    credentials: DeviceCredentialDeriver,
+  ) {
+    z.string().uuid().parse(requestId);
+    if (!/^[a-f0-9]{64}$/.test(workspace))
+      throw new Fault("invalid", 400, "Invalid workspace");
+    const connection = this.state.agentConnections!.find(
+      (c) => c.principal === p.id && !c.revoked && c.expiresAt > this.now(),
+    );
+    if (p.owner || !connection?.canAttach)
+      throw new Fault("forbidden", 403, "This SDK token cannot attach devices");
+    const manifest = manifestSchema.parse(input);
+    const sortValue = (value: any): any =>
+      Array.isArray(value)
+        ? value.map(sortValue)
+        : value && typeof value === "object"
+          ? Object.fromEntries(
+              Object.entries(value)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, item]) => [key, sortValue(item)]),
+            )
+          : value;
+    const fingerprint = JSON.stringify(sortValue(manifest));
+    const existing = this.state.attachAttempts!.find(
+      (a) => a.connectionId === connection.id && a.requestId === requestId,
+    );
+    if (existing && existing.fingerprint !== fingerprint)
+      throw new Fault(
+        "conflict",
+        409,
+        "Attachment request reused with a different manifest",
+      );
+    if (existing && existing.expiresAt <= this.now())
+      throw new Fault(
+        "attachment_expired",
+        409,
+        "Attachment retry expired; check device inventory before starting again",
+      );
+    const deviceId = existing?.deviceId ?? crypto.randomUUID();
+    if (existing) this.device(deviceId);
+    if (!existing) {
+      if (
+        this.state.devices.filter(
+          (d) => !d.revoked && d.attachedConnectionId === connection.id,
+        ).length >= (connection.deviceLimit ?? 0)
+      )
+        throw new Fault("limit", 429, "SDK token device limit reached");
+      if (
+        this.state.devices.filter((d) => !d.revoked).length >= 20 ||
+        this.state.attachAttempts!.length >= 1000
+      )
+        throw new Fault("limit", 429, "Workspace attachment limit reached");
+    }
+    const keyVersion = existing?.keyVersion ?? credentials.keyVersion;
+    let credential: string;
+    try {
+      credential = await credentials.derive(
+        keyVersion,
+        JSON.stringify([
+          "openlaunch-device-credential-v1",
+          workspace,
+          connection.id,
+          requestId,
+          deviceId,
+          fingerprint,
+        ]),
+      );
+    } catch {
+      throw new Fault(
+        "setup_required",
+        503,
+        "Device credential key is unavailable",
+      );
+    }
+    if (!/^[a-f0-9]{64}$/.test(credential))
+      throw new Fault(
+        "setup_required",
+        503,
+        "Device credential service is unavailable",
+      );
+    if (existing) {
+      if ((await hash(credential)) !== this.device(deviceId).tokenHash)
+        throw new Fault(
+          "setup_required",
+          503,
+          "Device credential key changed; restore its original version",
+        );
+      return { deviceId, token: credential };
+    }
+    const enrollment = await this.issueEnrollment(
+      manifest.kind,
+      connection.principal,
+    );
+    const result = await this.consumeEnrollment(enrollment.token, manifest, {
+      deviceId,
+      credential,
+    });
+    this.device(deviceId).attachedConnectionId = connection.id;
+    this.state.attachAttempts!.push({
+      connectionId: connection.id,
+      requestId,
+      fingerprint,
+      deviceId,
+      keyVersion,
+      expiresAt: enrollment.expiresAt,
+    });
+    this.audit("device.attached", deviceId, connection.principal);
+    return result;
   }
   async authenticateConnection(
     token: string,

@@ -1,6 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  chmodSync,
+  readFileSync,
+  lstatSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 process.chdir(root);
@@ -24,6 +31,21 @@ for (const [name, token] of [
   writeFileSync(path, JSON.stringify({ origin, token }), { mode: 0o600 });
   chmodSync(path, 0o600);
 }
+const credentialKeyPath = ".cache/local/credential-keys.json";
+if (
+  existsSync(credentialKeyPath) &&
+  (!lstatSync(credentialKeyPath).isFile() ||
+    lstatSync(credentialKeyPath).isSymbolicLink())
+)
+  throw Error("Credential key path must be a regular private file");
+if (!existsSync(credentialKeyPath))
+  writeFileSync(
+    credentialKeyPath,
+    JSON.stringify({ v1: randomBytes(32).toString("hex") }),
+    { mode: 0o600, flag: "wx" },
+  );
+chmodSync(credentialKeyPath, 0o600);
+const deviceCredentialKeys = readFileSync(credentialKeyPath, "utf8");
 const copied =
   process.platform === "darwin" &&
   spawnSync("pbcopy", [], { input: owner }).status === 0;
@@ -52,6 +74,7 @@ const child = spawn(
       ...process.env,
       OPENLAUNCH_OWNER_TOKEN: owner,
       OPENLAUNCH_AGENT_TOKEN: agent,
+      OPENLAUNCH_DEVICE_CREDENTIAL_KEYS: deviceCredentialKeys,
     },
   },
 );

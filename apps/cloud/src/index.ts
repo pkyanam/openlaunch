@@ -1,3 +1,4 @@
+import { createDeviceCredentialDeriver } from "../../../packages/core/src/device-credentials.ts";
 import { DurableObject } from "cloudflare:workers";
 import { authenticateClerk, type ClerkEnv } from "./clerk-auth.ts";
 import {
@@ -6,28 +7,97 @@ import {
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
 import { withWorkspaceState } from "./state.ts";
+import { DeviceEvents, type DeviceEventsSocket } from "./device-events.ts";
 interface Env extends ClerkEnv {
   HUBS: DurableObjectNamespace;
   API_ORIGIN?: string;
   CONTROLS_ENABLED?: string;
   BUILD_COMMIT?: string;
   REQUEST_LIMITER: RateLimit;
+  DEVICE_CREDENTIAL_KEYS?: string;
+  DEVICE_CREDENTIAL_KEY_VERSION?: string;
 }
 export class WorkspaceHub extends DurableObject<Env> {
+  private readonly events: DeviceEvents;
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.events = new DeviceEvents(ctx, async (id, credential) =>
+      withWorkspaceState(ctx.storage, (hub) =>
+        hub.authenticateDevice(id, credential),
+      ),
+    );
+  }
+  webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    this.events.webSocketMessage(socket as DeviceEventsSocket, message);
+  }
   async fetch(request: Request): Promise<Response> {
     return this.ctx.blockConcurrencyWhile(async () => {
-      const principal = request.headers.get("x-openlaunch-principal");
-      return withWorkspaceState(this.ctx.storage, (hub) => {
-        return handle(
-          request,
-          hub,
-          async () => {
-            if (!principal) throw new Error("Missing trusted principal");
-            return JSON.parse(principal) as Principal;
-          },
-          { workspace: request.headers.get("x-openlaunch-workspace") ?? "" },
+      const path = new URL(request.url).pathname;
+      const eventRoute =
+        /^\/v1\/device\/([a-f0-9-]{36})\/events(-ticket)?$/.exec(path);
+      if (eventRoute) {
+        if (eventRoute[2])
+          return this.events.handleTicket(request, eventRoute[1]!);
+        // Ticket possession must not outlive canonical device revocation, even
+        // if clearing the ticket store previously failed after the state commit.
+        const active = await withWorkspaceState(this.ctx.storage, async (hub) =>
+          hub.state.devices.some(
+            (device) => device.id === eventRoute[1] && !device.revoked,
+          ),
         );
-      });
+        if (!active)
+          return Response.json(
+            {
+              error: {
+                code: "unauthorized",
+                message: "Device access is no longer valid",
+              },
+            },
+            { status: 401 },
+          );
+        return this.events.handleUpgrade(request, eventRoute[1]!);
+      }
+      const principal = request.headers.get("x-openlaunch-principal");
+      let wake: string[] = [];
+      const response = await withWorkspaceState(
+        this.ctx.storage,
+        async (hub) => {
+          const queued = new Set(
+            hub.state.actions
+              .filter((a) => a.status === "queued")
+              .map((a) => a.id),
+          );
+          const response = await handle(
+            request,
+            hub,
+            async () => {
+              if (!principal) throw new Error("Missing trusted principal");
+              return JSON.parse(principal) as Principal;
+            },
+            {
+              workspace: request.headers.get("x-openlaunch-workspace") ?? "",
+              deviceCredentials: createDeviceCredentialDeriver(
+                this.env.DEVICE_CREDENTIAL_KEYS,
+                this.env.DEVICE_CREDENTIAL_KEY_VERSION ?? "v1",
+              ),
+            },
+          );
+          wake = [
+            ...new Set(
+              hub.state.actions
+                .filter((a) => a.status === "queued" && !queued.has(a.id))
+                .map((a) => a.deviceId),
+            ),
+          ];
+          return response;
+        },
+      );
+      // Notify only after the canonical action state has been durably committed.
+      if (wake.length) this.events.notify(wake);
+      const revoked = /^\/v1\/devices\/([a-f0-9-]{36})\/revoke$/.exec(path);
+      if (revoked && request.method === "POST" && response.ok)
+        await this.events.closeDevice(revoked[1]!);
+      return response;
     });
   }
 }
@@ -104,7 +174,9 @@ export default {
       );
     let workspace: string;
     if (url.pathname.startsWith("/v1/device/")) {
-      workspace = request.headers.get("x-openlaunch-workspace") ?? "";
+      workspace = /\/events$/.test(url.pathname)
+        ? (url.searchParams.get("workspace") ?? "")
+        : (request.headers.get("x-openlaunch-workspace") ?? "");
       if (!/^[a-f0-9]{64}$/.test(workspace))
         return new Response("Invalid workspace", { status: 400 });
     } else if (
@@ -171,6 +243,8 @@ export default {
     const response = await env.HUBS.get(env.HUBS.idFromName(workspace)).fetch(
       new Request(request, { headers }),
     );
+    // Preserve Cloudflare's WebSocket response extension across the service boundary.
+    if (response.status === 101) return response;
     const output = new Response(response.body, response);
     output.headers.set("x-openlaunch-workspace", workspace);
     return output;

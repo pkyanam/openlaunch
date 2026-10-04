@@ -4,6 +4,8 @@
 import {
   createDevice,
   OpenLaunchError,
+  sdkTokenWorkspace,
+  type DeviceEventSocketFactory,
   type Action,
   type DeviceManifest,
 } from "./index.js";
@@ -11,12 +13,15 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   open,
+  link,
   readFile,
   rename,
   rm,
@@ -69,10 +74,13 @@ type SetupOptions = {
   name?: string;
   url?: string;
   workspace?: string;
+  sdkToken?: string;
   enrollmentToken?: string;
   noStart?: boolean;
   enrollOnly?: boolean;
   fetch?: typeof fetch;
+  events?: boolean;
+  webSocketFactory?: DeviceEventSocketFactory;
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
 };
@@ -81,6 +89,14 @@ type Identity = {
   workspace: string;
   deviceId: string;
   credential: string;
+  manifest: DeviceManifest;
+};
+type PendingSetup = {
+  version: 1;
+  mode: "sdk";
+  url: string;
+  workspace: string;
+  requestId: string;
   manifest: DeviceManifest;
 };
 type AdapterModule = {
@@ -105,10 +121,11 @@ async function askSecret(
   prompt: string,
   input: NodeJS.ReadStream,
   output: NodeJS.WriteStream,
+  environmentName = "OPENLAUNCH_SDK_TOKEN",
 ): Promise<string> {
   if (!input.isTTY || !output.isTTY)
     throw new Error(
-      "Set OPENLAUNCH_ENROLLMENT_TOKEN when running without an interactive terminal",
+      `Set ${environmentName} when running without an interactive terminal`,
     );
   output.write(prompt);
   const wasRaw = input.isRaw;
@@ -134,15 +151,34 @@ async function askSecret(
   });
 }
 
-async function createScaffold(directory: string, manifest: DeviceManifest) {
+async function createScaffold(
+  directory: string,
+  manifest: DeviceManifest,
+  resume = false,
+) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const files: Record<string, string> = {
     ".gitignore":
-      "identity.json\n.identity.*.tmp\n.actions.json\n.actions.*.tmp\n",
+      "identity.json\n.identity.*.tmp\n.actions.json\n.actions.*.tmp\n.setup-pending.json\n.setup-pending.*.tmp\n",
     "adapter.mjs": `// Connect your board or service here. Only capabilities in manifest are exposed to agents.\nexport const manifest = ${JSON.stringify(manifest, null, 2)};\nexport const handlers = {\n  "device.health": async () => ({ status: "adapter_online" }),\n};\n`,
     "README.md": `# openlaunch custom device adapter\n\nThis folder contains your adapter and its private device identity. Keep identity.json private. The generated .gitignore excludes it from Git.\n\nThe starter advertises only device.health. That result means this adapter process is online; it does not claim that physical hardware was detected. To add operations, edit manifest and handlers in adapter.mjs, then run \`openlaunch-device publish --directory .\`. Publishing a changed manifest revokes existing grants; choose the capabilities to grant in the openlaunch console.\n\nRun with Node.js 22 or newer:\n\n\`\`\`sh\nopenlaunch-device run --directory .\n\`\`\`\n`,
   };
   for (const name of [...Object.keys(files), "identity.json"]) {
+    if (resume && name !== "identity.json" && Object.hasOwn(files, name)) {
+      try {
+        const existing = await readFile(join(directory, name), "utf8");
+        if (existing !== files[name])
+          throw new Error(`Refusing to replace changed setup file ${join(directory, name)}`);
+        continue;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Refusing to replace changed setup file")
+        )
+          throw error;
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     try {
       await access(join(directory, name));
       throw new Error(`Refusing to overwrite ${join(directory, name)}`);
@@ -156,6 +192,14 @@ async function createScaffold(directory: string, manifest: DeviceManifest) {
     }
   }
   for (const [name, contents] of Object.entries(files)) {
+    if (resume) {
+      try {
+        await access(join(directory, name));
+        continue;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     const handle = await open(join(directory, name), "wx", 0o600).catch(
       (error: NodeJS.ErrnoException) => {
         if (error.code === "EEXIST")
@@ -172,6 +216,56 @@ async function createScaffold(directory: string, manifest: DeviceManifest) {
   // Avoid changing permissions on a directory the user already owned.
 }
 
+async function writePendingSetup(path: string, pending: PendingSetup) {
+  const directory = resolve(path, "..");
+  const tempPath = join(directory, `.setup-pending.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    const file = await open(tempPath, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(pending, null, 2)}\n`);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    // link() creates the destination without replacing an existing file.
+    await link(tempPath, path);
+    const dir = await open(directory, "r");
+    try {
+      await dir.sync();
+    } finally {
+      await dir.close();
+    }
+  } finally {
+    await rm(tempPath, { force: true });
+  }
+}
+
+async function readPendingSetup(path: string): Promise<PendingSetup | null> {
+  let metadata;
+  try {
+    metadata = await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (!metadata.isFile() || metadata.isSymbolicLink())
+    throw new Error("Refusing to read a non-regular pending setup file");
+  const pending = JSON.parse(await readFile(path, "utf8")) as PendingSetup;
+  if (
+    pending?.version !== 1 ||
+    pending.mode !== "sdk" ||
+    typeof pending.url !== "string" ||
+    typeof pending.workspace !== "string" ||
+    !/^[a-f0-9]{64}$/.test(pending.workspace) ||
+    typeof pending.requestId !== "string" ||
+    !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(pending.requestId) ||
+    !pending.manifest ||
+    typeof pending.manifest !== "object"
+  )
+    throw new Error("Invalid pending setup record; refusing to continue");
+  return pending;
+}
+
 export async function setupDevice(options: SetupOptions = {}) {
   const output = options.output ?? stdout;
   const input = options.input ?? stdin;
@@ -179,27 +273,76 @@ export async function setupDevice(options: SetupOptions = {}) {
   const url = normalizeOrigin(
     options.url ?? process.env.OPENLAUNCH_URL ?? DEFAULT_URL,
   );
-  const workspace =
-    options.workspace ??
-    process.env.OPENLAUNCH_WORKSPACE ??
-    (await askLine("Workspace ID: ", input, output));
-  if (!/^[a-f0-9]{64}$/.test(workspace))
-    throw new Error(
-      "Workspace ID must be the 64-character value from the openlaunch console",
-    );
+  const sdkToken =
+    options.sdkToken ?? process.env.OPENLAUNCH_SDK_TOKEN ??
+    (options.enrollmentToken || process.env.OPENLAUNCH_ENROLLMENT_TOKEN
+      ? undefined
+      : await askSecret("SDK token (hidden): ", input, output));
   const enrollmentToken =
-    options.enrollmentToken ??
-    process.env.OPENLAUNCH_ENROLLMENT_TOKEN ??
-    (await askSecret("One-use enrollment token (hidden): ", input, output));
-  if (!/^[a-f0-9]{64}$/.test(enrollmentToken))
-    throw new Error("Enrollment token must be 64 hexadecimal characters");
-  const manifest = {
-    ...DEFAULT_MANIFEST,
-    name: options.name?.trim() || DEFAULT_MANIFEST.name,
-  };
-  await createScaffold(directory, manifest);
-  const device = createDevice({ url, workspace, fetch: options.fetch });
-  const enrolled = await device.enroll({ token: enrollmentToken, manifest });
+    options.enrollmentToken ?? process.env.OPENLAUNCH_ENROLLMENT_TOKEN;
+  if (sdkToken && enrollmentToken)
+    throw new Error("Choose either OPENLAUNCH_SDK_TOKEN or the legacy enrollment token");
+
+  let workspace: string;
+  let manifest: DeviceManifest;
+  let enrolled: { deviceId: string; token: string };
+  let pendingPath: string | undefined;
+  if (sdkToken) {
+    workspace = sdkTokenWorkspace(sdkToken) ?? "";
+    if (!workspace)
+      throw new Error("SDK token must be an owner-issued openlaunch SDK token");
+    if (options.workspace && options.workspace !== workspace)
+      throw new Error("Workspace ID does not match the SDK token");
+    pendingPath = join(directory, ".setup-pending.json");
+    const pending = await readPendingSetup(pendingPath);
+    if (pending) {
+      if (pending.url !== url || pending.workspace !== workspace)
+        throw new Error("Pending setup belongs to a different URL or workspace");
+      if (options.name?.trim() && options.name.trim() !== pending.manifest.name)
+        throw new Error("Pending setup has a different device name; finish or remove that setup first");
+      manifest = pending.manifest;
+      await createScaffold(directory, manifest, true);
+      const device = createDevice({ url, token: sdkToken, fetch: options.fetch });
+      enrolled = await device.attach(manifest, pending.requestId);
+    } else {
+      manifest = {
+        ...DEFAULT_MANIFEST,
+        name: options.name?.trim() || DEFAULT_MANIFEST.name,
+      };
+      await createScaffold(directory, manifest);
+      const nextPending: PendingSetup = {
+        version: 1,
+        mode: "sdk",
+        url,
+        workspace,
+        requestId: randomUUID(),
+        manifest,
+      };
+      await writePendingSetup(pendingPath, nextPending);
+      const device = createDevice({ url, token: sdkToken, fetch: options.fetch });
+      enrolled = await device.attach(manifest, nextPending.requestId);
+    }
+  } else {
+    const token = enrollmentToken ??
+      (await askSecret("One-use enrollment token (hidden): ", input, output, "OPENLAUNCH_ENROLLMENT_TOKEN"));
+    if (!/^[a-f0-9]{64}$/.test(token))
+      throw new Error("Enrollment token must be 64 hexadecimal characters");
+    workspace =
+      options.workspace ??
+      process.env.OPENLAUNCH_WORKSPACE ??
+      (await askLine("Workspace ID: ", input, output));
+    if (!/^[a-f0-9]{64}$/.test(workspace))
+      throw new Error(
+        "Workspace ID must be the 64-character value from the openlaunch console",
+      );
+    manifest = {
+      ...DEFAULT_MANIFEST,
+      name: options.name?.trim() || DEFAULT_MANIFEST.name,
+    };
+    await createScaffold(directory, manifest);
+    const device = createDevice({ url, workspace, fetch: options.fetch });
+    enrolled = await device.enroll({ token, manifest });
+  }
   const identity: Identity = {
     url,
     workspace,
@@ -213,6 +356,7 @@ export async function setupDevice(options: SetupOptions = {}) {
     flag: "wx",
   });
   await chmod(identityPath, 0o600);
+  if (pendingPath) await rm(pendingPath, { force: true });
   if (options.enrollOnly || options.noStart) {
     output.write(
       `Paired ${manifest.name} (${enrolled.deviceId}). Run openlaunch-device run --directory ${directory} to start the adapter.\n`,
@@ -222,7 +366,14 @@ export async function setupDevice(options: SetupOptions = {}) {
   output.write(
     `Paired ${manifest.name} (${enrolled.deviceId}). Starting the adapter; press Ctrl-C to stop.\n`,
   );
-  await runDevice({ directory, fetch: options.fetch, input, output });
+  await runDevice({
+    directory,
+    fetch: options.fetch,
+    input,
+    output,
+    events: options.events,
+    webSocketFactory: options.webSocketFactory,
+  });
   return { directory, enrolled: true, deviceId: enrolled.deviceId };
 }
 
@@ -365,6 +516,8 @@ export async function runDevice(
     input?: NodeJS.ReadStream;
     output?: NodeJS.WriteStream;
     pollMs?: number;
+    events?: boolean;
+    webSocketFactory?: DeviceEventSocketFactory;
   } = {},
 ) {
   const directory = resolve(options.directory ?? "openlaunch-device");
@@ -387,20 +540,55 @@ export async function runDevice(
       "adapter.mjs manifest changed; publish it before running the adapter",
     );
   validateAdapter(adapter);
-  const device = createDevice({ ...identity, fetch: options.fetch });
+  const device = createDevice({
+    ...identity,
+    fetch: options.fetch,
+    webSocketFactory: options.webSocketFactory,
+  });
   const journalPath = join(directory, ".actions.json");
   const journal = await loadJournal(journalPath);
   const handlers = adapter.handlers!;
   const input = options.input ?? stdin;
   const output = options.output ?? stdout;
   let stopping = false;
+  let wakeGeneration = 0;
+  let waiting: (() => void) | undefined;
+  const wake = () => {
+    wakeGeneration++;
+    waiting?.();
+  };
   const stop = () => {
     stopping = true;
+    waiting?.();
   };
+  const waitFor = (milliseconds: number, sinceGeneration = wakeGeneration) =>
+    new Promise<void>((resolveWait) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        input.off?.("data", onData);
+        if (waiting === finish) waiting = undefined;
+        resolveWait();
+      };
+      const timer = setTimeout(finish, milliseconds);
+      const onData = (chunk: Buffer) => {
+        if (chunk.toString().includes("\u0003")) stop();
+        finish();
+      };
+      waiting = finish;
+      if (input.isTTY) input.once("data", onData);
+      if (wakeGeneration !== sinceGeneration || stopping) finish();
+    });
+  const eventChannel =
+    options.events === false ? undefined : device.openEvents(wake);
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  eventChannel?.start();
   try {
     while (!stopping) {
+      const flushGeneration = wakeGeneration;
       let journalFlushed: boolean;
       try {
         journalFlushed = await flushJournal(
@@ -424,11 +612,10 @@ export async function runDevice(
         output.write(
           "Connection interrupted; retrying result delivery shortly.\n",
         );
-        await new Promise((resolveWait) =>
-          setTimeout(resolveWait, Math.min(options.pollMs ?? POLL_MS, 10_000)),
-        );
+        await waitFor(Math.min(options.pollMs ?? POLL_MS, 10_000), flushGeneration);
         continue;
       }
+      const pollGeneration = wakeGeneration;
       try {
         const action = await device.nextAction();
         if (action) {
@@ -460,6 +647,7 @@ export async function runDevice(
           }
           continue;
         }
+        if (wakeGeneration !== pollGeneration) continue;
       } catch (error) {
         if (!(error instanceof OpenLaunchError)) throw error;
         if (
@@ -478,26 +666,14 @@ export async function runDevice(
         )
           throw error;
         output.write("Connection interrupted; retrying shortly.\n");
-        await new Promise((resolveWait) =>
-          setTimeout(resolveWait, Math.min(options.pollMs ?? POLL_MS, 10_000)),
-        );
+        await waitFor(Math.min(options.pollMs ?? POLL_MS, 10_000), pollGeneration);
         continue;
       }
-      await new Promise<void>((resolveWait) => {
-        const timer = setTimeout(done, options.pollMs ?? POLL_MS);
-        function done() {
-          input.off?.("data", onData);
-          resolveWait();
-        }
-        function onData(chunk: Buffer) {
-          if (chunk.toString().includes("\u0003")) stop();
-          clearTimeout(timer);
-          done();
-        }
-        if (input.isTTY) input.once("data", onData);
-      });
+      await waitFor(options.pollMs ?? POLL_MS, pollGeneration);
     }
   } finally {
+    eventChannel?.close();
+    waiting?.();
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
   }

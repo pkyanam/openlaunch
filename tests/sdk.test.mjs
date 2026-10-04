@@ -4,6 +4,7 @@ import {
   createClient,
   createDevice,
   OpenLaunchError,
+  sdkTokenWorkspace,
 } from "../packages/sdk/src/index.ts";
 
 const workspace = "a".repeat(64);
@@ -166,6 +167,102 @@ test("device bridge enrolls, polls and reports actual execution using device bea
   assert.equal(seen[1].headers.get("authorization"), `Bearer ${secret}`);
   assert.equal(seen[1].headers.get("x-openlaunch-workspace"), workspace);
   assert.equal((await seen[2].json()).status, "succeeded");
+});
+
+test("device SDK attaches with the same SDK token and retries using one request ID", async () => {
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+  const childCredential = "device-scoped-secret";
+  const sdkToken = `ol_sdk_${workspace}_${"b".repeat(64)}`;
+  const requestId = "123e4567-e89b-42d3-a456-426614174099";
+  const manifest = {
+    name: "sensor",
+    kind: "custom.rp2040",
+    capabilities: ["custom.sensor.read"],
+    functions: [
+      {
+        name: "custom.sensor.read",
+        title: "Read sensor",
+        description: "Read the value.",
+        access: "read",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+      },
+    ],
+  };
+  const seen = [];
+  let attachAttempts = 0;
+  const fetch = async (input, init) => {
+    const request = new Request(input, init);
+    seen.push(request);
+    if (new URL(request.url).pathname === "/v1/sdk/devices") {
+      attachAttempts++;
+      if (attachAttempts === 1) throw new Error("response lost after attach");
+      return Response.json({ data: { deviceId: id, token: childCredential } }, { status: 201 });
+    }
+    if (new URL(request.url).pathname.endsWith("/next"))
+      return Response.json({ data: null });
+    throw new Error("Unexpected request");
+  };
+  const device = createDevice({
+    url: "https://api.example.test",
+    token: sdkToken,
+    fetch,
+  });
+  assert.equal(sdkTokenWorkspace(sdkToken), workspace);
+  await assert.rejects(device.attach(manifest, requestId), (error) => error.status === 0);
+  const identity = await device.attach(manifest, requestId);
+  assert.deepEqual(identity, { deviceId: id, token: childCredential });
+  assert.equal(device.deviceId, id);
+  await device.nextAction();
+  assert.deepEqual(
+    seen.map((request) => new URL(request.url).pathname),
+    ["/v1/sdk/devices", "/v1/sdk/devices", `/v1/device/${id}/next`],
+  );
+  for (const request of seen.slice(0, 2)) {
+    assert.equal(request.headers.get("authorization"), `Bearer ${sdkToken}`);
+    assert.equal(request.headers.get("x-openlaunch-workspace"), workspace);
+    assert.deepEqual(await request.clone().json(), { requestId, manifest });
+  }
+  assert.equal(seen[2].headers.get("authorization"), `Bearer ${childCredential}`);
+  assert.equal(seen[2].headers.get("authorization").includes(sdkToken), false);
+});
+
+test("device SDK reports owner quota errors without falling back to device credentials", async () => {
+  const sdkToken = `ol_agent_${workspace}_${"c".repeat(64)}`;
+  const device = createDevice({
+    url: "https://api.example.test",
+    token: sdkToken,
+    fetch: async () =>
+      Response.json(
+        { error: { code: "device_limit", message: "internal detail" } },
+        { status: 429 },
+      ),
+  });
+  await assert.rejects(
+    device.attach(
+      { name: "x", kind: "custom.device", capabilities: ["device.health"] },
+      "123e4567-e89b-42d3-a456-426614174099",
+    ),
+    (error) => {
+      assert.ok(error instanceof OpenLaunchError);
+      assert.equal(error.status, 429);
+      assert.equal(error.code, "device_limit");
+      assert.equal(error.message.includes("internal detail"), false);
+      return true;
+    },
+  );
+  assert.throws(
+    () =>
+      createDevice({
+        url: "https://api.example.test",
+        token: "malformed",
+      }),
+    /SDK token/,
+  );
 });
 
 test("SDK rejects unsafe origins, missing retry keys, and hides server response text", async () => {

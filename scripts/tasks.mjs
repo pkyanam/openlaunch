@@ -47,11 +47,11 @@ function pi() {
     );
 }
 function build() {
+  host();
+  pi();
   npm("build", "--workspace", "@openlaunch/site");
   npm("build", "--workspace", "@openlaunch/web");
   npm("build", "--workspace", "@openlaunch/cloud");
-  host();
-  pi();
 }
 function firmware() {
   run(process.execPath, ["scripts/firmware.mjs", ...process.argv.slice(3)]);

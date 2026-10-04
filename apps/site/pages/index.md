@@ -4,7 +4,7 @@ Connect your agents to your hardware. openlaunch is an open source bridge for Ch
 
 ## Get started
 
-[Open your console](/console/) and sign in with Google. Pair a board using its setup guide, choose the functions your agent may use, and connect ChatGPT or Codex.
+[Open your console](/console/) and sign in with Google. Create one SDK token in Connections for SDK agents and device setup, then approve functions for each paired device. ChatGPT and Codex can also connect through MCP OAuth.
 
 For a local development bridge, install Node 24+ and Git, then run:
 
@@ -18,11 +18,12 @@ curl -fsSL https://www.openlaunch.dev/install.sh | bash
 
 - [Uno R4 WiFi](/docs/uno-r4): health, built-in LED, and ASCII matrix text. Stock and repaired console-mux builds are isolated.
 - [Raspberry Pi 4 Model B, 4GB or 8GB](/docs/pi): health through the Go agent.
+- Any board can connect through the [device SDK](/docs/sdk) or its documented HTTP protocol. A custom adapter needs to implement the functions it advertises.
 
-Enrollment is single-use and expires after 10 minutes. Pairing registers your board; a separate capability grant lets an agent use it. Devices poll every 10 seconds. A queued action has not completed: inspect its final result.
+Device pairing creates a private device credential. The owner separately grants an agent specific functions on that device. Devices poll every 10 seconds. A queued action has not completed: inspect its final result.
 
 ## Build and learn
 
-[Architecture](/docs/architecture) · [Permissions](/docs/pairing) · [Agent connections](/docs/agents) · [Verification](/docs/status) · [Upstream SDKs, OS images and tools](/docs/resources)
+[Device and agent SDK](/docs/sdk) · [Permissions](/docs/pairing) · [Agent connections](/docs/agents) · [Verification](/docs/status) · [Upstream SDKs, OS images and tools](/docs/resources)
 
 Each documentation page has a Markdown download. Search, browser narration, PDF and EPUB export are available in the docs. The read-only documentation MCP endpoint is `/docs-mcp`; it cannot control devices.

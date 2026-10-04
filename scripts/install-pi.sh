@@ -31,38 +31,38 @@ bin_dir="$pi_install_home/.local/bin"
 config_dir="$pi_install_home/.config/openlaunch"
 binary="$bin_dir/openlaunch-device"
 config="$config_dir/device.json"
+pending="$config.attach-pending"
+expired_pending="$pending.expired"
 [[ ! -L "$bin_dir" && ! -L "$config_dir" ]] || fail 'refusing symlinked installation directories'
 [[ ! -e "$binary" && ! -L "$binary" ]] || fail "refusing to replace existing binary: $binary"
 [[ ! -e "$config" && ! -L "$config" ]] || fail "refusing to overwrite existing device identity: $config"
+[[ ! -L "$pending" ]] || fail "refusing symlinked pending attachment: $pending"
+[[ ! -e "$expired_pending" && ! -L "$expired_pending" ]] || fail "previous SDK attachment retry expired; check device inventory before removing $expired_pending and starting another request"
 
-workspace="${OPENLAUNCH_WORKSPACE_ID:-}"
-enrollment_token="${OPENLAUNCH_ENROLLMENT_TOKEN:-}"
-if [[ -z "$workspace" || -z "$enrollment_token" ]]; then
+sdk_token="${OPENLAUNCH_SDK_TOKEN:-}"
+if [[ -z "$sdk_token" ]]; then
   [[ -r /dev/tty ]] || fail 'interactive terminal required; run this from a terminal on the Pi'
-  if [[ -z "$workspace" ]]; then
-    IFS= read -r -p 'Workspace ID from the openlaunch portal: ' workspace < /dev/tty || fail 'could not read workspace ID'
-  fi
-  if [[ -z "$enrollment_token" ]]; then
-    IFS= read -r -s -p 'One-time Pi enrollment code (hidden): ' enrollment_token < /dev/tty || fail 'could not read enrollment code'
-    printf '\n' > /dev/tty
-  fi
+  IFS= read -r -s -p 'openlaunch SDK token (hidden): ' sdk_token < /dev/tty || fail 'could not read SDK token'
+  printf '\n' > /dev/tty
 fi
-[[ -n "$workspace" ]] || fail 'workspace ID is required'
-[[ -n "$enrollment_token" ]] || fail 'enrollment code is required'
-[[ "$workspace" =~ ^[a-f0-9]{64}$ ]] || fail 'workspace ID must be the 64-character lowercase value shown by the portal'
-[[ "$enrollment_token" =~ ^[a-f0-9]{64}$ ]] || fail 'enrollment code must be the 64-character lowercase value shown by the portal'
+[[ "$sdk_token" =~ ^ol_(sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}$ ]] || fail 'SDK token must be an owner-issued openlaunch token'
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/openlaunch-pi.XXXXXXXX")" || fail 'could not create a temporary directory'
 installed_binary=0
 installed_config=0
 enrollment_started=0
+attachment_complete=0
 cleanup() {
   status=$?
-  unset enrollment_token OPENLAUNCH_ENROLLMENT_TOKEN OPENLAUNCH_WORKSPACE_ID
+  unset sdk_token OPENLAUNCH_SDK_TOKEN
   if ((status != 0 && enrollment_started == 1)); then
-    printf 'Enrollment may have consumed the one-time code. Check portal inventory before retrying; if a device was created without a saved credential, revoke it and create a new enrollment.\n' >&2
+    if [[ -f "$pending" && ! -L "$pending" ]]; then
+      printf 'Attachment may have completed after a lost response. The private pending request was kept at %s; rerun with the same SDK token within 10 minutes. After that window, check device inventory before starting a new request.\n' "$pending" >&2
+    else
+      printf 'Attachment did not finish. Check device inventory before starting another request.\n' >&2
+    fi
   fi
-  if ((status != 0)); then
+  if ((status != 0 && attachment_complete == 0)); then
     ((installed_binary == 0)) || rm -f -- "$binary"
     ((installed_config == 0)) || rm -f -- "$config"
   fi
@@ -76,7 +76,6 @@ trap 'exit 143' TERM
 chmod 700 "$tmp"
 manifest="$tmp/manifest.json"
 download="$tmp/openlaunch-device"
-staged_config="$tmp/device.json"
 
 curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-redirs 0 --max-filesize 32768 \
   --connect-timeout 15 --max-time 30 --output "$manifest" "$manifest_url" || fail 'could not download the release manifest over HTTPS'
@@ -145,25 +144,36 @@ if h.hexdigest() != expected:
 PY
 chmod 700 "$download"
 
-# Enrollment credentials are passed only in the environment, as required by
-# the device CLI; they never appear in the process argument list.
-enrollment_started=1
-OPENLAUNCH_ENROLLMENT_TOKEN="$enrollment_token" "$download" \
-  --enroll --url "$origin" --workspace "$workspace" --config "$staged_config" || fail 'device enrollment failed; no installed files were changed'
-unset enrollment_token OPENLAUNCH_ENROLLMENT_TOKEN OPENLAUNCH_WORKSPACE_ID
-[[ -s "$staged_config" ]] || fail 'enrollment did not create a device configuration'
-chmod 600 "$staged_config"
-enrollment_started=0
-
-mkdir -p "$bin_dir"
-if [[ ! -d "$config_dir" ]]; then
-  mkdir -m 700 -p "$config_dir"
+# Keep retry metadata at its durable final path. The Go runtime writes it
+# before sending the request and removes it only after saving the child device
+# credential, so an interrupted installer can safely resume the exact attach.
+mkdir -m 700 -p "$config_dir"
+chmod 700 "$config_dir"
+[[ ! -L "$config_dir" && ! -L "$pending" ]] || fail 'refusing symlinked configuration or pending attachment'
+if [[ -e "$pending" ]]; then
+  [[ -f "$pending" ]] || fail 'pending attachment is not a regular file'
+  printf 'Resuming the saved attachment request; use the same SDK token.\n'
 fi
+
+# Put the verified binary in place before attachment. A failed exchange keeps
+# the retry record but removes this binary, leaving the next installer run able
+# to resume the same request.
+mkdir -p "$bin_dir"
 mv -- "$download" "$binary"
 installed_binary=1
-mv -- "$staged_config" "$config"
-installed_config=1
 chmod 700 "$binary"
+
+# The owner SDK token is passed only in the environment, never in argv or the
+# saved device configuration.
+enrollment_started=1
+OPENLAUNCH_SDK_TOKEN="$sdk_token" "$binary" \
+  --attach --url "$origin" --config "$config" || fail 'device attachment failed; installation was not completed'
+unset sdk_token OPENLAUNCH_SDK_TOKEN
+[[ -s "$config" ]] || fail 'attachment did not create a device configuration'
+enrollment_started=0
+installed_config=1
+attachment_complete=1
+chmod 600 "$config"
 
 printf '\nopenlaunch Pi agent installed (%s, %s).\n' "$version" "$artifact_arch"
 printf 'Device credentials are stored privately at %s\n' "$config"

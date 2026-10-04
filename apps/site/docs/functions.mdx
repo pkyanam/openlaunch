@@ -37,11 +37,13 @@ Give the function a name, a short explanation, and a schema for its inputs. Incl
 
 Capability names use lowercase dot-separated segments, for example `sensor.temperature` or `light.brightness`. Inputs support booleans, bounded numbers or integers, and strings with a maximum length and optional choices. Use at most 16 named parameters and 16 functions per device. External schema references and executable input schemas are rejected. Standard function names cannot be overridden. Capability names identify operations; they do not add implementations to your adapter.
 
+For custom GPIO, publish a purpose-specific function with bounded inputs, such as a named output and an on/off value, then implement that operation in your device handler. A manifest does not provide arbitrary pin access; the Uno's built-in integration has no general GPIO function.
+
 ## Use it in the console
 
-After pairing your adapter, its function appears on the device card with a form based on its schema. Choose the parameters and run it. The receipt starts queued; inspect its result after the device polls.
+After pairing your adapter, its function appears on the device with a form based on its schema. Choose the parameters and run it. The receipt starts queued; inspect its result after the device polls.
 
-Create a named connection in **Agents** and issue a bridge SDK token for the agent. The secret is shown once and can be revoked or replaced there. Then grant that connection only the functions it needs on each device, with an expiry. Token validity alone does not grant access to a device. Approved custom functions appear in the agent's MCP tools automatically. Their names identify the device as well as the function. Revoking a grant also blocks an already-discovered tool from running. See the [Device and agent SDK guide](/sdk) for SDK usage and the [agent guide](/agents) for MCP clients.
+In **Connections**, create one SDK token for the agent and choose its access and expiry. If that token will also pair devices, enable attachment and set its device limit. In each device's **Access** view, grant the connection only the functions it needs and choose a grant expiry. A valid token by itself does not grant device functions. Approved custom functions appear in the agent's tools automatically. Revoking a grant also blocks a previously discovered tool. See the [Device and agent SDK guide](/sdk) for the one-command setup and [agent guide](/agents) for MCP clients.
 
 Firmware or adapter changes require a matching manifest. SDK adapters can call `publishManifest(manifest)` after implementing their functions. Changed manifests clear existing grants and cancel queued actions, so owners approve the updated functions before agents can use them. Requests already delivered become uncertain; publishing a manifest cannot undo a physical action. Changing a device's kind requires a new enrollment.
 

@@ -1,3 +1,4 @@
+import { createDeviceCredentialDeriver } from "../../../packages/core/src/device-credentials.ts";
 import { createServer } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { timingSafeEqual } from "node:crypto";
@@ -95,7 +96,12 @@ const server = createServer((req, res) => {
               return { id: "local-agent", owner: false };
             throw new Fault("unauthorized", 401, "Valid bearer required");
           },
-          { workspace: "0".repeat(64) },
+          {
+            workspace: "0".repeat(64),
+            deviceCredentials: createDeviceCredentialDeriver(
+              process.env.OPENLAUNCH_DEVICE_CREDENTIAL_KEYS,
+            ),
+          },
         );
         db.prepare(
           "INSERT INTO hub(id,state) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",

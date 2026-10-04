@@ -1,6 +1,6 @@
 ---
 title: Uno R4 WiFi
-description: Build isolated stock or console-mux Uno R4 WiFi firmware, provision over USB and verify health, LED and matrix text on your actual board.
+description: Build and provision Uno R4 WiFi firmware over USB with an owner-issued SDK token, then inspect permissions and hardware results.
 ---
 
 ## Implemented capabilities
@@ -36,13 +36,13 @@ Follow the complete [transport profile guide](https://github.com/pkyanam/openlau
 
 1. Connect USB and run `arduino-cli board list`. Identify the exact board and port; close serial monitors.
 2. Upload only the matching profile's compiled sketch to the confirmed port. The RA sketch upload is separate from ESP connectivity firmware.
-3. Start the trusted HTTPS test bridge, open its owner console and choose Devices → Add device → Arduino Uno R4 WiFi.
-4. Run the interactive provisioner with the confirmed port, HTTPS origin and workspace ID:
+3. In **Connections**, create an SDK token with device attachment enabled.
+4. Run the provisioner with the confirmed USB port and HTTPS bridge origin:
 
 ```sh
-npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE
+npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://www.openlaunch.dev
 ```
 
-The helper hides sensitive entries and asks before sending. It does not write credentials to a file. If pairing confirmation times out, inspect inventory before enrolling again.
+The helper prompts for Wi-Fi details and the SDK token, hiding sensitive input, then asks before sending the setup to the board. The workspace comes from the token; you do not need to copy it separately. It does not write credentials to a computer file. After pairing, the console opens the device's **Access** view so you can grant functions separately. If pairing confirmation times out, inspect **Devices** before retrying with the same token; do not start a second attachment request.
 
-Credentials are plaintext in EEPROM. Use an appropriate test network. TLS verification and a valid clock are mandatory. Confirm real health/RSSI, physically observe the LED and matrix, then run the [permission acceptance checks](/pairing).
+The firmware stores its device identity in EEPROM. Use an appropriate test network. TLS verification and a valid clock are mandatory. Firmware compile success does not establish physical operation: confirm real health/RSSI, physically observe the LED and matrix, then run the [permission acceptance checks](/pairing). Physical board acceptance remains pending; see [Verification](/status).
