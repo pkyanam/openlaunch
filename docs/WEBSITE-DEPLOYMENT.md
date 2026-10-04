@@ -32,7 +32,12 @@ For firmware and device acceptance, use [MAC-HANDOFF.md](MAC-HANDOFF.md) and [UN
 
 The device Worker stores workspace collections as individual rows in native
 SQLite. Read-only requests leave rows unchanged; a normal idle poll changes only
-the device's last-seen record. Action outcomes, grants and audit changes commit
+the device's last-seen record. A warm object caches hydrated records and their
+committed row baseline, so repeat polls do not read the full SQLite table.
+Authentication, ticket creation and socket upgrades share that state. Any failed
+operation or transaction discards the cache; a restart or hibernation reloads
+and validates durable records. Diff planning still visits the records in memory.
+Action outcomes, grants and audit changes commit
 in one synchronous transaction. Audit rollover retains stable record identities
 and removes only the oldest entry.
 

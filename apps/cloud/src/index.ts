@@ -6,7 +6,7 @@ import {
   type Principal,
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
-import { withWorkspaceSQLiteState } from "./sqlite-state.ts";
+import { WorkspaceSQLiteStateCache } from "./sqlite-state.ts";
 import { DeviceEvents, type DeviceEventsSocket } from "./device-events.ts";
 interface Env extends ClerkEnv {
   HUBS: DurableObjectNamespace;
@@ -19,10 +19,15 @@ interface Env extends ClerkEnv {
 }
 export class WorkspaceHub extends DurableObject<Env> {
   private readonly events: DeviceEvents;
+  private readonly workspaceState: WorkspaceSQLiteStateCache;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.workspaceState = new WorkspaceSQLiteStateCache(
+      ctx.storage,
+      ctx.storage.sql,
+    );
     this.events = new DeviceEvents(ctx, async (id, credential) =>
-      withWorkspaceSQLiteState(ctx.storage, ctx.storage.sql, (hub) =>
+      this.workspaceState.withState((hub) =>
         hub.authenticateDevice(id, credential),
       ),
     );
@@ -40,13 +45,10 @@ export class WorkspaceHub extends DurableObject<Env> {
           return this.events.handleTicket(request, eventRoute[1]!);
         // Ticket possession must not outlive canonical device revocation, even
         // if clearing the ticket store previously failed after the state commit.
-        const active = await withWorkspaceSQLiteState(
-          this.ctx.storage,
-          this.ctx.storage.sql,
-          async (hub) =>
-            hub.state.devices.some(
-              (device) => device.id === eventRoute[1] && !device.revoked,
-            ),
+        const active = await this.workspaceState.withState(async (hub) =>
+          hub.state.devices.some(
+            (device) => device.id === eventRoute[1] && !device.revoked,
+          ),
         );
         if (!active)
           return Response.json(
@@ -62,40 +64,36 @@ export class WorkspaceHub extends DurableObject<Env> {
       }
       const principal = request.headers.get("x-openlaunch-principal");
       let wake: string[] = [];
-      const response = await withWorkspaceSQLiteState(
-        this.ctx.storage,
-        this.ctx.storage.sql,
-        async (hub) => {
-          const queued = new Set(
-            hub.state.actions
-              .filter((a) => a.status === "queued")
-              .map((a) => a.id),
-          );
-          const response = await handle(
-            request,
-            hub,
-            async () => {
-              if (!principal) throw new Error("Missing trusted principal");
-              return JSON.parse(principal) as Principal;
-            },
-            {
-              workspace: request.headers.get("x-openlaunch-workspace") ?? "",
-              deviceCredentials: createDeviceCredentialDeriver(
-                this.env.DEVICE_CREDENTIAL_KEYS,
-                this.env.DEVICE_CREDENTIAL_KEY_VERSION ?? "v1",
-              ),
-            },
-          );
-          wake = [
-            ...new Set(
-              hub.state.actions
-                .filter((a) => a.status === "queued" && !queued.has(a.id))
-                .map((a) => a.deviceId),
+      const response = await this.workspaceState.withState(async (hub) => {
+        const queued = new Set(
+          hub.state.actions
+            .filter((a) => a.status === "queued")
+            .map((a) => a.id),
+        );
+        const response = await handle(
+          request,
+          hub,
+          async () => {
+            if (!principal) throw new Error("Missing trusted principal");
+            return JSON.parse(principal) as Principal;
+          },
+          {
+            workspace: request.headers.get("x-openlaunch-workspace") ?? "",
+            deviceCredentials: createDeviceCredentialDeriver(
+              this.env.DEVICE_CREDENTIAL_KEYS,
+              this.env.DEVICE_CREDENTIAL_KEY_VERSION ?? "v1",
             ),
-          ];
-          return response;
-        },
-      );
+          },
+        );
+        wake = [
+          ...new Set(
+            hub.state.actions
+              .filter((a) => a.status === "queued" && !queued.has(a.id))
+              .map((a) => a.deviceId),
+          ),
+        ];
+        return response;
+      });
       // Notify only after the canonical action state has been durably committed.
       if (wake.length) this.events.notify(wake);
       const revoked = /^\/v1\/devices\/([a-f0-9-]{36})\/revoke$/.exec(path);

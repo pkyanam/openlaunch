@@ -4,6 +4,8 @@
 
 The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, SDK acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. On deployed commit `873f82900d99125782e7e9347753e6ee675ee90e`, the public, commit-selected `npx` installer paired a software adapter. The official Codex client discovered its approved custom function over Clerk OAuth, invoked it, and followed the action to completion. The adapter verified the matching server receipt before acknowledging its durable journal entry. Both acceptance fixtures, SDK tokens and device identities were revoked and removed afterward. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
 
+The native SQLite migration deployed on commit `c4f34da7e4569864e8d8a8320c006eaf4d981554`; owner refresh and full-history download preserved all saved receipts. Commit `bf90990f6c29fd1a5da5eb10a65b141afded0206` added shared byte admission and result reservations, passed 111 tests and all deployment CI jobs, and retained the same owner history after deployment. These checks do not substitute for physical board acceptance.
+
 ## Install/build
 
 Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not source scripts/env.sh on your Mac: it is the cloud staging wrapper.
@@ -69,7 +71,7 @@ Upload only after identifying the actual connected board/port. Firmware requires
 ## Remaining acceptance work
 
 - Test OAuth refresh/revocation and reviewer access without inbox dependence
-- Review account-level abuse protection, request-rate limits, quota metering and history retention/export; authenticated Node event hints already have a 10-second HTTPS polling fallback
+- Profile large-workspace heap usage and request cost before raising the 16 MiB logical quota; review account-level abuse protection, usage metering and history archiving. Owner history export, shared admission checks and pending-result reservations are implemented; authenticated Node event hints retain a 10-second HTTPS polling fallback
 - Test actual Pi/R4 Wi-Fi, TLS, time sync, USB provisioning, power loss and reconnect
 - Review bounded streaming response parsing before expanding Uno beyond its built-in functions
 - Implement firmware signing/update/rollback; public installers and SDK archives already pass checksum and packaging checks

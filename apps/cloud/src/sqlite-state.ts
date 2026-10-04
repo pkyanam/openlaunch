@@ -357,6 +357,11 @@ function persistDiff(
       );
     }
   });
+  // Keep the in-memory baseline aligned only after the complete SQL
+  // transaction commits. A failed transaction leaves it untouched.
+  for (const key of deletes) existing.delete(key);
+  for (const row of writes)
+    existing.set(`${row.collection}\0${row.record_id}`, row);
   return true;
 }
 
@@ -461,17 +466,45 @@ async function ensureMigrationGuard(
 }
 
 /**
- * Preserve Hub's existing state and API semantics while storing state records
- * individually in Durable Object SQLite and committing only changed rows.
+ * Per-Durable-Object hydrated Hub cache. Construct one instance per WorkspaceHub
+ * and call it only inside the object's serialized blockConcurrencyWhile path.
+ * Hibernation/reconstruction naturally creates a cold cache and revalidates SQL
+ * schema plus the legacy KV guard. WebSocket message handling must stay
+ * independent; the current handler accepts only socket ping frames.
  */
+export class WorkspaceSQLiteStateCache {
+  private cached?: { state: State; existing: Map<string, StoredRow> };
+
+  constructor(
+    private readonly storage: WorkspaceSQLiteStorage,
+    private readonly sql: WorkspaceSQL,
+  ) {}
+
+  async withState<T>(operation: (hub: Hub) => Promise<T> | T): Promise<T> {
+    let loaded: { state: State; existing: Map<string, StoredRow> } | undefined;
+    try {
+      loaded = this.cached ?? (await loadOrMigrate(this.storage, this.sql));
+      this.cached = loaded;
+      const hub = new Hub(loaded.state);
+      const result = await operation(hub);
+      persistDiff(this.storage, this.sql, loaded.existing, hub.state);
+      loaded.state = hub.state;
+      this.cached = loaded;
+      return result;
+    } catch (error) {
+      // A failed callback may have mutated its Hub before throwing; a failed
+      // persistence transaction must also reload from the committed baseline.
+      this.cached = undefined;
+      throw error;
+    }
+  }
+}
+
+/** Stateless convenience API for tests and one-shot callers. */
 export async function withWorkspaceSQLiteState<T>(
   storage: WorkspaceSQLiteStorage,
   sql: WorkspaceSQL,
   operation: (hub: Hub) => Promise<T> | T,
 ): Promise<T> {
-  const loaded = await loadOrMigrate(storage, sql);
-  const hub = new Hub(loaded.state);
-  const result = await operation(hub);
-  persistDiff(storage, sql, loaded.existing, hub.state);
-  return result;
+  return new WorkspaceSQLiteStateCache(storage, sql).withState(operation);
 }

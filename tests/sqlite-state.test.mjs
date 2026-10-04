@@ -1,14 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { Hub, emptyState } from "../packages/core/src/index.ts";
 import { withWorkspaceState } from "../apps/cloud/src/state.ts";
-import { withWorkspaceSQLiteState } from "../apps/cloud/src/sqlite-state.ts";
+import {
+  WorkspaceSQLiteStateCache,
+  withWorkspaceSQLiteState,
+} from "../apps/cloud/src/sqlite-state.ts";
 
 function createHarness(initial) {
   const db = new DatabaseSync(":memory:");
   let failAt = 0;
   let mutationNumber = 0;
+  let fullRowReads = 0;
   const mutations = [];
   const sql = {
     exec(query, ...bindings) {
@@ -19,8 +24,11 @@ function createHarness(initial) {
         if (failAt === mutationNumber)
           throw new Error("injected sqlite write failure");
       }
-      if (/^(SELECT|PRAGMA)/i.test(trimmed))
+      if (/^(SELECT|PRAGMA)/i.test(trimmed)) {
+        if (trimmed.includes("FROM openlaunch_records ORDER BY"))
+          fullRowReads++;
         return { toArray: () => db.prepare(query).all(...bindings) };
+      }
       db.prepare(query).run(...bindings);
       return { toArray: () => [] };
     },
@@ -34,6 +42,9 @@ function createHarness(initial) {
     },
     get mutations() {
       return mutations;
+    },
+    get fullRowReads() {
+      return fullRowReads;
     },
     db,
   };
@@ -505,6 +516,127 @@ test("non-audit collection order survives replacement and pruning", async () => 
       (hub) => hub.state.grants,
     );
     assert.deepEqual(restored, changed);
+  } finally {
+    h.close();
+  }
+});
+
+test("a warm workspace cache skips SQL full reads and read-only writes", async () => {
+  const h = createHarness(legacyState({ devices: [device(1)] }));
+  const cache = new WorkspaceSQLiteStateCache(h.storage, h.sql);
+  try {
+    await cache.withState((hub) => hub.list({ id: "owner", owner: true }));
+    assert.equal(h.sql.fullRowReads, 1);
+    const kvWrites = h.storage.writes.length;
+    h.sql.clearMutations();
+    await cache.withState((hub) => hub.list({ id: "owner", owner: true }));
+    await cache.withState((hub) => hub.list({ id: "owner", owner: true }));
+    assert.equal(h.sql.fullRowReads, 1);
+    assert.equal(h.sql.mutations.length, 0);
+    assert.equal(h.storage.writes.length, kvWrites);
+  } finally {
+    h.close();
+  }
+});
+
+test("a committed revocation is visible to authentication through the warm cache", async () => {
+  const token = "device-credential";
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const h = createHarness(
+    legacyState({ devices: [{ ...device(1), tokenHash }] }),
+  );
+  const cache = new WorkspaceSQLiteStateCache(h.storage, h.sql);
+  try {
+    assert.equal(
+      (
+        await cache.withState((hub) =>
+          hub.authenticateDevice("device-1", token),
+        )
+      ).id,
+      "device-1",
+    );
+    const reads = h.sql.fullRowReads;
+    await cache.withState((hub) =>
+      hub.revoke({ id: "owner", owner: true }, "device-1"),
+    );
+    h.sql.clearMutations();
+    await assert.rejects(
+      cache.withState((hub) => hub.authenticateDevice("device-1", token)),
+      /not found or revoked/i,
+    );
+    assert.equal(h.sql.fullRowReads, reads);
+    assert.equal(h.sql.mutations.length, 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("a new cache instance cold-hydrates committed state", async () => {
+  const h = createHarness(legacyState({ devices: [device(1)] }));
+  try {
+    const first = new WorkspaceSQLiteStateCache(h.storage, h.sql);
+    await first.withState((hub) => {
+      hub.state.devices[0].lastSeen = 222;
+    });
+    assert.equal(h.sql.fullRowReads, 1);
+    const second = new WorkspaceSQLiteStateCache(h.storage, h.sql);
+    assert.equal(
+      await second.withState((hub) => hub.state.devices[0].lastSeen),
+      222,
+    );
+    assert.equal(h.sql.fullRowReads, 2);
+  } finally {
+    h.close();
+  }
+});
+
+test("failed SQL persistence rolls back and invalidates the warm cache", async () => {
+  const h = createHarness(legacyState({ devices: [device(1)] }));
+  const cache = new WorkspaceSQLiteStateCache(h.storage, h.sql);
+  try {
+    await cache.withState((hub) => hub.list({ id: "owner", owner: true }));
+    h.sql.clearMutations();
+    h.sql.failOnMutation(2);
+    await assert.rejects(
+      cache.withState((hub) => {
+        hub.state.devices[0].lastSeen = 987654;
+        hub.state.audit.push({
+          at: 1,
+          event: "changed",
+          target: "device-1",
+          principal: "owner",
+        });
+      }),
+      /injected sqlite write failure/,
+    );
+    h.sql.failOnMutation(0);
+    assert.equal(
+      await cache.withState((hub) => hub.state.devices[0].lastSeen),
+      1,
+    );
+    assert.equal(h.sql.fullRowReads, 2);
+  } finally {
+    h.close();
+  }
+});
+
+test("an operation failure invalidates partially mutated cached state", async () => {
+  const h = createHarness(legacyState({ devices: [device(1)] }));
+  const cache = new WorkspaceSQLiteStateCache(h.storage, h.sql);
+  try {
+    await cache.withState((hub) => hub.list({ id: "owner", owner: true }));
+    await assert.rejects(
+      cache.withState((hub) => {
+        hub.state.devices[0].lastSeen = 999;
+        throw new Error("operation failed after mutation");
+      }),
+      /operation failed after mutation/,
+    );
+    assert.equal(
+      await cache.withState((hub) => hub.state.devices[0].lastSeen),
+      1,
+    );
+    assert.equal(h.sql.fullRowReads, 2);
   } finally {
     h.close();
   }

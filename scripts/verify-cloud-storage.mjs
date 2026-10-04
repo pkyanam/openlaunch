@@ -173,6 +173,39 @@ try {
   assert.deepEqual(history.actions[0].result, { softwareFixture: true });
   await api(stub, `/v1/devices/${paired.deviceId}/revoke`, "POST", {});
   assert.deepEqual(await api(stub, "/v1/devices"), []);
+  async function deniedDeviceRoutes(target) {
+    const headers = {
+      "x-openlaunch-workspace": workspace,
+      authorization: `Bearer ${paired.token}`,
+      "content-type": "application/json",
+    };
+    const next = await target.fetch(
+      `https://www.openlaunch.dev/v1/device/${paired.deviceId}/next`,
+      { method: "POST", headers, body: "{}" },
+    );
+    assert.equal(next.status, 404);
+    const upgrade = await target.fetch(
+      `https://www.openlaunch.dev/v1/device/${paired.deviceId}/events`,
+      {
+        headers: {
+          ...headers,
+          upgrade: "websocket",
+          "sec-websocket-protocol": `openlaunch.device.v1, ticket.${"c".repeat(64)}`,
+        },
+      },
+    );
+    assert.equal(upgrade.status, 401);
+    const ticket = await target.fetch(
+      `https://www.openlaunch.dev/v1/device/${paired.deviceId}/events-ticket`,
+      { method: "POST", headers, body: "{}" },
+    );
+    assert.equal(ticket.status, 404);
+  }
+  await deniedDeviceRoutes(stub);
+  await worker.dispose();
+  worker = undefined;
+  stub = await object();
+  await deniedDeviceRoutes(stub);
   console.log(
     "PASS: workerd SQLite attachment, restart, idempotency, grants, outcome, export and revocation",
   );
