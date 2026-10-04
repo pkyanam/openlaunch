@@ -104,6 +104,13 @@ export class WorkspaceHub extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.protocol !== "https:")
+      return Response.json(
+        {
+          error: { code: "https_required", message: "Use the HTTPS endpoint" },
+        },
+        { status: 426, headers: { "cache-control": "no-store" } },
+      );
     if (url.pathname === "/healthz")
       return Response.json({
         service: "openlaunch",

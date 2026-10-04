@@ -58,7 +58,7 @@ For a Linux machine, gateway or Node adapter, open **Devices → Add device** an
 npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url https://www.openlaunch.dev
 ```
 
-The command asks only for the SDK token, with the input hidden. It gets the workspace from the token, creates a starter adapter, saves a private per-device credential, and starts polling. It never saves the SDK token. If setup loses its connection, rerun the same command with the same token within 10 minutes to resume the saved request.
+The command asks only for the SDK token, with the input hidden. It gets the workspace from the token, creates a starter adapter, saves a private per-device credential, and starts the Node runner. It never saves the SDK token. If setup loses its connection, rerun the same command with the same token within 10 minutes to resume the saved request.
 
 After the device appears, the console opens its **Access** view. Choose which functions the agent connection may use and set a grant expiry. The starter reports the adapter process health; connect your hardware library and implement its functions in `adapter.mjs` to control real hardware.
 
@@ -91,11 +91,11 @@ const identity = await device.attach(manifest, crypto.randomUUID());
 // Store identity.deviceId and identity.token in protected device storage.
 ```
 
-`createDevice()` uses the SDK token only to attach; the device polls with the private child credential. The SDK keeps credentials in memory, so store the returned device identity securely if the process must restart. `nextAction()` retrieves one action and `submitResult()` reports its outcome.
+`createDevice()` uses the SDK token only to attach; the device polls with the private child credential. The SDK keeps credentials in memory, so store the returned device identity securely if the process must restart. `nextAction()` retrieves one action and `submitResult()` reports its outcome. Node adapters can call `openEvents(onWake)` to receive a wake hint and immediately check `nextAction()` over HTTPS.
 
 ## Bring another board
 
-Use the Node adapter beside the board, or implement the same HTTPS attach, poll and result flow in firmware. A custom device kind such as `custom.rp2040` does not need a built-in board profile. Declare only the functions your adapter implements, using bounded input fields. A manifest is a description and input schema; it does not install firmware or create hardware support.
+The Node runner uses an authenticated WebSocket for payload-free wake hints. It fetches the actual action over HTTPS and keeps its 10-second HTTP poll as a fallback. The hint connection uses a short-lived ticket in the WebSocket handshake; it never carries action arguments or results. Other runtimes, including Go, Uno and ESP32, continue to poll over HTTPS every 10 seconds. A custom device kind such as `custom.rp2040` does not need a built-in board profile. Declare only the functions your adapter implements, using bounded input fields. A manifest is a description and input schema; it does not install firmware or create hardware support.
 
 The maintained integrations are Uno R4 WiFi and Raspberry Pi. Their real board behavior is still subject to the hardware checks in the [verification guide](/status). See [Build your own functions](/functions) for input and permission rules, and the [API reference](/api) for request routes.
 

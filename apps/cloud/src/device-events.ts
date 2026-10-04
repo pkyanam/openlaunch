@@ -229,6 +229,8 @@ export class DeviceEvents {
       return errorResponse(404, "not_found", "Route not found");
     if (request.method !== "POST")
       return errorResponse(405, "method", "Method not allowed");
+    if (new URL(request.url).protocol !== "https:")
+      return errorResponse(426, "https_required", "HTTPS is required");
     if (!sameOrigin(request))
       return errorResponse(403, "origin", "Cross-origin request rejected");
     const url = new URL(request.url);
@@ -297,6 +299,8 @@ export class DeviceEvents {
         "upgrade_required",
         "WebSocket upgrade required",
       );
+    if (new URL(request.url).protocol !== "https:")
+      return errorResponse(426, "https_required", "HTTPS is required");
     if (!sameOrigin(request))
       return errorResponse(403, "origin", "Cross-origin request rejected");
     const url = new URL(request.url);

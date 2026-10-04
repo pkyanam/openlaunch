@@ -116,11 +116,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   );
   const adapterSetupCommand = `npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(window.location.origin)}`;
   const codexConnectCommand =
-    "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-resource https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
-  const piSetupCommand =
-    enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
-      ? `curl -fsSL https://www.openlaunch.dev/install-pi.sh | OPENLAUNCH_WORKSPACE_ID=${enrollment.workspace} bash`
-      : "curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash";
+    "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
   const usbSetupCommand = (filename: string) =>
     `(ol_helper=$(mktemp) && trap 'rm -f "$ol_helper"' EXIT && curl -fsS --proto '=https' --max-redirs 0 ${quoteShellValue(`${window.location.origin}/downloads/${filename}`)} -o "$ol_helper" && python3 "$ol_helper" --port ${quoteShellValue(deviceSetupPort)} --origin ${quoteShellValue(window.location.origin)})`;
   const unoSetupCommand = usbSetupCommand("provision-uno.py");
@@ -779,7 +775,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               />
                               {selectedDevice.functions?.find(
                                 (fn) => fn.name === capability,
-                              )?.title ?? capability}
+                              )?.title ??
+                                builtInFunctions.find(
+                                  (fn) => fn.name === capability,
+                                )?.title ??
+                                capability}
                             </label>
                           ))}
                         </fieldset>

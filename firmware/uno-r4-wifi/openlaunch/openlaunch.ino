@@ -11,6 +11,7 @@
 #include <ArduinoGraphics.h>
 #include <Arduino_LED_Matrix.h>
 #include <EEPROM.h>
+#include "ResultJournal.h"
 
 #include <cstdint>
 #include <cstddef>
@@ -48,6 +49,28 @@ static_assert(offsetof(Config, workspace) == offsetof(LegacyConfigV1, workspace)
 static_assert(offsetof(Config, deviceId) == offsetof(LegacyConfigV1, deviceId), "EEPROM v1 device ID moved");
 static_assert(offsetof(Config, token) == offsetof(LegacyConfigV1, token), "EEPROM v1 token moved");
 
+struct ArduinoEepromJournalStorage {
+  std::size_t length() const { return static_cast<std::size_t>(EEPROM.length()); }
+  void readBlock(std::size_t offset, void *destination, std::size_t length) const {
+    auto *bytes = static_cast<std::uint8_t *>(destination);
+    for (std::size_t i = 0; i < length; ++i)
+      bytes[i] = EEPROM.read(static_cast<int>(offset + i));
+  }
+  void writeBlock(std::size_t offset, const void *source, std::size_t length) const {
+    if (length == sizeof(OpenLaunchResultRecord)) {
+      EEPROM.put(static_cast<int>(offset),
+                 *static_cast<const OpenLaunchResultRecord *>(source));
+      return;
+    }
+    const auto *bytes = static_cast<const std::uint8_t *>(source);
+    for (std::size_t i = 0; i < length; ++i)
+      EEPROM.update(static_cast<int>(offset + i), bytes[i]);
+  }
+};
+
+static OpenLaunchResultJournal<ArduinoEepromJournalStorage> resultJournal(
+    ArduinoEepromJournalStorage{}, sizeof(Config));
+
 constexpr uint32_t kMagicV1 = 0x4F4C0001;
 constexpr uint32_t kMagicV2 = 0x4F4C0002;
 constexpr std::size_t kSerialLineLimit = 1024;
@@ -66,11 +89,17 @@ bool configured = false;
 bool paired = false;
 bool provisioningStopped = false;
 bool storageFault = false;
+bool actionUncertain = false;
+bool resultHalted = false;
+OpenLaunchJournalState resultJournalState = OpenLaunchJournalState::Empty;
+OpenLaunchResultRecord pendingResultRecord{};
 unsigned long lastPoll = 0;
 unsigned long lastWifiAttempt = 0;
 unsigned long lastAttachAttempt = 0;
 unsigned long lastBootstrapCleanupAttempt = 0;
-char lastAction[37]{};
+unsigned long resultRetryAt = 0;
+unsigned long resultRetryDelayMs = 3000UL;
+bool resultRetryScheduled = false;
 int lastHttpStatusCode = 0;
 
 static bool safeCopy(char *dst, std::size_t capacity, JsonVariantConst value) {
@@ -97,6 +126,12 @@ static std::uint32_t configCrc(const Config &value) {
 
 static bool eepromFits(std::size_t bytes) {
   return EEPROM.length() >= bytes;
+}
+
+static bool fullJournalFits() {
+  return sizeof(Config) <= static_cast<std::size_t>(EEPROM.length()) &&
+      sizeof(OpenLaunchResultRecord) <=
+          static_cast<std::size_t>(EEPROM.length()) - sizeof(Config);
 }
 
 static bool validV2Record(const Config &value) {
@@ -131,7 +166,10 @@ static void emitStatus() {
                       paired ? "paired" : configured ? "configured" : "unconfigured";
   Serial.print("{\"event\":\"status\",\"state\":\"");
   Serial.print(state);
-  Serial.println("\",\"pendingResult\":false}");
+  const bool pending = resultJournalState != OpenLaunchJournalState::Empty;
+  Serial.print("\",\"pendingResult\":");
+  Serial.print(pending ? "true" : "false");
+  Serial.println("}");
 }
 
 static void emitError(const char *code) {
@@ -190,7 +228,7 @@ static bool clearBootstrapCredential() {
 }
 
 static bool migrateOrLoadConfig() {
-  if (!eepromFits(sizeof(LegacyConfigV1))) return false;
+  if (!fullJournalFits() || !eepromFits(sizeof(LegacyConfigV1))) return false;
   Config current{};
   if (eepromFits(sizeof(Config))) EEPROM.get(0, current);
   if (current.magic == kMagicV2) {
@@ -369,17 +407,64 @@ static bool configureFromCommand(JsonVariantConst input) {
 }
 
 static void resetDevice() {
-  if (!eepromFits(sizeof(Config))) { emitError("eeprom_size_unsupported"); return; }
+  if (!fullJournalFits()) { emitError("eeprom_size_unsupported"); return; }
   cfg = Config{};
   EEPROM.put(0, cfg);
   Config verify{};
   EEPROM.get(0, verify);
   if (verify.magic != 0) { emitError("reset_failed"); return; }
+  OpenLaunchResultRecord empty{};
+  // Reset is the explicit operator path for clearing even an uncertain record.
+  ArduinoEepromJournalStorage{}.writeBlock(sizeof(Config), &empty, sizeof(empty));
+  OpenLaunchResultRecord journalVerify{};
+  ArduinoEepromJournalStorage{}.readBlock(sizeof(Config), &journalVerify, sizeof(journalVerify));
+  if (!openLaunchRecordEmpty(journalVerify)) { emitError("reset_failed"); return; }
   configured = paired = provisioningStopped = false;
   storageFault = false;
-  lastAction[0] = '\0';
+  actionUncertain = resultHalted = false;
+  resultJournalState = OpenLaunchJournalState::Empty;
+  pendingResultRecord = OpenLaunchResultRecord{};
   WiFi.disconnect();
   emitEvent("reset");
+}
+
+static void loadResultJournal() {
+  resultJournalState = resultJournal.load(pendingResultRecord);
+  if (resultJournalState == OpenLaunchJournalState::NoSpace ||
+      resultJournalState == OpenLaunchJournalState::Invalid) {
+    storageFault = true;
+    resultHalted = true;
+    return;
+  }
+  if (resultJournalState == OpenLaunchJournalState::Intent) {
+    actionUncertain = true;
+    resultHalted = true;
+    provisioningStopped = true;
+  } else if (resultJournalState == OpenLaunchJournalState::Saved) {
+    provisioningStopped = true;
+  } else if (resultJournalState == OpenLaunchJournalState::Halted) {
+    provisioningStopped = true;
+    resultHalted = true;
+  }
+}
+
+static void maintainWifiConnection() {
+  if (!configured || WiFi.status() == WL_CONNECTED) return;
+  if (lastWifiAttempt == 0 || millis() - lastWifiAttempt >= 10000UL) {
+    lastWifiAttempt = millis();
+    if (cfg.password[0]) WiFi.begin(cfg.ssid, cfg.password);
+    else WiFi.begin(cfg.ssid);
+  }
+}
+
+static bool resultRetryDue() {
+  return !resultRetryScheduled ||
+      static_cast<long>(millis() - resultRetryAt) >= 0;
+}
+
+static void scheduleResultRetry(unsigned long delayMs) {
+  resultRetryAt = millis() + delayMs;
+  resultRetryScheduled = true;
 }
 
 static void processSerialLine() {
@@ -503,20 +588,101 @@ static void attemptProvisioning() {
 }
 
 static void serviceDevice() {
+  if (storageFault || actionUncertain || resultHalted) return;
+  maintainWifiConnection();
+  if (resultJournalState == OpenLaunchJournalState::Intent) return;
+  if (resultJournalState == OpenLaunchJournalState::Saved) {
+    if (!configured || !paired || WiFi.status() != WL_CONNECTED ||
+        !resultRetryDue()) return;
+    const unsigned long epoch = WiFi.getTime();
+    if (epoch < 1700000000UL) {
+      scheduleResultRetry(10000UL);
+      return;
+    }
+    if (openLaunchResultExpired(pendingResultRecord,
+            static_cast<std::uint64_t>(epoch) * 1000ULL)) {
+      resultHalted = true;
+      provisioningStopped = true;
+      if (resultJournal.halt(pendingResultRecord.actionId))
+        resultJournalState = OpenLaunchJournalState::Halted;
+      else
+        storageFault = true;
+      emitError("pending_result_expired_outcome_uncertain");
+      return;
+    }
+    JsonDocument ack, reply;
+    if (deserializeJson(ack, pendingResultRecord.payload,
+                        pendingResultRecord.payloadLength) ||
+        std::strcmp(ack["actionId"] | "", pendingResultRecord.actionId) != 0 ||
+        !ack["status"].is<const char *>() ||
+        !ack["result"].is<JsonObjectConst>()) {
+      storageFault = true;
+      return;
+    }
+    const char *ackStatus = ack["status"].as<const char *>();
+    if (std::strcmp(ackStatus, "succeeded") != 0 &&
+        std::strcmp(ackStatus, "failed") != 0) {
+      storageFault = true;
+      return;
+    }
+    const String resultPath = String("/v1/device/") + cfg.deviceId + "/result";
+    const HttpResult uploaded = post(resultPath, ack, reply);
+    if (uploaded != HttpResult::Ok) {
+      if (uploaded == HttpResult::HttpError && lastHttpStatusCode >= 400 &&
+          lastHttpStatusCode < 500 && lastHttpStatusCode != 429 &&
+          lastHttpStatusCode != 408) {
+        resultHalted = true;
+        provisioningStopped = true;
+        if (resultJournal.halt(pendingResultRecord.actionId))
+          resultJournalState = OpenLaunchJournalState::Halted;
+        else
+          storageFault = true;
+        emitError("pending_result_rejected_inspect_console");
+      } else {
+        scheduleResultRetry(resultRetryDelayMs);
+        resultRetryDelayMs = resultRetryDelayMs < 30000UL
+            ? resultRetryDelayMs * 2UL : 60000UL;
+      }
+      return;
+    }
+    JsonObjectConst accepted = reply["data"].as<JsonObjectConst>();
+    String expectedResult, acceptedResult;
+    serializeJson(ack["result"], expectedResult);
+    serializeJson(accepted["result"], acceptedResult);
+    const bool matches =
+        std::strcmp(accepted["id"] | "", pendingResultRecord.actionId) == 0 &&
+        std::strcmp(accepted["status"] | "", ackStatus) == 0 &&
+        expectedResult == acceptedResult;
+    if (!matches) {
+      resultHalted = true;
+      provisioningStopped = true;
+      if (resultJournal.halt(pendingResultRecord.actionId))
+        resultJournalState = OpenLaunchJournalState::Halted;
+      else
+        storageFault = true;
+      emitError("pending_result_ack_mismatch_retained");
+      return;
+    }
+    if (!resultJournal.clearMatching(pendingResultRecord.actionId,
+                                     pendingResultRecord.payload,
+                                     pendingResultRecord.payloadLength)) {
+      storageFault = true;
+      return;
+    }
+    resultJournalState = OpenLaunchJournalState::Empty;
+    pendingResultRecord = OpenLaunchResultRecord{};
+    resultRetryDelayMs = 3000UL;
+    resultRetryScheduled = false;
+    return;
+  }
+
   if (!configured || provisioningStopped) return;
   if (paired && cfg.bootstrapToken[0] &&
       millis() - lastBootstrapCleanupAttempt >= 5000UL) {
     lastBootstrapCleanupAttempt = millis();
     clearBootstrapCredential();
   }
-  if (WiFi.status() != WL_CONNECTED) {
-    if (lastWifiAttempt == 0 || millis() - lastWifiAttempt >= 10000UL) {
-      lastWifiAttempt = millis();
-      if (cfg.password[0]) WiFi.begin(cfg.ssid, cfg.password);
-      else WiFi.begin(cfg.ssid);
-    }
-    return;
-  }
+  if (WiFi.status() != WL_CONNECTED) return;
   if (!paired) {
     attemptProvisioning();
     return;
@@ -529,14 +695,26 @@ static void serviceDevice() {
     return;
   JsonObjectConst cmd = response["data"].as<JsonObjectConst>();
   const char *id = cmd["id"] | "";
-  if (std::strlen(id) != 36 || std::strcmp(id, lastAction) == 0) return;
-  std::strncpy(lastAction, id, sizeof(lastAction) - 1);
+  if (!openLaunchValidActionId(id) || !cmd["expiresAt"].is<std::uint64_t>()) return;
+  const std::uint64_t expiresAt = cmd["expiresAt"].as<std::uint64_t>();
+  if (expiresAt == 0 || !resultJournal.begin(id, expiresAt)) {
+    storageFault = true;
+    provisioningStopped = true;
+    emitError("result_journal_write_failed_action_not_run");
+    return;
+  }
+  resultJournalState = OpenLaunchJournalState::Intent;
+  if (resultJournal.load(pendingResultRecord) != OpenLaunchJournalState::Intent) {
+    storageFault = true;
+    provisioningStopped = true;
+    emitError("result_journal_readback_failed_action_not_run");
+    return;
+  }
 
-  JsonDocument ack, reply;
+  JsonDocument ack;
   ack["actionId"] = id;
   ack["status"] = "failed";
   const unsigned long epoch = WiFi.getTime();
-  const std::uint64_t expiresAt = cmd["expiresAt"].as<std::uint64_t>();
   if (epoch < 1700000000UL ||
       (static_cast<std::uint64_t>(epoch) * 1000ULL) >= expiresAt) {
     ack["result"]["error"] = "clock_unavailable_or_expired";
@@ -575,8 +753,25 @@ static void serviceDevice() {
       ack["result"]["error"] = "unsupported_capability";
     }
   }
-  const String resultPath = String("/v1/device/") + cfg.deviceId + "/result";
-  post(resultPath, ack, reply);
+  String serializedAck;
+  serializeJson(ack, serializedAck);
+  if (!resultJournal.saveOutcome(id, expiresAt, serializedAck.c_str(),
+                                 serializedAck.length())) {
+    actionUncertain = true;
+    resultHalted = true;
+    resultJournalState = resultJournal.load(pendingResultRecord);
+    if (resultJournalState == OpenLaunchJournalState::Invalid ||
+        resultJournalState == OpenLaunchJournalState::NoSpace)
+      storageFault = true;
+    emitError("action_outcome_persistence_failed_uncertain");
+    return;
+  }
+  resultJournalState = resultJournal.load(pendingResultRecord);
+  if (resultJournalState != OpenLaunchJournalState::Saved) {
+    storageFault = true;
+    resultHalted = true;
+    return;
+  }
 }
 
 void setup() {
@@ -585,17 +780,12 @@ void setup() {
   digitalWrite(LED_BUILTIN, LOW);
   matrix.begin();
   if (!migrateOrLoadConfig()) storageFault = true;
+  loadResultJournal();
   if (configured) WiFi.begin(cfg.ssid, cfg.password);
 }
 
 void loop() {
   serviceSerial();
-  if (configured && WiFi.status() != WL_CONNECTED &&
-      (lastWifiAttempt == 0 || millis() - lastWifiAttempt >= 10000UL)) {
-    lastWifiAttempt = millis();
-    if (cfg.password[0]) WiFi.begin(cfg.ssid, cfg.password);
-    else WiFi.begin(cfg.ssid);
-  }
   serviceDevice();
   delay(10);
 }

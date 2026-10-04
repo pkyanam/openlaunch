@@ -1,5 +1,12 @@
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   color: #171717;
   background: #ffffff;
   font-synthesis: none;
@@ -60,7 +67,10 @@ button {
   font-weight: 600;
   line-height: 1.35;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
 button:hover:not(:disabled) {
@@ -554,6 +564,11 @@ code {
   padding: 24px;
 }
 
+.access-panel {
+  container-name: grant-access;
+  container-type: inline-size;
+}
+
 .function-list > p:first-child,
 .access-panel > p:first-of-type {
   margin-bottom: 20px;
@@ -576,11 +591,14 @@ code {
 
 .grant-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(90px, 0.75fr) minmax(140px, 1.25fr) minmax(
+      150px,
+      1.15fr
+    ) minmax(72px, auto) minmax(82px, auto);
   align-items: center;
-  gap: 12px;
+  gap: 8px 14px;
   min-width: 0;
-  padding: 13px 0;
+  padding: 10px 0;
   border-bottom: 1px solid #e5e5e5;
 }
 
@@ -592,6 +610,31 @@ code {
 .grant-list li > span {
   color: #555555;
   font-size: 14px;
+  line-height: 1.4;
+}
+
+.grant-list li > details {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.grant-list li > details summary {
+  font-size: 13px;
+}
+
+.grant-list li > details code {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.grant-list li > button {
+  justify-self: end;
+  min-height: 36px;
+  padding: 6px 11px;
+  white-space: nowrap;
 }
 
 .grant-editor {
@@ -1136,6 +1179,27 @@ footer {
   }
 }
 
+@container grant-access (max-width: 680px) {
+  .grant-list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 5px 10px;
+    padding: 12px 0;
+  }
+
+  .grant-list li > strong,
+  .grant-list li > span,
+  .grant-list li > details {
+    grid-column: 1;
+  }
+
+  .grant-list li > button {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+}
+
 @media (max-width: 560px) {
   .console-header {
     align-items: flex-start;
@@ -1232,21 +1296,6 @@ footer {
     width: 100%;
   }
 
-  .grant-list li {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-  }
-
-  .grant-list li > strong,
-  .grant-list li > span {
-    grid-column: 1;
-  }
-
-  .grant-list li > button {
-    grid-column: 2;
-    grid-row: 1 / span 3;
-  }
-
   .device-metadata,
   .function-list,
   .access-panel,
@@ -1285,6 +1334,16 @@ footer {
   }
 }
 
-.receipt-result dl { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); gap: 10px 20px; }
-.receipt-result dt { color: #666666; text-transform: capitalize; }
-.receipt-result dd { margin: 0; overflow-wrap: anywhere; }
+.receipt-result dl {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+  gap: 10px 20px;
+}
+.receipt-result dt {
+  color: #666666;
+  text-transform: capitalize;
+}
+.receipt-result dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

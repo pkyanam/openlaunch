@@ -105,6 +105,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           DEVICE_CREDENTIAL_KEYS: ${{ secrets.DEVICE_CREDENTIAL_KEYS }}
+          DEVICE_CREDENTIAL_KEY_VERSION: ${{ vars.DEVICE_CREDENTIAL_KEY_VERSION }}
           CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
           OPENLAUNCH_CONTROLS_ENABLED: ${{ vars.OPENLAUNCH_CONTROLS_ENABLED }}
       - run: npx wrangler pages deploy --cwd apps/site --project-name openlaunch-site --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false --no-bundle

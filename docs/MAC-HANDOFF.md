@@ -1,9 +1,11 @@
 # openlaunch Mac handoff
 
 ## State of the implementation
-The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. Authenticated controls are enabled after software acceptance of generic device enrollment, single-use codes, separate agent grants, custom MCP discovery, queued/received/completed results and revocation boundaries. The Node adapter has a durable result journal. Maintained Uno R4 firmware and the standalone ESP32 adapter compile; physical Pi, Uno and Roomba operation remains unverified.
+
+The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, SDK acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
 
 ## Install/build
+
 Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not source scripts/env.sh on your Mac: it is the cloud staging wrapper.
 
     npm ci
@@ -19,6 +21,7 @@ Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not sourc
 The E2E command generates disposable local fixture tokens internally, starts only on 127.0.0.1, runs the Go client, checks persistence/revocation, and removes its temporary test directory. It does not access real devices or external accounts.
 
 ## Manual local developer console
+
 Set distinct random development-only OPENLAUNCH_OWNER_TOKEN and OPENLAUNCH_AGENT_TOKEN values in your terminal environment. The local server refuses missing/short/equal values; it never logs them. Do not reuse production credentials.
 
     npm run dev:local
@@ -33,6 +36,7 @@ For a simulated Pi, pass its enrollment token through OPENLAUNCH_ENROLLMENT_TOKE
 Without --simulate the Pi advertises real process-health only. It does not pretend to control GPIO or a display without an installed adapter. Simulation results are explicitly labeled.
 
 ## MCP
+
 Local endpoint: http://127.0.0.1:8788/mcp with Authorization: Bearer supplied from OPENLAUNCH_AGENT_TOKEN. Configure the host's supported environment-variable bearer-token setting; do not paste credentials into prompts or commit them to a plugin.
 
 Built-in tools include list_devices, request_device_health, show_text, set_led, get_action and cancel_action. Granted custom functions also become device-specific MCP tools. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Hosted ChatGPT and Codex connections use https://www.openlaunch.dev/mcp with Clerk OAuth. Localhost remains available for local developer testing.
@@ -60,12 +64,11 @@ The default `stock` profile stages stock WiFiS3 from the pinned core. It exclude
 Upload only after identifying the actual connected board/port. Firmware requires an HTTPS bridge, verified TLS and a valid clock before acting. Provision through USB serial JSON at 115200 using the documented fields in the sketch. Do not commit Wi-Fi passwords, enrollment tokens or device credentials. EEPROM storage is plaintext; physical access can expose credentials. Only built-in LED, ASCII text matrix and health are implemented. No arbitrary pin control. No OTA updates are implemented.
 
 ## Remaining acceptance work
+
 - Test OAuth refresh/revocation and reviewer access without inbox dependence
-- Replace prototype 10-second polling with tested hibernating WebSockets before broad scale; current polling can be costly and has latency
 - Add edge rate limits, robust account-level enrollment abuse protection, quota metering, retention/export and durable event subscriptions
 - Test actual Pi/R4 Wi-Fi, TLS, time sync, USB provisioning, power loss and reconnect
-- Add R4 persistent executed-command journal and bounded streaming response parsing before expanding beyond idempotent built-in LED/display operations
-- Add Pi result-retry journal reconciliation; current uncertain acknowledgments are reported but not silently replayed
+- Review bounded streaming response parsing before expanding Uno beyond its built-in functions
 - Implement firmware signing/update/rollback and installer packaging before public distribution
 - Run browser accessibility/responsive/visual tests on the Mac; cloud UI only build-checked
 

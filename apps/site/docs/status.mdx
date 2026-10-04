@@ -11,19 +11,23 @@ description: See the hosted software and device behaviors that have been checked
 - OAuth scopes and device capability grants are separate. Owners must approve capabilities for each device and agent.
 - The hosted API uses SQLite-backed Durable Objects keyed to the verified Clerk workspace identity.
 - Custom manifest functions are schema-validated, exposed as device-specific MCP tools after an owner grant, and checked against the live grant at invocation.
-- Earlier hosted acceptance covered legacy one-use enrollment, permission denial, manifest publication and reapproval, custom MCP execution, and a completed software result. The unified SDK-token attachment flow is in the upcoming release; hosted release verification is still pending.
+- On deployed commit `6e317a0`, SDK-token acceptance verified stable attachment retry after a deliberately lost response: the retry returned the same child device credential, and the master token was not persisted on the device.
+- New SDK tokens have no device grants by default. An ungranted action and agent self-grant both return 403; attachment beyond the owner-set device limit returns 429. The owner can grant device health and a custom `custom.echo` function; changing the manifest clears those grants.
+- An authenticated Node adapter received WebSocket wake hints and then rechecked work over HTTPS. A software fixture returned health in 601 ms and `custom.echo` in 508 ms. These timings verify the software path only, not a physical device.
+- Hosted revocation acceptance confirmed that revoking an SDK token denies its agent requests while leaving the paired device identity intact. Explicit device revocation then denies polling and reuse of an event ticket issued before revocation. Temporary acceptance devices and tokens were retired.
 - Broadcast requests support up to 20 devices and return an independent result for each device.
 
 ## Software and firmware behavior
 
-- Enrollment, scoped grants, action expiry, revocation and queued/received/terminal command outcomes are implemented.
+- SDK attachment, scoped grants, action expiry, revocation and queued/received/terminal command outcomes are implemented. The Go Pi and Uno runtimes have durable result journals; tested software behavior does not establish physical hardware operation.
 - The Go Pi runtime reports process health. GPIO and display control are not implemented.
 - Uno R4 firmware supports health, the built-in LED and matrix text.
+- WebSocket notifications are payload-free wake hints for the Node adapter. The ticket is short-lived and used in the authenticated handshake; the adapter fetches queued work over HTTPS. A 10-second HTTP polling fallback remains in place. Go, Uno and ESP32 adapters continue to poll over HTTP every 10 seconds.
 - Simulated device results are identified as simulated; they do not demonstrate a physical action.
 
 ## Physical device acceptance
 
-Physical acceptance remains open. Pi and Uno checks for network access, TLS and time synchronization, provisioning, power loss and reconnect have not been completed. Uno command journaling and bounded streaming response parsing need work before expanding its functions; Pi result-retry reconciliation also remains open. Neither device promises exactly-once physical execution.
+Physical acceptance remains open. Pi and Uno checks for network access, TLS and time synchronization, provisioning, power loss and reconnect have not been completed. The WebSocket wake path has been checked with software fixtures only. Durable result journals reduce duplicate work after interrupted result uploads, but neither device promises exactly-once physical execution.
 
 ## Try openlaunch
 

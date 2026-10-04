@@ -96,9 +96,14 @@ function fixture(options = {}) {
   return { ctx, storage, accepted, pairs, events };
 }
 
-function ticketRequest(deviceId, token = deviceToken, body = "{}") {
+function ticketRequest(
+  deviceId,
+  token = deviceToken,
+  body = "{}",
+  scheme = "https",
+) {
   return new Request(
-    `https://openlaunch.test/v1/device/${deviceId}/events-ticket`,
+    `${scheme}://openlaunch.test/v1/device/${deviceId}/events-ticket`,
     {
       method: "POST",
       headers: {
@@ -110,9 +115,9 @@ function ticketRequest(deviceId, token = deviceToken, body = "{}") {
   );
 }
 
-function upgradeRequest(deviceId, ticket, query = workspace) {
+function upgradeRequest(deviceId, ticket, query = workspace, scheme = "https") {
   return new Request(
-    `https://openlaunch.test/v1/device/${deviceId}/events?workspace=${query}`,
+    `${scheme}://openlaunch.test/v1/device/${deviceId}/events?workspace=${query}`,
     {
       headers: {
         upgrade: "websocket",
@@ -181,6 +186,43 @@ test("ticket issuance authenticates the device, stores only a hash, and upgrades
     firstId,
   );
   assert.equal(replay.status, 401);
+});
+
+test("HTTP cannot issue tickets or upgrade sockets, even without Origin", async () => {
+  let authenticationCalls = 0;
+  const f = fixture({
+    authenticate: async () => {
+      authenticationCalls++;
+    },
+  });
+  const httpTicket = await f.events.handleTicket(
+    ticketRequest(firstId, deviceToken, "{}", "http"),
+    firstId,
+  );
+  assert.equal(httpTicket.status, 426);
+  assert.equal((await httpTicket.json()).error.code, "https_required");
+  assert.equal(authenticationCalls, 0, "reject before authenticating bearer");
+  assert.equal(f.storage.values.size, 0);
+
+  const issued = await f.events.handleTicket(ticketRequest(firstId), firstId);
+  const { data } = await issued.json();
+  const httpUpgrade = await f.events.handleUpgrade(
+    upgradeRequest(firstId, data.ticket, workspace, "http"),
+    firstId,
+  );
+  assert.equal(httpUpgrade.status, 426);
+  assert.equal((await httpUpgrade.json()).error.code, "https_required");
+  assert.equal(f.accepted.length, 0);
+
+  const secureUpgrade = await f.events.handleUpgrade(
+    upgradeRequest(firstId, data.ticket),
+    firstId,
+  );
+  assert.equal(
+    secureUpgrade.status,
+    101,
+    "HTTP rejection leaves ticket usable",
+  );
 });
 
 test("tickets expire, are replaced per device, and reject secret-bearing URLs", async () => {

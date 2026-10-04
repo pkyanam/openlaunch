@@ -12,6 +12,10 @@ export default defineConfig({
         exportName: "WorkspaceHub",
       }),
       CLERK_SECRET_KEY: bindings.secret(),
+      DEVICE_CREDENTIAL_KEYS: bindings.secret(),
+      DEVICE_CREDENTIAL_KEY_VERSION: bindings.text(
+        process.env.DEVICE_CREDENTIAL_KEY_VERSION || "v1",
+      ),
       CLERK_PUBLISHABLE_KEY: bindings.text(
         process.env.CLERK_PUBLISHABLE_KEY ?? "",
       ),
