@@ -12,6 +12,7 @@
 #include <Arduino_LED_Matrix.h>
 #include <EEPROM.h>
 #include "ResultJournal.h"
+#include "AttachmentClock.h"
 
 #include <cstdint>
 #include <cstddef>
@@ -546,8 +547,10 @@ static void attemptProvisioning() {
     const unsigned long epoch = WiFi.getTime();
     if (epoch < 1700000000UL) return;
     const std::uint64_t nowMs = static_cast<std::uint64_t>(epoch) * 1000ULL;
-    if (nowMs < cfg.requestCreatedAtMs ||
-        nowMs - cfg.requestCreatedAtMs > kSdkAttachmentWindowMs) {
+    const auto clock = openLaunchAttachmentClock(
+        nowMs, cfg.requestCreatedAtMs, kSdkAttachmentWindowMs);
+    if (clock == OpenLaunchAttachmentClock::Waiting) return;
+    if (clock == OpenLaunchAttachmentClock::Expired) {
       emitError("sdk_attachment_window_expired_reprovision");
       provisioningStopped = true;
       return;

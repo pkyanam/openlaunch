@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../../../firmware/uno-r4-wifi/openlaunch/ResultJournal.h"
+#include "../../../firmware/uno-r4-wifi/openlaunch/AttachmentClock.h"
 
 struct FakeMemory {
   explicit FakeMemory(size_t size) : bytes(size, 0), failAfter(-1) {}
@@ -34,6 +35,18 @@ static const char* kPayload =
     "\"status\":\"succeeded\",\"result\":{\"on\":true}}";
 
 int main() {
+  const uint64_t created = 1900000000999ULL;
+  const uint64_t window = 9ULL * 60ULL * 1000ULL;
+  assert(openLaunchAttachmentClock(1900000000000ULL, created, window) ==
+         OpenLaunchAttachmentClock::Waiting);
+  assert(openLaunchAttachmentClock(created, created, window) ==
+         OpenLaunchAttachmentClock::Ready);
+  assert(openLaunchAttachmentClock(created + window - 1, created, window) ==
+         OpenLaunchAttachmentClock::Ready);
+  assert(openLaunchAttachmentClock(created + window, created, window) ==
+         OpenLaunchAttachmentClock::Expired);
+  assert(openLaunchAttachmentClock(0, UINT64_MAX, window) ==
+         OpenLaunchAttachmentClock::Waiting);
   const size_t configBytes = 240;
   FakeMemory memory(configBytes + sizeof(OpenLaunchResultRecord));
   memset(memory.bytes.data(), 0xA5, configBytes); // Config region is owned elsewhere.
