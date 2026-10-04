@@ -3,7 +3,7 @@ import PageLayout from "blume/components/layout/PageLayout.astro";
 import data from "blume:data";
 const { config } = data;
 ---
-<PageLayout site={{ title: config.title, description: config.description }} logo={{ ...data.logo, dimensions: { light: { width: 1280, height: 1280 }, dark: { width: 1280, height: 1280 } } }} navigation={data.navigation} favicon={data.favicon} fontCssVars={data.fontCssVars} themeMode={config.theme.mode} searchEnabled={config.search.enabled} siteUrl={config.site} ogEnabled={config.og.enabled} page={{ title: "openlaunch — Connect your agents to your hardware", description: config.description }}>
+<PageLayout site={{ title: config.title, description: config.description }} logo={{ ...config.logo, dimensions: { light: { width: 1280, height: 1280 }, dark: { width: 1280, height: 1280 } } }} navigation={data.navigation} favicon={config.favicon} fontCssVars={data.fontCssVars} themeMode={config.theme.mode} searchEnabled={config.search.enabled} siteUrl={config.site} ogEnabled={config.og.enabled} page={{ title: "openlaunch — Connect your agents to your hardware", description: config.description }}>
 <main class="workbench">
   <section class="intro">
     <h1>Connect your agents<br />to your hardware.</h1>
