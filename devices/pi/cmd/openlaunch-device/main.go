@@ -507,7 +507,7 @@ func reconcileResults(c Config, journal map[string]JournalEntry, journalPath str
 
 func sdkTokenWorkspace(token string) (string, error) {
 	parts := strings.Split(token, "_")
-	if len(parts) != 4 || parts[0] != "ol" || (parts[1] != "sdk" && parts[1] != "agent") ||
+	if len(parts) != 4 || parts[0] != "ol" || parts[1] != "sdk" ||
 		!isLowerHex(parts[2], 64) || !isLowerHex(parts[3], 64) {
 		return "", errors.New("set OPENLAUNCH_SDK_TOKEN to an owner-issued SDK token")
 	}

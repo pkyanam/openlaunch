@@ -22,6 +22,7 @@ jobs:
         env:
           CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
       - run: npm run check:site
+      - run: python3 scripts/test-install-pi.py
       - run: python3 tests/provision-uno.test.py
       - run: python3 tests/test_provision_esp32.py
       - run: npm run test:device
@@ -46,6 +47,7 @@ jobs:
         env:
           CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
       - run: npm run check:site
+      - run: python3 scripts/test-install-pi.py
       - run: python3 tests/provision-uno.test.py
       - run: python3 tests/test_provision_esp32.py
       - run: npm run typecheck --workspace @openlaunch/cloud

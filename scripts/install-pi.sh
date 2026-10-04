@@ -45,7 +45,7 @@ if [[ -z "$sdk_token" ]]; then
   IFS= read -r -s -p 'openlaunch SDK token (hidden): ' sdk_token < /dev/tty || fail 'could not read SDK token'
   printf '\n' > /dev/tty
 fi
-[[ "$sdk_token" =~ ^ol_(sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}$ ]] || fail 'SDK token must be an owner-issued openlaunch token'
+[[ "$sdk_token" =~ ^ol_sdk_([a-f0-9]{64})_[a-f0-9]{64}$ ]] || fail 'Use an owner-issued ol_sdk_ token; legacy agent tokens cannot pair devices'
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/openlaunch-pi.XXXXXXXX")" || fail 'could not create a temporary directory'
 installed_binary=0

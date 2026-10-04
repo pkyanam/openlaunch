@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install-pi.sh"
 WORKSPACE = "a" * 64
-ENROLLMENT = "b" * 64
+ENROLLMENT = "ol_sdk_" + WORKSPACE + "_" + "b" * 64
 ARTIFACT_URL = "https://www.openlaunch.dev/downloads/pi/openlaunch-device-linux-arm64"
 
 
@@ -44,7 +44,7 @@ esac
 
 MOCK_DEVICE = r'''#!/usr/bin/env bash
 set -eu
-[[ "${OPENLAUNCH_ENROLLMENT_TOKEN:-}" == "$TEST_EXPECT_TOKEN" ]] || exit 71
+[[ "${OPENLAUNCH_SDK_TOKEN:-}" == "$TEST_EXPECT_TOKEN" ]] || exit 71
 for arg in "$@"; do
   [[ "$arg" != "$TEST_EXPECT_TOKEN" ]] || exit 72
 done
@@ -105,7 +105,7 @@ class PiInstallerAcceptance(unittest.TestCase):
             "TEST_ARTIFACT": str(self.artifact_path),
             "TEST_EXPECT_TOKEN": ENROLLMENT,
             "OPENLAUNCH_WORKSPACE_ID": WORKSPACE,
-            "OPENLAUNCH_ENROLLMENT_TOKEN": ENROLLMENT,
+            "OPENLAUNCH_SDK_TOKEN": ENROLLMENT,
             "TEST_UNAME_S": "Linux",
             "TEST_UNAME_M": "aarch64",
         })
@@ -124,6 +124,12 @@ class PiInstallerAcceptance(unittest.TestCase):
         self.assertEqual(json.loads(config.read_text())["simulate"], False)
         self.assertNotIn(ENROLLMENT, result.stdout + result.stderr)
         self.assertIn("process health only", result.stdout)
+
+    def test_rejects_legacy_agent_token_before_download(self):
+        result = self.run_installer(OPENLAUNCH_SDK_TOKEN=ENROLLMENT.replace("ol_sdk_", "ol_agent_"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("legacy agent tokens cannot pair devices", result.stderr)
+        self.assertFalse((self.home / ".local/bin/openlaunch-device").exists())
 
     def test_rejects_unsupported_cpu_before_download(self):
         result = self.run_installer(TEST_UNAME_M="armv6l")
@@ -174,7 +180,7 @@ class PiInstallerAcceptance(unittest.TestCase):
             "TEST_CURL_SLEEP": "1",
             "TEST_CURL_MARKER": str(marker),
             "OPENLAUNCH_WORKSPACE_ID": WORKSPACE,
-            "OPENLAUNCH_ENROLLMENT_TOKEN": ENROLLMENT,
+            "OPENLAUNCH_SDK_TOKEN": ENROLLMENT,
         })
         process = subprocess.Popen([str(INSTALLER)], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         try:
@@ -201,11 +207,11 @@ class PiInstallerAcceptance(unittest.TestCase):
         self.assertIn("refusing to overwrite existing device identity", result.stderr)
         self.assertEqual(config.read_text(), '{"existing":true}')
 
-    def test_enrollment_failure_warns_that_single_use_code_may_be_consumed(self):
+    def test_attachment_failure_warns_to_check_inventory(self):
         result = self.run_installer(TEST_ENROLL_FAIL="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Enrollment may have consumed the one-time code", result.stderr)
-        self.assertIn("Check portal inventory before retrying", result.stderr)
+        self.assertIn("Attachment did not finish", result.stderr)
+        self.assertIn("Check device inventory before starting another request", result.stderr)
         self.assertFalse((self.home / ".local/bin/openlaunch-device").exists())
         self.assertFalse((self.home / ".config/openlaunch/device.json").exists())
 

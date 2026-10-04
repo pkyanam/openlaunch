@@ -201,16 +201,16 @@ func TestSDKAttachExpiredRetryStopsAndMarksPending(t *testing.T) {
 	}
 }
 
-func TestSDKTokenValidationAndLegacyAgentToken(t *testing.T) {
+func TestSDKTokenValidationRejectsLegacyAgentToken(t *testing.T) {
 	workspace := strings.Repeat("c", 64)
 	secret := strings.Repeat("d", 64)
-	for _, token := range []string{"ol_sdk_" + workspace + "_" + secret, "ol_agent_" + workspace + "_" + secret} {
+	for _, token := range []string{"ol_sdk_" + workspace + "_" + secret} {
 		got, err := sdkTokenWorkspace(token)
 		if err != nil || got != workspace {
 			t.Fatalf("valid SDK token rejected: workspace=%q err=%v", got, err)
 		}
 	}
-	for _, token := range []string{"", "ol_sdk_short_" + secret, "ol_sdk_" + workspace + "_" + strings.Repeat("G", 64)} {
+	for _, token := range []string{"ol_agent_" + workspace + "_" + secret, "", "ol_sdk_short_" + secret, "ol_sdk_" + workspace + "_" + strings.Repeat("G", 64)} {
 		if _, err := sdkTokenWorkspace(token); err == nil {
 			t.Fatalf("invalid token accepted: %q", token)
 		}
