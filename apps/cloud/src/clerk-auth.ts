@@ -48,7 +48,11 @@ export async function principalFromIdentity(
     } satisfies Principal,
   };
 }
-export async function authenticateClerk(request: Request, env: ClerkEnv) {
+export async function authenticateClerk(
+  request: Request,
+  env: ClerkEnv,
+  verifier?: ReturnType<typeof createClerkClient>,
+) {
   const path = new URL(request.url).pathname;
   const token = /^Bearer ([^\s]+)$/.exec(
     request.headers.get("authorization") ?? "",
@@ -56,17 +60,41 @@ export async function authenticateClerk(request: Request, env: ClerkEnv) {
   // Agent tokens are opaque and checked online, including revocation and the resource audience.
   const agentToken = token?.startsWith("oat_") ?? false;
   if (path === "/mcp" && !agentToken) throw Error("Agent OAuth token required");
-  const client = createClerkClient({
-    secretKey: env.CLERK_SECRET_KEY,
-    publishableKey: env.CLERK_PUBLISHABLE_KEY,
-  });
+  const client =
+    verifier ??
+    createClerkClient({
+      secretKey: env.CLERK_SECRET_KEY,
+      publishableKey: env.CLERK_PUBLISHABLE_KEY,
+    });
+  if (agentToken) {
+    const access = await client.idPOAuthAccessToken.verify(token!, {
+      audience: env.API_ORIGIN + "/mcp",
+    });
+    if (
+      access.revoked ||
+      access.expired ||
+      !access.expiration ||
+      access.expiration <= Date.now() / 1000
+    )
+      throw Error("OAuth access expired or revoked");
+    return principalFromIdentity(
+      {
+        isAuthenticated: true,
+        tokenType: "oauth_token",
+        userId: access.subject,
+        clientId: access.clientId,
+        scopes: access.scopes,
+      },
+      env,
+      path,
+    );
+  }
   const state = await client.authenticateRequest(request, {
-    acceptsToken: agentToken ? "oauth_token" : "session_token",
+    acceptsToken: "session_token",
     authorizedParties: [env.API_ORIGIN!],
-    ...(agentToken ? { audience: env.API_ORIGIN + "/mcp" } : {}),
   });
   const identity = state.toAuth();
-  if (!identity) throw Error("Unauthorized");
+  if (!identity?.isAuthenticated) throw Error("Unauthorized");
   if (
     identity.tokenType === "session_token" &&
     identity.sessionClaims?.iss !== env.CLERK_ISSUER

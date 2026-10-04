@@ -7,7 +7,7 @@ Connect your agents to your hardware. openlaunch is an open source bridge for Ch
 Install Node 24+ and Git, then run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh | bash
+curl -fsSL https://www.openlaunch.dev/install.sh | bash
 ```
 
 [Setup guide](/docs/setup) · [Source](https://github.com/pkyanam/openlaunch) · [Downloads and resources](/docs/resources)

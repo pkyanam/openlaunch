@@ -11,6 +11,9 @@ import { handle } from "../../../packages/http/src/index.ts";
 interface Env extends ClerkEnv {
   HUBS: DurableObjectNamespace;
   API_ORIGIN?: string;
+  CONTROLS_ENABLED?: string;
+  BUILD_COMMIT?: string;
+  REQUEST_LIMITER: RateLimit;
 }
 export class WorkspaceHub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -36,11 +39,13 @@ export default {
       return Response.json({
         service: "openlaunch",
         protocolVersion: 1,
+        commit: env.BUILD_COMMIT ?? "development",
         authConfigured: !!(
           env.CLERK_ISSUER &&
           env.CLERK_SECRET_KEY &&
           env.API_ORIGIN
         ),
+        deviceControlsEnabled: env.CONTROLS_ENABLED === "true",
       });
     // Deployment is deliberately fail-closed until the authorization server is configured.
     if (
@@ -72,6 +77,31 @@ export default {
       });
     const headers = new Headers(request.headers);
     headers.delete("x-openlaunch-principal");
+    if (
+      !(
+        await env.REQUEST_LIMITER.limit({
+          key: request.headers.get("cf-connecting-ip") ?? "unknown",
+        })
+      ).success
+    )
+      return Response.json(
+        { error: { code: "rate_limit", message: "Try again shortly" } },
+        {
+          status: 429,
+          headers: { "retry-after": "60", "cache-control": "no-store" },
+        },
+      );
+    const origin = request.headers.get("origin");
+    if (origin && origin !== env.API_ORIGIN)
+      return Response.json(
+        { error: { code: "origin", message: "Cross-origin request rejected" } },
+        { status: 403 },
+      );
+    if (Number(request.headers.get("content-length") ?? "0") > 16384)
+      return Response.json(
+        { error: { code: "too_large", message: "Request too large" } },
+        { status: 413 },
+      );
     let workspace: string;
     if (url.pathname.startsWith("/v1/device/")) {
       workspace = request.headers.get("x-openlaunch-workspace") ?? "";
@@ -83,6 +113,20 @@ export default {
         workspace = authenticated.workspace;
         const principal = authenticated.principal;
         headers.set("x-openlaunch-principal", JSON.stringify(principal));
+        if (url.pathname === "/v1/account")
+          return Response.json(
+            {
+              data: {
+                workspace,
+                principal,
+                deviceControlsEnabled: env.CONTROLS_ENABLED === "true",
+                agentClients: (env.CLERK_AGENT_CLIENT_IDS ?? "")
+                  .split(",")
+                  .filter(Boolean),
+              },
+            },
+            { headers: { "cache-control": "no-store" } },
+          );
         // MCP handlers still require a per-device grant, independent of OAuth scopes.
       } catch {
         return Response.json(
@@ -101,6 +145,16 @@ export default {
         );
       }
     }
+    if (env.CONTROLS_ENABLED !== "true")
+      return Response.json(
+        {
+          error: {
+            code: "setup_required",
+            message: "Device linking is not enabled for this deployment",
+          },
+        },
+        { status: 503, headers: { "cache-control": "no-store" } },
+      );
     const response = await env.HUBS.get(env.HUBS.idFromName(workspace)).fetch(
       new Request(request, { headers }),
     );

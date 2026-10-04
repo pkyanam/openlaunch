@@ -1,5 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+// Publish installers from this exact checkout alongside the website.
+// GitHub remains a source/backup link, never the primary installer redirect.
+for (const [source, destination] of [
+  ["../../scripts/install.sh", "dist/client/install.sh"],
+  ["../../scripts/provision-uno.py", "dist/client/downloads/provision-uno.py"],
+]) {
+  const { mkdirSync } = await import("node:fs");
+  const { dirname } = await import("node:path");
+  mkdirSync(dirname(destination), { recursive: true });
+  writeFileSync(destination, readFileSync(source));
+}
 const origin =
   process.env.OPENLAUNCH_SITE_ORIGIN || "https://www.openlaunch.dev";
 // Blume's custom homepage is indexable but is omitted from its generated llms index.
@@ -39,7 +50,7 @@ writeFileSync(
   (existsSync("dist/client/_headers")
     ? readFileSync("dist/client/_headers", "utf8")
     : "") +
-    "\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
+    "\n/install.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-uno.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
 );
 // Blume 2.1.1's generated 404 ignores the custom Logo slot and omits raster dimensions.
 const notFoundPath = "dist/client/404.html";

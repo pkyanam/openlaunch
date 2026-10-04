@@ -8,10 +8,10 @@ description: Install openlaunch with one command, start your device console, pai
 You need [Node 24+ and Git](/resources). On macOS or Linux, run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh | bash
+curl -fsSL https://www.openlaunch.dev/install.sh | bash
 ```
 
-The installer downloads the source, builds the console, and starts the bridge. It does not flash a board or change cloud resources. You can [read the script first](https://github.com/pkyanam/openlaunch/blob/main/scripts/install.sh).
+The installer downloads the source, builds the console, and starts the bridge. It does not flash a board or change cloud resources. You can [read the hosted script first](/install.sh). The [GitHub copy](https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh) is the backup; both are published from the same source commit.
 
 Open **http://127.0.0.1:8788**. On macOS, your owner session key is already on the clipboard: paste it into the session field and select **Connect**. On Linux, copy the `token` value from `.cache/local/owner.json` in the installed checkout. Keep that file private. Your session key is a password for your console; never give it to an agent.
 
