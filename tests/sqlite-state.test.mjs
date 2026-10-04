@@ -521,6 +521,99 @@ test("non-audit collection order survives replacement and pruning", async () => 
   }
 });
 
+test("until-revoked grant persists in SQLite and authorizes after reload", async () => {
+  const state = legacyState({
+    devices: [device(Date.now())],
+    grants: [{
+      principal: "agent",
+      deviceId: "device-1",
+      capabilities: ["device.health"],
+      expiresAt: null,
+    }],
+  });
+  const h = createHarness(state);
+  const owner = { id: "owner", owner: true };
+  const agent = { id: "agent", owner: false };
+  try {
+    const queued = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.request(agent, "device-1", "device.health", {}, "persistent-grant"),
+    );
+    const dispatch = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.next("device-1"),
+    );
+    assert.equal(dispatch.id, queued.id);
+    assert.equal(
+      (await withWorkspaceSQLiteState(h.storage, h.sql, (hub) => hub.grants(owner)))[0].expiresAt,
+      null,
+    );
+    await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.revokeGrant(owner, agent.id, "device-1"),
+    );
+    await assert.rejects(
+      withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+        hub.request(agent, "device-1", "device.health", {}, "after-revoke"),
+      ),
+    );
+  } finally {
+    h.close();
+  }
+});
+
+test("until-revoked agent connection persists, authorizes transport, and revokes in SQLite", async () => {
+  const owner = { id: "owner", owner: true };
+  const workspace = "a".repeat(64);
+  const original = new Hub(emptyState());
+  const enrollment = await original.enrollment(owner, "custom.device");
+  const device = await original.enroll(enrollment.token, {
+    name: "transport fixture",
+    kind: "custom.device",
+    capabilities: ["device.health"],
+  });
+  const connection = await original.createConnection(
+    owner,
+    workspace,
+    "persistent agent",
+    null,
+    "act",
+    { canAttach: false, deviceLimit: 0 },
+    "agent",
+  );
+  assert.equal(connection.expiresAt, null);
+  assert.equal(JSON.stringify(original.state).includes(connection.token), false);
+  const h = createHarness(original.state);
+  try {
+    const principal = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.authenticateConnection(connection.token, workspace),
+    );
+    assert.equal(principal.connectionPurpose, "agent");
+    await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.grant(owner, principal.id, device.deviceId, ["device.health"]),
+    );
+    const action = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.request(principal, device.deviceId, "device.health", {}, "persistent-agent"),
+    );
+    const dispatched = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.next(device.deviceId),
+    );
+    assert.equal(dispatched.id, action.id);
+    const listed = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.connections(owner),
+    );
+    assert.equal(listed[0].expiresAt, null);
+    await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.revokeConnection(owner, connection.id),
+    );
+    await assert.rejects(
+      withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+        hub.authenticateConnection(connection.token, workspace),
+      ),
+      (error) => error.status === 401,
+    );
+  } finally {
+    h.close();
+  }
+});
+
 test("a warm workspace cache skips SQL full reads and read-only writes", async () => {
   const h = createHarness(legacyState({ devices: [device(1)] }));
   const cache = new WorkspaceSQLiteStateCache(h.storage, h.sql);

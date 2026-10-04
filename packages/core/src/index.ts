@@ -5,6 +5,7 @@ import {
   capabilityName,
   functionDefinition,
   functionArguments,
+  type FunctionDefinition,
 } from "./functions.ts";
 export { capabilityName, functionDefinition } from "./functions.ts";
 export const kinds = ["uno-r4-wifi", "raspberry-pi-4"] as const;
@@ -16,6 +17,16 @@ export const deviceKind = z
 export function agentTokenWorkspace(token: string): string | undefined {
   return /^ol_(?:sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}$/.exec(token)?.[1];
 }
+export function agentTokenPurpose(
+  token: string,
+): "agent" | "device-setup" | undefined {
+  const match = /^ol_(sdk|agent)_[a-f0-9]{64}_[a-f0-9]{64}$/.exec(token);
+  return match?.[1] === "sdk"
+    ? "device-setup"
+    : match?.[1] === "agent"
+      ? "agent"
+      : undefined;
+}
 const boundedText = z
   .string()
   .max(96)
@@ -25,6 +36,44 @@ export const capabilitySchemas = {
   "display.text": z.object({ text: boundedText }).strict(),
   "led.set": z.object({ on: z.boolean() }).strict(),
 } as const;
+const builtInFunctionDefinitions: Record<string, FunctionDefinition> = {
+  "device.health": {
+    name: "device.health",
+    title: "Read device health",
+    description: "Read a fresh health summary from this device.",
+    access: "read",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  "display.text": {
+    name: "display.text",
+    title: "Display text",
+    description: "Show up to 96 printable ASCII characters on the device display.",
+    access: "write",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string", minLength: 0, maxLength: 96 } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+  "led.set": {
+    name: "led.set",
+    title: "Set LED",
+    description: "Turn the device built-in LED on or off.",
+    access: "write",
+    inputSchema: {
+      type: "object",
+      properties: { on: { type: "boolean" } },
+      required: ["on"],
+      additionalProperties: false,
+    },
+  },
+};
 export type Capability = string;
 export const manifestSchema = z
   .object({
@@ -90,16 +139,27 @@ interface Grant {
   principal: string;
   deviceId: string;
   capabilities: Capability[];
-  expiresAt: number;
+  expiresAt: number | null;
+}
+
+function grantIsActive(grant: Grant, now: number) {
+  return grant.expiresAt === null || grant.expiresAt > now;
+}
+function connectionIsActive(connection: AgentConnection, now: number) {
+  return (
+    !connection.revoked &&
+    (connection.expiresAt === null || connection.expiresAt > now)
+  );
 }
 interface AgentConnection {
   id: string;
   principal: string;
   name: string;
   tokenHash: string;
-  expiresAt: number;
+  expiresAt: number | null;
   revoked: boolean;
   access: "read" | "act";
+  purpose?: "agent" | "device-setup";
   canAttach?: boolean;
   deviceLimit?: number;
 }
@@ -129,7 +189,10 @@ export interface Principal {
   id: string;
   owner: boolean;
   readOnly?: boolean;
+  connectionPurpose?: "agent" | "device-setup" | "legacy";
 }
+const isDeviceSetupPrincipal = (p: Principal) =>
+  p.connectionPurpose === "device-setup";
 export class Fault extends Error {
   constructor(
     public code: string,
@@ -208,13 +271,15 @@ export class Hub {
   private allowed(p: Principal, d: string, c: Capability) {
     this.device(d);
     if (p.owner) return;
+    if (isDeviceSetupPrincipal(p))
+      throw new Fault("forbidden", 403, "Device setup tokens cannot access functions");
     if (
       !this.state.grants.some(
         (g) =>
           g.principal === p.id &&
           g.deviceId === d &&
           g.capabilities.includes(c) &&
-          g.expiresAt > this.now(),
+          grantIsActive(g, this.now()),
       )
     )
       throw new Fault("forbidden", 403, "Capability grant required");
@@ -229,26 +294,40 @@ export class Hub {
     }
   }
   functions(p: Principal) {
-    return this.list(p).flatMap((device) =>
-      (device.functions ?? [])
-        .filter(
-          (fn) =>
-            !(p.readOnly && fn.access === "write") &&
-            (p.owner ||
-              this.state.grants.some(
-                (grant) =>
-                  grant.principal === p.id &&
-                  grant.deviceId === device.id &&
-                  grant.capabilities.includes(fn.name) &&
-                  grant.expiresAt > this.now(),
-              )),
-        )
-        .map((definition) => ({
-          deviceId: device.id,
-          deviceName: device.name,
-          definition,
-        })),
+    return this.functionCatalog(p).filter(
+      (entry) => !Object.hasOwn(builtInFunctionDefinitions, entry.definition.name),
     );
+  }
+  functionCatalog(p: Principal) {
+    if (isDeviceSetupPrincipal(p)) return [];
+    return this.state.devices
+      .filter((device) => !device.revoked)
+      .flatMap((device) => {
+        const custom = new Map(
+          (device.functions ?? []).map((definition) => [definition.name, definition]),
+        );
+        return device.capabilities
+          .map((name) => custom.get(name) ?? builtInFunctionDefinitions[name])
+          .filter((definition): definition is FunctionDefinition => Boolean(definition))
+          .filter(
+            (definition) =>
+              !(p.readOnly && definition.access === "write") &&
+              (p.owner ||
+                this.state.grants.some(
+                  (grant) =>
+                    grant.principal === p.id &&
+                    grant.deviceId === device.id &&
+                    grant.capabilities.includes(definition.name) &&
+                    grantIsActive(grant, this.now()),
+                )),
+          )
+          .map((definition) => ({
+            deviceId: device.id,
+            deviceName: device.name,
+            kind: device.kind,
+            definition,
+          }));
+      });
   }
   list(p: Principal) {
     return this.state.devices
@@ -256,12 +335,12 @@ export class Hub {
         (d) =>
           !d.revoked &&
           (p.owner ||
-            this.state.grants.some(
+            (!isDeviceSetupPrincipal(p) && this.state.grants.some(
               (g) =>
                 g.principal === p.id &&
                 g.deviceId === d.id &&
-                g.expiresAt > this.now(),
-            )),
+                grantIsActive(g, this.now()),
+            ))),
       )
       .map(({ tokenHash, attachedConnectionId, ...d }) => ({
         ...d,
@@ -292,7 +371,7 @@ export class Hub {
     return this.state.grants
       .filter(
         (grant) =>
-          grant.expiresAt > this.now() &&
+          grantIsActive(grant, this.now()) &&
           this.state.devices.some(
             (device) => device.id === grant.deviceId && !device.revoked,
           ),
@@ -404,7 +483,24 @@ export class Hub {
   connections(p: Principal) {
     this.owner(p);
     return this.state
-      .agentConnections!.filter((c) => !c.revoked && c.expiresAt > this.now())
+      .agentConnections!.filter((c) => connectionIsActive(c, this.now()))
+      .map(({ tokenHash, ...connection }) => ({
+        ...connection,
+        attachedDeviceCount: this.state.devices.filter(
+          (device) =>
+            !device.revoked && device.attachedConnectionId === connection.id,
+        ).length,
+      }));
+  }
+  deviceSetupTokens(p: Principal) {
+    this.owner(p);
+    return this.state.agentConnections!
+      .filter(
+        (c) =>
+          !c.revoked &&
+          connectionIsActive(c, this.now()) &&
+          (c.purpose === "device-setup" || (!c.purpose && c.canAttach)),
+      )
       .map(({ tokenHash, ...connection }) => ({
         ...connection,
         attachedDeviceCount: this.state.devices.filter(
@@ -417,21 +513,24 @@ export class Hub {
     p: Principal,
     workspace: string,
     name: string,
-    ttlSeconds = 86400,
+    ttlSeconds: number | null = 86400,
     access: "read" | "act" = "act",
     attachment: { canAttach: boolean; deviceLimit: number } = {
       canAttach: false,
       deviceLimit: 0,
     },
+    purpose?: "agent" | "device-setup",
   ) {
     this.owner(p);
     if (
       !/^[a-f0-9]{64}$/.test(workspace) ||
       !name.trim() ||
       name.length > 64 ||
-      !Number.isInteger(ttlSeconds) ||
-      ttlSeconds < 60 ||
-      ttlSeconds > 2592000 ||
+      (ttlSeconds === null
+        ? purpose !== "agent"
+        : !Number.isInteger(ttlSeconds) ||
+          ttlSeconds < 60 ||
+          ttlSeconds > 2592000) ||
       !["read", "act"].includes(access) ||
       typeof attachment.canAttach !== "boolean" ||
       !Number.isInteger(attachment.deviceLimit) ||
@@ -440,23 +539,26 @@ export class Hub {
       (attachment.canAttach
         ? attachment.deviceLimit < 1
         : attachment.deviceLimit !== 0)
+      || (purpose === "agent" && attachment.canAttach)
+      || (purpose === "device-setup" && !attachment.canAttach)
     )
       throw new Fault("invalid", 400, "Invalid agent connection");
     this.state.agentConnections = this.state.agentConnections!.filter(
-      (c) => !c.revoked && c.expiresAt > this.now(),
+      (c) => connectionIsActive(c, this.now()),
     );
     if (this.state.agentConnections.length >= 20)
       throw new Fault("limit", 429, "Agent connection limit reached");
     const id = crypto.randomUUID();
-    const token = `ol_sdk_${workspace}_${secret()}`;
+    const token = `ol_${purpose === "agent" ? "agent" : "sdk"}_${workspace}_${secret()}`;
     const connection: AgentConnection = {
       id,
       principal: `connection:${id}`,
       name: name.trim(),
       tokenHash: await hash(token),
-      expiresAt: this.now() + ttlSeconds * 1000,
+      expiresAt: ttlSeconds === null ? null : this.now() + ttlSeconds * 1000,
       revoked: false,
       access,
+      ...(purpose ? { purpose } : {}),
       ...attachment,
     };
     this.capacity({
@@ -478,9 +580,14 @@ export class Hub {
     if (!/^[a-f0-9]{64}$/.test(workspace))
       throw new Fault("invalid", 400, "Invalid workspace");
     const connection = this.state.agentConnections!.find(
-      (c) => c.principal === p.id && !c.revoked && c.expiresAt > this.now(),
+      (c) => c.principal === p.id && connectionIsActive(c, this.now()),
     );
-    if (p.owner || !connection?.canAttach)
+    if (
+      p.owner ||
+      !connection ||
+      (connection.purpose === "agent") ||
+      !(connection.purpose === "device-setup" || connection.canAttach)
+    )
       throw new Fault("forbidden", 403, "This SDK token cannot attach devices");
     const manifest = manifestSchema.parse(input);
     const sortValue = (value: any): any =>
@@ -626,7 +733,7 @@ export class Hub {
     const tokenHash = await hash(token);
     const connection = this.state.agentConnections!.find(
       (c) =>
-        c.tokenHash === tokenHash && !c.revoked && c.expiresAt > this.now(),
+        c.tokenHash === tokenHash && connectionIsActive(c, this.now()),
     );
     if (!connection)
       throw new Fault(
@@ -634,10 +741,17 @@ export class Hub {
         401,
         "Agent connection expired or revoked",
       );
+    const tokenPurpose = agentTokenPurpose(token);
+    if (
+      connection.purpose &&
+      connection.purpose !== tokenPurpose
+    )
+      throw new Fault("unauthorized", 401, "Invalid token purpose");
     return {
       id: connection.principal,
       owner: false,
       readOnly: connection.access === "read",
+      connectionPurpose: connection.purpose ?? "legacy",
     };
   }
   revokeConnection(p: Principal, id: string) {
@@ -663,20 +777,27 @@ export class Hub {
     principal: string,
     id: string,
     capabilities: Capability[],
-    ttlSeconds = 3600,
+    ttlSeconds: number | null = 3600,
   ) {
     this.owner(p);
     const d = this.device(id);
+    if (
+      this.state.agentConnections!.some(
+        (connection) =>
+          connection.principal === principal &&
+          connection.purpose === "device-setup",
+      )
+    )
+      throw new Fault("forbidden", 403, "Device setup tokens cannot receive grants");
     if (
       !principal ||
       principal.length > 128 ||
       capabilities.length < 1 ||
       capabilities.length > 16 ||
       new Set(capabilities).size !== capabilities.length ||
-      !Number.isInteger(ttlSeconds) ||
       !capabilities.every((c) => d.capabilities.includes(c)) ||
-      ttlSeconds < 1 ||
-      ttlSeconds > 86400
+      (ttlSeconds !== null &&
+        (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 86400))
     )
       throw new Fault("invalid", 400, "Invalid grant");
     const grants = this.state.grants.filter(
@@ -686,7 +807,7 @@ export class Hub {
       principal,
       deviceId: id,
       capabilities,
-      expiresAt: this.now() + ttlSeconds * 1000,
+      expiresAt: ttlSeconds === null ? null : this.now() + ttlSeconds * 1000,
     });
     this.capacity({ grants });
     this.state.grants = grants;
@@ -884,7 +1005,7 @@ export class Hub {
       !principal.startsWith("connection:") ||
       this.state.agentConnections!.some(
         (c) =>
-          c.principal === principal && !c.revoked && c.expiresAt > this.now(),
+          c.principal === principal && connectionIsActive(c, this.now()),
       );
     if (
       (!connectionValid ||
@@ -893,7 +1014,7 @@ export class Hub {
             g.principal === principal &&
             g.deviceId === deviceId &&
             g.capabilities.includes(a.capability) &&
-            g.expiresAt > this.now(),
+            grantIsActive(g, this.now()),
         )) &&
       !a.ownerAuthorized
     ) {

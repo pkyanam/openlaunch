@@ -4,7 +4,7 @@ Connect your agents to your hardware. openlaunch is an open source bridge for Ch
 
 ## Get started
 
-[Open your console](/console/) and sign in with Google. Create one SDK token in Connections for SDK agents and device setup, then approve functions for each paired device. ChatGPT and Codex can also connect through MCP OAuth.
+[Open your console](/console/) and sign in with Google. Create a device setup token in Add device and run the displayed setup command. Connect agents separately with OAuth or an agent API token, then choose the functions each agent may use. Access can remain active until revoked.
 
 For a local development bridge, install Node 24+ and Git, then run:
 
@@ -27,3 +27,7 @@ Device pairing creates a private device credential. The owner separately grants 
 [Device and agent SDK](/docs/sdk) · [Permissions](/docs/pairing) · [Agent connections](/docs/agents) · [Verification](/docs/status) · [Upstream SDKs, OS images and tools](/docs/resources)
 
 Each documentation page has a Markdown download. Search, browser narration, PDF and EPUB export are available in the docs. The read-only documentation MCP endpoint is `/docs-mcp`; it cannot control devices.
+
+## Legal and contact
+
+openlaunch is operated by Belweave. Read the [Terms of Service](/docs/terms) and [Privacy Policy](/docs/privacy). Contact [info@belweave.com](mailto:info@belweave.com).

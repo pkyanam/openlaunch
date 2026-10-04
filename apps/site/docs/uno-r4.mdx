@@ -1,6 +1,6 @@
 ---
 title: Uno R4 WiFi
-description: Build and provision Uno R4 WiFi firmware over USB with an owner-issued SDK token, then inspect permissions and hardware results.
+description: Build and provision Uno R4 WiFi firmware over USB with a short-lived device setup token, then inspect permissions and hardware results.
 ---
 
 ## Implemented capabilities
@@ -36,15 +36,15 @@ Follow the complete [transport profile guide](https://github.com/pkyanam/openlau
 
 1. Connect USB and run `arduino-cli board list`. Identify the exact board and port; close serial monitors.
 2. Upload only the matching profile's compiled sketch to the confirmed port. The RA sketch upload is separate from ESP connectivity firmware.
-3. In **Connections**, create an SDK token with device attachment enabled.
+3. In **Devices → Add device**, create a device setup token. It uses the `ol_sdk_` prefix, expires after 10 minutes by default, and attaches one device by default.
 4. Run the provisioner with the confirmed USB port and HTTPS bridge origin:
 
 ```sh
 npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://www.openlaunch.dev
 ```
 
-The helper prompts for Wi-Fi details and the SDK token, hiding sensitive input, then asks before sending the setup to the board. The workspace comes from the token; you do not need to copy it separately. It does not write credentials to a computer file. After pairing, the console opens the device's **Access** view so you can grant functions separately. If pairing confirmation times out, inspect **Devices** before retrying with the same token; do not start a second attachment request.
+The helper prompts for Wi-Fi details and the device setup token, hiding sensitive input, then asks before sending the setup to the board. The workspace comes from the token; you do not need to copy it separately. It does not write credentials to a computer file. The board stores a private child credential that survives setup-token expiry or revocation; removing the device from the console revokes that credential. After pairing, the console opens the device's **Access** view so you can grant functions separately. If pairing confirmation times out, inspect **Devices** before retrying with the same token; do not start a second attachment request.
 
 The firmware stores its device identity in EEPROM. Use an appropriate test network. TLS verification and a valid clock are mandatory. Firmware compile success does not establish physical operation: confirm real health/RSSI, physically observe the LED and matrix, then run the [permission acceptance checks](/pairing). Physical board acceptance remains pending; see [Verification](/status).
 
-The console does not need your USB port. Connect one Uno R4 WiFi and run its setup command; the helper uses Arduino CLI to detect the board locally. If several Unos are connected, disconnect the others or pass `--port` to select the intended one. Detection never flashes firmware or chooses the stock versus console-mux profile.
+The console does not need your USB port. Connect one Uno R4 WiFi and run its setup command; the helper uses Arduino CLI to detect the board locally. If several Unos are connected, disconnect the others or pass `--port` to select the intended one. Detection never flashes firmware or chooses the stock versus console-mux profile. Agents use a separate `ol_agent_` API connection or OAuth; the setup token cannot authenticate them.

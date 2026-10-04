@@ -44,11 +44,18 @@ def verify(commit):
     assert status == 308 and headers.get('Location') == ORIGIN + '/', 'apex redirect mismatch'
     status, _, _ = response(ORIGIN + '/v1/devices')
     assert status == 401, 'device inventory must require authentication'
+    for policy in ['terms', 'privacy']:
+        status, _, body = response(ORIGIN + '/docs/' + policy)
+        assert status == 200 and b'Belweave' in body and b'info@belweave.com' in body, f'policy unavailable: {policy}'
+        status, _, body = response(ORIGIN + '/docs/' + policy + '.md')
+        assert status == 200 and b'Belweave' in body, f'Markdown policy unavailable: {policy}'
     for source, public in [
         ('scripts/install.sh', '/install.sh'),
         ('scripts/install-pi.sh', '/install-pi.sh'),
         ('scripts/install-pi.sh', '/downloads/pi/install.sh'),
         ('scripts/provision-uno.py', '/downloads/provision-uno.py'),
+        ('scripts/provision-roomba.py', '/downloads/provision-roomba.py'),
+        ('scripts/setup-uno.sh', '/setup-uno.sh'),
         ('scripts/provision-esp32.py', '/downloads/provision-esp32.py'),
     ]:
         status, _, body = response(ORIGIN + public)

@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  realpathSync,
+} from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,16 +17,27 @@ export const provenance = Object.freeze({
     "2c2aa923ea176cf723932e55f5afedf9af25de4b7ba738595f068bc0b2caad26",
   "Modem.h": "e76dda2966be1d767caabcbbd2a60931c1e1aa3f9c6783cdab4a71cd1f32a548",
 });
+export const roombaLibraryCommit = "5120998789100c1aade14ebe0645524cae6f9349";
 export function parseOptions(args) {
   const options = { profile: "stock" };
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
     if (key === "--prepare-only") options.prepareOnly = true;
     else if (key === "--acknowledge-installed-mux") options.acknowledged = true;
-    else if (["--profile", "--repair-dir"].includes(key)) {
+    else if (
+      ["--profile", "--repair-dir", "--sketch", "--roomba-library"].includes(
+        key,
+      )
+    ) {
       if (!args[i + 1] || args[i + 1].startsWith("--"))
         throw new Error(`Missing value for ${key}`);
-      options[key === "--profile" ? "profile" : "repairDir"] = args[++i];
+      const optionNames = {
+        "--profile": "profile",
+        "--repair-dir": "repairDir",
+        "--sketch": "sketch",
+        "--roomba-library": "roombaLibrary",
+      };
+      options[optionNames[key]] = args[++i];
     } else throw new Error(`Unknown firmware option: ${key}`);
   }
   if (!["stock", "console-mux"].includes(options.profile))
@@ -37,6 +54,17 @@ export function parseOptions(args) {
     throw new Error(
       "console-mux requires --repair-dir and --acknowledge-installed-mux (matching ESP image must already be installed)",
     );
+  if (
+    options.sketch &&
+    !["openlaunch", "openlaunch_roomba"].includes(options.sketch)
+  )
+    throw new Error("Sketch must be openlaunch or openlaunch_roomba");
+  if (options.sketch === "openlaunch_roomba" && !options.roombaLibrary)
+    throw new Error(
+      "Roomba sketch requires --roomba-library at the pinned clean checkout",
+    );
+  if (options.roombaLibrary && options.sketch !== "openlaunch_roomba")
+    throw new Error("--roomba-library requires --sketch openlaunch_roomba");
   return options;
 }
 export function verifyHash(path, expected) {
@@ -69,6 +97,17 @@ export function verifyResolution(result, library) {
   )
     throw new Error("Compile did not resolve the selected WiFiS3 transport");
 }
+export function verifyRoombaResolution(result, expected) {
+  if (
+    !result.success ||
+    realpathSync(
+      result.builder_result?.used_libraries?.find(
+        (l) => l.name === "ArduRoomba",
+      )?.install_dir ?? "/missing",
+    ) !== realpathSync(expected)
+  )
+    throw new Error("Compile did not resolve the pinned ArduRoomba checkout");
+}
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -86,7 +125,12 @@ export function prepare(root, data, options) {
   for (const name of ["Modem.cpp", "Modem.h"])
     verifyHash(join(core, "libraries/WiFiS3/src", name), provenance[name]);
   // A private user directory excludes all globally installed libraries, including patched WiFiS3.
-  const directory = join(root, "build/firmware", options.profile);
+  const directory = join(
+    root,
+    "build/firmware",
+    options.profile,
+    ...(options.sketch === "openlaunch_roomba" ? ["openlaunch_roomba"] : []),
+  );
   const dependencies = join(root, "build/arduino-dependencies");
   mkdirSync(dependencies, { recursive: true });
   mkdirSync(directory, { recursive: true });
@@ -118,13 +162,28 @@ export function prepare(root, data, options) {
       ],
       { input: readFileSync(patch) },
     );
+  let roombaLibrary;
+  if (options.sketch === "openlaunch_roomba") {
+    roombaLibrary = resolve(options.roombaLibrary);
+    if (
+      run("git", ["-C", roombaLibrary, "rev-parse", "HEAD"]) !==
+        roombaLibraryCommit ||
+      run("git", ["-C", roombaLibrary, "status", "--porcelain"])
+    )
+      throw new Error(
+        "ArduRoomba must be a clean checkout at pinned revision " +
+          roombaLibraryCommit,
+      );
+  }
   writeFileSync(
     join(directory, "provenance.json"),
     JSON.stringify(
       {
         profile: options.profile,
+        sketch: options.sketch ?? "openlaunch",
         core: "arduino:renesas_uno@1.6.0",
         library,
+        ...(roombaLibrary ? { roombaLibrary, roombaLibraryCommit } : {}),
         sources: provenance,
         installedImageAcknowledged: !!options.acknowledged,
       },
@@ -132,7 +191,13 @@ export function prepare(root, data, options) {
       2,
     ),
   );
-  return { config, library, directory };
+  return {
+    config,
+    library,
+    roombaLibrary,
+    sketch: options.sketch ?? "openlaunch",
+    directory,
+  };
 }
 function main() {
   const options = parseOptions(process.argv.slice(2));
@@ -156,31 +221,34 @@ function main() {
     );
     return;
   }
-  const output = run(
-    "arduino-cli",
-    [
-      "--config-file",
-      staged.config,
-      "compile",
-      "--format",
-      "json",
-      "--fqbn",
-      "arduino:renesas_uno:unor4wifi",
-      "--library",
-      staged.library,
-      "--build-path",
-      join(staged.directory, "compiled"),
-      join(root, "firmware/uno-r4-wifi/openlaunch"),
-    ],
-    { maxBuffer: 8 * 1024 * 1024 },
-  );
+  const sketchDir = join(root, "firmware/uno-r4-wifi", staged.sketch);
+  const buildPath = join(staged.directory, "compiled");
+  mkdirSync(buildPath, { recursive: true });
+  const compileArgs = [
+    "--config-file",
+    staged.config,
+    "compile",
+    "--format",
+    "json",
+    "--fqbn",
+    "arduino:renesas_uno:unor4wifi",
+    "--library",
+    staged.library,
+    ...(staged.roombaLibrary ? ["--library", staged.roombaLibrary] : []),
+    "--build-path",
+    buildPath,
+    sketchDir,
+  ];
+  const output = run("arduino-cli", compileArgs, {
+    maxBuffer: 8 * 1024 * 1024,
+  });
   const result = JSON.parse(output);
   verifyResolution(result, staged.library);
-  writeFileSync(join(staged.directory, "compile-result.json"), output);
+  if (staged.roombaLibrary)
+    verifyRoombaResolution(result, staged.roombaLibrary);
+  writeFileSync(join(buildPath, "compile-result.json"), output);
   console.log(result.compiler_out);
-  console.log(
-    `Verified selected transport library; artifacts: ${join(staged.directory, "compiled")}`,
-  );
+  console.log(`Verified selected libraries; artifacts: ${buildPath}`);
 }
 if (
   process.argv[1] &&

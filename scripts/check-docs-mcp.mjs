@@ -32,7 +32,9 @@ assert.equal(
 for (const filename of [
   "install.sh",
   "install-pi.sh",
+  "setup-uno.sh",
   "provision-uno.py",
+  "provision-roomba.py",
   "provision-esp32.py",
 ]) {
   const path = filename.startsWith("provision-")

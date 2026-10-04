@@ -81,8 +81,15 @@ jobs:
       - run: node --test tests/firmware-profile.test.mjs
       - run: npm run prepare:firmware
       - run: arduino-cli --config-file build/firmware/stock/arduino-cli.json lib update-index
-      - run: arduino-cli --config-file build/firmware/stock/arduino-cli.json lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
+      - run: arduino-cli --config-file build/firmware/stock/arduino-cli.json lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5 ArduinoBLE@2.1.0
       - run: npm run build:firmware
+      - run: git clone --no-checkout https://github.com/pkyanam/ArduRoomba.git /tmp/openlaunch-ArduRoomba
+      - run: git -C /tmp/openlaunch-ArduRoomba checkout --detach 5120998789100c1aade14ebe0645524cae6f9349
+      - run: node scripts/firmware.mjs --sketch openlaunch_roomba --roomba-library /tmp/openlaunch-ArduRoomba
+      - run: sh tests/host/roomba/run.sh
+      - run: npm ci
+      - run: node --import tsx --test tests/firmware/*.test.mjs
+      - run: python3 tests/provision-roomba.test.py
 
   deploy-site:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

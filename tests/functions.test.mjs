@@ -67,6 +67,40 @@ test("custom function schemas enforce bounds, grants, scope and revocation", asy
   hub.revokeGrant(owner, agent.id, device.deviceId);
   assert.equal(hub.functions(agent).length, 0);
 });
+test("function catalog includes only each built-in or custom function granted for that device", async () => {
+  const hub = new Hub();
+  const enrollment = await hub.enrollment(owner, "raspberry-pi-4");
+  const device = await hub.enroll(enrollment.token, {
+    name: "catalog device",
+    kind: "raspberry-pi-4",
+    capabilities: ["device.health", "led.set", definition.name],
+    functions: [definition],
+  });
+  const otherEnrollment = await hub.enrollment(owner, "raspberry-pi-4");
+  const other = await hub.enroll(otherEnrollment.token, {
+    name: "ungranted device",
+    kind: "raspberry-pi-4",
+    capabilities: ["device.health", "led.set", definition.name],
+    functions: [definition],
+  });
+  hub.grant(owner, agent.id, device.deviceId, ["device.health", definition.name]);
+  const catalog = hub.functionCatalog(agent);
+  assert.deepEqual(
+    catalog.map((entry) => [entry.deviceId, entry.definition.name]),
+    [
+      [device.deviceId, "device.health"],
+      [device.deviceId, definition.name],
+    ],
+  );
+  assert.equal(catalog.some((entry) => entry.deviceId === other.deviceId), false);
+  assert.deepEqual(
+    hub.functionCatalog({ ...agent, readOnly: true }).map((entry) => entry.definition.name),
+    ["device.health"],
+  );
+  assert.equal(hub.functions(agent).length, 1);
+  hub.revokeGrant(owner, agent.id, device.deviceId);
+  assert.deepEqual(hub.functionCatalog(agent), []);
+});
 test("manifests reject unknown functions, built-in overrides, external schemas and duplicates", () => {
   assert.equal(
     manifestSchema.safeParse({ ...manifest, functions: [] }).success,
@@ -130,6 +164,41 @@ test("MCP discovers granted custom tools and validates their arguments through t
       arguments: { arguments: { value: 40 }, idempotencyKey: "mcp-revoked" },
     });
     assert.equal(denied.isError, true);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP generates per-device built-in tools from the same grant-filtered catalog", async () => {
+  const hub = new Hub();
+  const enrollment = await hub.enrollment(owner, "uno-r4-wifi");
+  const device = await hub.enroll(enrollment.token, {
+    name: "status board",
+    kind: "uno-r4-wifi",
+    capabilities: ["device.health", "led.set"],
+  });
+  hub.grant(owner, agent.id, device.deviceId, ["device.health"]);
+  const server = createMcp(hub, agent);
+  const client = new Client({ name: "builtin-catalog-test", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    const { tools } = await client.listTools();
+    const healthTool = tools.find(
+      (item) => item.name === functionToolName(device.deviceId, "device.health"),
+    );
+    assert(healthTool);
+    assert.equal(
+      tools.some((item) => item.name === functionToolName(device.deviceId, "led.set")),
+      false,
+    );
+    const result = await client.callTool({
+      name: healthTool.name,
+      arguments: { arguments: {}, idempotencyKey: "catalog-health" },
+    });
+    assert.equal(result.structuredContent.data.capability, "device.health");
   } finally {
     await client.close();
     await server.close();

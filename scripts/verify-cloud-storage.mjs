@@ -83,11 +83,9 @@ async function api(stub, path, method = "GET", body, credential) {
 }
 try {
   let stub = await object();
-  const connection = await api(stub, "/v1/sdk-tokens", "POST", {
+  const connection = await api(stub, "/v1/device-setup-tokens", "POST", {
     name: "storage fixture",
-    ttlSeconds: 3600,
-    access: "act",
-    canAttach: true,
+    ttlSeconds: 600,
     deviceLimit: 1,
   });
   const request = {
@@ -109,8 +107,13 @@ try {
     await api(stub, "/v1/sdk/devices", "POST", request, connection.token),
     paired,
   );
+  const agentConnection = await api(stub, "/v1/agent-connections", "POST", {
+    name: "storage fixture agent",
+    ttlSeconds: 600,
+    access: "act",
+  });
   await api(stub, "/v1/grants", "POST", {
-    principal: connection.principal,
+    principal: agentConnection.principal,
     deviceId: paired.deviceId,
     capabilities: ["device.health"],
     ttlSeconds: 3600,
@@ -126,7 +129,7 @@ try {
     `/v1/devices/${paired.deviceId}/actions`,
     "POST",
     actionRequest,
-    connection.token,
+    agentConnection.token,
   );
   assert.equal(action.status, "queued");
   await worker.dispose();
@@ -139,7 +142,7 @@ try {
         `/v1/devices/${paired.deviceId}/actions`,
         "POST",
         actionRequest,
-        connection.token,
+        agentConnection.token,
       )
     ).id,
     action.id,

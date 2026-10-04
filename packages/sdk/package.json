@@ -9,7 +9,9 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "openlaunch-device": "./dist/cli.js"
+    "openlaunch-device": "./dist/cli.js",
+    "openlaunch-agent": "./dist/agent-cli.js",
+    "ol": "./dist/agent-cli.js"
   },
   "exports": {
     ".": {

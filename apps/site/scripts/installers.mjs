@@ -16,7 +16,9 @@ export function installerManifest(downloadDirectory, origin) {
     installers: [
       "install.sh",
       "install-pi.sh",
+      "setup-uno.sh",
       "provision-uno.py",
+      "provision-roomba.py",
       "provision-esp32.py",
     ].map((filename) => ({
       url: `${origin}/${filename.startsWith("provision-") ? "downloads/" : ""}${filename}`,

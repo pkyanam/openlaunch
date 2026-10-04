@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -10,6 +16,8 @@ import {
   isolatedEnvironment,
   isolatedConfig,
   verifyResolution,
+  verifyRoombaResolution,
+  roombaLibraryCommit,
 } from "../scripts/firmware.mjs";
 
 test("successful compilation must resolve selected library, not a global override", () => {
@@ -41,6 +49,53 @@ test("global sketchbook and environment cannot override the private library dire
     isolatedConfig("/checkout", "/installed/data").directories.data,
     "/installed/data",
   );
+});
+
+test("Roomba sketch requires its clean pinned library and keeps separate resolution checks", () => {
+  assert.throws(() => parseOptions(["--sketch", "openlaunch_roomba"]));
+  assert.throws(() =>
+    parseOptions(["--sketch", "arbitrary", "--roomba-library", "/tmp/lib"]),
+  );
+  assert.throws(() => parseOptions(["--roomba-library", "/tmp/lib"]));
+  assert.deepEqual(
+    parseOptions([
+      "--profile",
+      "stock",
+      "--sketch",
+      "openlaunch_roomba",
+      "--roomba-library",
+      "/tmp/ArduRoomba",
+    ]),
+    {
+      profile: "stock",
+      sketch: "openlaunch_roomba",
+      roombaLibrary: "/tmp/ArduRoomba",
+    },
+  );
+  assert.equal(roombaLibraryCommit, "5120998789100c1aade14ebe0645524cae6f9349");
+  const directory = mkdtempSync(
+    join(tmpdir(), "openlaunch-roomba-resolution-"),
+  );
+  const selected = join(directory, "selected");
+  const alias = join(directory, "alias");
+  mkdirSync(selected);
+  symlinkSync(selected, alias);
+  const result = {
+    success: true,
+    builder_result: {
+      used_libraries: [
+        { name: "WiFiS3", install_dir: "/selected/wifi" },
+        { name: "ArduRoomba", install_dir: selected },
+      ],
+    },
+  };
+  verifyResolution(result, "/selected/wifi");
+  try {
+    verifyRoombaResolution(result, alias);
+    assert.throws(() => verifyRoombaResolution(result, "/global/ArduRoomba"));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("stock is default and rejects accidental repair options", () => {

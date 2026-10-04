@@ -14,5 +14,7 @@ export default defineMeta({
     "resources",
     "troubleshooting",
     "status",
+    "terms",
+    "privacy",
   ],
 });

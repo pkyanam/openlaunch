@@ -1,0 +1,64 @@
+---
+title: Privacy Policy
+description: How Belweave processes account, device and action information to operate openlaunch, and how to request access, correction or deletion.
+---
+
+
+**Effective date: October 4, 2026**
+
+**Belweave** operates openlaunch at openlaunch.dev and is responsible for the processing described here. Contact [info@belweave.com](mailto:info@belweave.com) with privacy questions or requests.
+
+We collect and log information needed to provide the service, enforce your permissions, show useful action history, maintain security and resolve problems. We do not sell personal information, use it for targeted advertising, or use your device commands to train our own AI models. This policy covers our hosted console, API and MCP service. Your chosen agent providers have their own policies.
+
+## Information processed
+
+- **Account and authentication:** Clerk handles sign-in and account management, including Google sign-in. That process can involve your name, email, profile image, account identifier, authentication sessions and security information. The openlaunch application verifies your identity and derives a workspace identifier from your verified account; its device workspace records do not store your Google password.
+- **Device and integration information:** device IDs, names, adapter types, function definitions and input schemas, last-seen status, agent connection identifiers, grants, expiry/revocation information and pairing records.
+- **Actions and results:** the requested function, device and agent identifiers, input arguments, results or errors, action status, timestamps, expiry and retry-correlation information. Inputs and results can contain personal information if your adapter or agent supplies it. Do not put passwords or unrelated sensitive information into them.
+- **Security records:** a bounded audit history of events such as pairing, permission changes, revocation and action state changes. Application audit entries contain an event, timestamp, principal and target identifier rather than a copy of your whole request.
+- **Network and support information:** hosting and authentication providers process connection and security metadata. openlaunch uses the request IP address for rate limiting. If you contact us, we process the information you provide to respond and resolve the request.
+
+The bridge does not require your full agent conversation. An agent can nevertheless send conversation content as an action argument; that content then becomes part of the action record. Wi-Fi credentials entered into a USB provisioning helper are sent to and stored on your device; the helper does not send them to the hosted bridge. Device storage protections depend on your hardware and adapter.
+
+## How information is used
+
+We process information to authenticate you, pair and identify devices, enforce agent permissions, route commands, reconcile retries, return results, display and export history, detect abuse, investigate failures and respond to support or privacy requests. We also process information where required by law.
+
+Where a law requires a legal basis, the relevant bases are performance of our agreement with you, legitimate interests in operating and securing the service and resolving problems, compliance with legal obligations, and consent where required for an optional feature. You may withdraw consent where applicable without affecting processing that was lawful before withdrawal.
+
+## Providers and sharing
+
+- **Clerk** supplies hosted authentication and account infrastructure. See its [privacy information](https://clerk.com/legal/privacy) and [data processing terms](https://clerk.com/legal/dpa).
+- **Cloudflare** hosts the website and bridge, provides networking and abuse protection, and stores workspace data in SQLite-backed Durable Objects. Cloudflare may process network metadata, including IP addresses, under its [privacy policy](https://www.cloudflare.com/privacypolicy/).
+- **Your connected agents and devices** receive the information needed for operations you authorize. An agent can receive permitted device/function descriptions and command results. Review that provider's terms and privacy settings before linking it.
+- **GitHub** hosts source code and backup downloads. Visiting GitHub or downloading from it is subject to [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
+
+We may disclose necessary information to comply with law, protect users or the service, or investigate abuse. If the operator or service is transferred, information may transfer subject to this policy and applicable notice requirements. We do not grant third parties access to your devices merely because they provide infrastructure.
+
+## Cookies and logging
+
+Authentication uses the cookies or similar session mechanisms necessary to keep you signed in and protect your account. The application does not add advertising trackers or session-replay analytics. Infrastructure providers can maintain their own operational and security records. Do not interpret minimal application logging as a promise that hosting providers process no network metadata.
+
+The application does not intentionally log bearer tokens, Wi-Fi passwords or full agent conversations. Hosted device and API credentials are represented by hashes in workspace records; operational signing keys are managed separately as deployment secrets. Transport security and access checks reduce risk, but no system can guarantee absolute security.
+
+## Retention
+
+Account, device and permission records are retained while needed to operate your workspace. Action history remains available for troubleshooting, accountability and export, subject to workspace limits. The service currently retains up to 5,000 action records per workspace and a rolling maximum of 1,000 audit events; these are count limits, not fixed time-based deletion schedules. A command's expiry stops eligible dispatch; it does not erase its history.
+
+Revoking a device, token or grant disables its access and removes applicable permissions, but historical records may remain. Contact us to request account closure or deletion. We retain information only as necessary for the requested service, legitimate security and dispute-resolution needs, or legal obligations. Residual copies may remain in provider-managed backups or recovery records until their normal lifecycle ends. We do not promise immediate erasure from all backups. Providers' own account and security records are governed by their applicable terms and policies.
+
+## Your choices and rights
+
+You can review devices and grants, revoke agent or device access, and export action history through the console. Contact [info@belweave.com](mailto:info@belweave.com) for access, correction, deletion, account closure, or other rights available under applicable law, including objection, restriction and portability where applicable. We may verify your identity to protect your information. Never email a password, Wi-Fi secret or bearer token.
+
+Deleting or changing your Clerk sign-in alone does not establish that every openlaunch workspace record has been removed. Include your account identifier or sign-in email in a deletion request so we can locate and verify your workspace. Where available under your law, you may also complain to your local data-protection authority. We do not discriminate against you for exercising privacy rights.
+
+## International processing and children
+
+Our providers may process information in countries outside your residence, including the United States. Applicable provider agreements and legally required transfer safeguards govern those transfers; we do not guarantee that data stays in a particular country.
+
+Account holders must be at least 18 under our [Terms of Service](/terms). The hosted service is not directed at children, and we do not knowingly create accounts for children. Contact us if you believe a child has supplied personal information so we can investigate and handle deletion as appropriate.
+
+## Changes
+
+We will update the effective date when this policy changes and provide appropriate notice of material changes through the service or another suitable channel. Questions and requests: [info@belweave.com](mailto:info@belweave.com).

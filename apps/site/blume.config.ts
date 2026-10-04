@@ -27,6 +27,8 @@ export default defineConfig({
     links: [
       { label: "Setup", href: "/docs/setup" },
       { label: "Project status", href: "/docs/status" },
+      { label: "Terms", href: "/docs/terms" },
+      { label: "Privacy", href: "/docs/privacy" },
     ],
   },
 });

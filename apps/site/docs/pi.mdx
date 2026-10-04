@@ -1,23 +1,23 @@
 ---
 title: Raspberry Pi 4
-description: Install the openlaunch agent on a Raspberry Pi 4 with one owner-issued SDK token and private device credentials.
+description: Pair a Raspberry Pi 4 with a short-lived setup token, then connect agents separately.
 ---
 
 ## Install and pair
 
-In **Connections**, create a token with device attachment enabled. On Raspberry Pi OS running on a Raspberry Pi 4 Model B (4 GB or 8 GB), run:
+In **Devices → Add device**, create a device setup token. It uses the `ol_sdk_` prefix, expires after 10 minutes by default, and attaches one device by default. On Raspberry Pi OS running on a Raspberry Pi 4 Model B (4 GB or 8 GB), run:
 
 ```sh
 curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
 ```
 
-When prompted, enter the SDK token; the prompt is hidden. The installer derives the workspace from the token and attaches the Pi. It downloads the matching ARM binary over HTTPS and verifies its SHA-256. It supports 64-bit ARM64 and 32-bit ARMv7 systems. You need `curl` and Python 3; it does not need Go or Node.js, `sudo`, boot changes or a firmware flash.
+When prompted, enter the device setup token; the prompt is hidden. The installer derives the workspace from the token and attaches the Pi. It downloads the matching ARM binary over HTTPS and verifies its SHA-256. It supports 64-bit ARM64 and 32-bit ARMv7 systems. You need `curl` and Python 3; it does not need Go or Node.js, `sudo`, boot changes or a firmware flash.
 
-The installer stores the executable at `~/.local/bin/openlaunch-device` and the private per-device credential at `~/.config/openlaunch/device.json`. It never stores the SDK token and stops if either file already exists. If attachment is interrupted, rerun the installer with the same token within 10 minutes. If that window has passed, inspect **Devices** before starting another attachment.
+The installer stores the executable at `~/.local/bin/openlaunch-device` and the private per-device credential at `~/.config/openlaunch/device.json`. It never stores the setup token and stops if either file already exists. The private child credential survives setup-token expiry or revocation; removing the device from the console revokes it. If attachment is interrupted, rerun the installer with the same token within 10 minutes. If that window has passed, inspect **Devices** before starting another attachment.
 
 After installation, start the agent with the command printed by the installer. It runs in the foreground; press Ctrl-C to stop it. Run the same command to start it again. The optional systemd unit is in the [source repository](https://github.com/pkyanam/openlaunch/blob/main/devices/pi/openlaunch-device.service); setting it up requires a service account and paths.
 
-When the Pi appears in the console, open its **Access** view and grant the agent only the functions it needs. The grant is separate from the SDK token and expires on its own. See [Pairing and permissions](/pairing).
+When the Pi appears in the console, open its **Access** view and grant an agent connection only the functions it needs. A grant can expire or remain active until revoked. Create a separate `ol_agent_` API connection or use OAuth for agent access; see [Pairing and permissions](/pairing).
 
 ## Current capability
 
@@ -31,11 +31,11 @@ For development, build the Linux binary with Go:
 npm run build:pi
 ```
 
-Load the SDK token into `OPENLAUNCH_SDK_TOKEN` from your secret store, then attach and start the agent:
+Load the device setup token into `OPENLAUNCH_SDK_TOKEN` from your secret store, then attach the device:
 
 ```sh
 ./openlaunch-device --attach --url https://www.openlaunch.dev --config "$HOME/.config/openlaunch/device.json"
 ./openlaunch-device --config "$HOME/.config/openlaunch/device.json"
 ```
 
-The token is used only during attachment. Keep the child device credential file private and outside Git. Do not use `--simulate` for hardware acceptance.
+The setup token is used only during attachment; the device runtime uses its private child credential. Keep that credential file private and outside Git. Agent software uses a separate `ol_agent_` API connection or OAuth. Do not use `--simulate` for hardware acceptance.

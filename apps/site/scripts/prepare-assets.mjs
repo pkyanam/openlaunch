@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 mkdirSync("public/downloads", { recursive: true });
 copyFileSync("../../scripts/install.sh", "public/install.sh");
 copyFileSync("../../scripts/install-pi.sh", "public/install-pi.sh");
+copyFileSync("../../scripts/setup-uno.sh", "public/setup-uno.sh");
 execFileSync(
   process.execPath,
   [
@@ -19,6 +20,10 @@ execFileSync(process.execPath, ["../../scripts/package-sdk.mjs"], {
 copyFileSync(
   "../../scripts/provision-uno.py",
   "public/downloads/provision-uno.py",
+);
+copyFileSync(
+  "../../scripts/provision-roomba.py",
+  "public/downloads/provision-roomba.py",
 );
 
 execFileSync(

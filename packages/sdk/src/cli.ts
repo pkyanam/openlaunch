@@ -300,7 +300,7 @@ export async function setupDevice(options: SetupOptions = {}) {
   if (sdkToken) {
     workspace = sdkTokenWorkspace(sdkToken) ?? "";
     if (!workspace || !sdkToken.startsWith("ol_sdk_"))
-      throw new Error("Use an owner-issued ol_sdk_ token; legacy agent tokens cannot pair devices");
+      throw new Error("Use an owner-issued ol_sdk_ token; agent tokens cannot pair devices");
     if (options.workspace && options.workspace !== workspace)
       throw new Error("Workspace ID does not match the SDK token");
     pendingPath = join(directory, ".setup-pending.json");

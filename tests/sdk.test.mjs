@@ -261,7 +261,7 @@ test("device SDK reports owner quota errors without falling back to device crede
         url: "https://api.example.test",
         token: "malformed",
       }),
-    /SDK token/,
+    /device setup token/,
   );
 });
 
@@ -308,7 +308,7 @@ test("direct device SDK rejects legacy agent credentials without a network reque
     url: "https://api.example.test",
     token: `ol_agent_${workspace}_${"c".repeat(64)}`,
     fetch: async () => { calls++; throw new Error("unexpected request"); },
-  }), /legacy agent tokens cannot pair devices/);
+  }), /agent tokens cannot pair devices/);
   assert.equal(calls, 0);
   // Routing extraction stays compatible for agent clients using legacy tokens.
   assert.equal(sdkTokenWorkspace(`ol_agent_${workspace}_${"c".repeat(64)}`), workspace);

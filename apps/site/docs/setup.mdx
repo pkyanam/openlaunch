@@ -6,11 +6,11 @@ description: Sign in to your openlaunch console, pair a device and choose the fu
 ## Connect an agent and device
 
 1. [Open your console](https://www.openlaunch.dev/console/) and continue with Google.
-2. In **Connections**, create a named SDK token. Choose its access and expiry; enable device attachment if you will pair hardware. The default attachment limit is one device.
+2. In **Devices → Add device**, create a device setup token. It uses the `ol_sdk_` prefix, expires after 10 minutes by default, and attaches one device by default.
 3. Follow the [Pi installer](/pi), [Uno USB setup](/uno-r4), or the [one-command custom adapter setup](/sdk).
 4. When the device appears, its **Access** view opens. Choose the functions your agent may use and set an expiry. [Connect your agent](/agents).
 
-The SDK token can also authenticate a JavaScript agent. ChatGPT and Codex connect through MCP OAuth. In either case, an owner must approve each device's functions. Inspect the action receipt for the result. To add hardware behavior, see [Build your own functions](/functions).
+The device setup token only pairs hardware; it cannot authenticate an agent or call MCP tools. Create a separate `ol_agent_` API connection for SDK agents, or connect ChatGPT and Codex through MCP OAuth. In either case, an owner must approve each device's functions. A grant can expire or remain active until revoked. Inspect the action receipt for the result. To add hardware behavior, see [Build your own functions](/functions).
 
 ## Run a local developer console
 
@@ -33,7 +33,7 @@ npm run start:local
 
 ## Add your board
 
-Create a token with device attachment enabled in **Connections**, then use the [Uno guide](/uno-r4), [Pi guide](/pi), or [custom adapter guide](/sdk). The older one-use enrollment flow remains for existing integrations.
+Create a device setup token in **Devices → Add device**, then use the [Uno guide](/uno-r4), [Pi guide](/pi), or [custom adapter guide](/sdk). The older one-use enrollment flow remains for existing integrations.
 
 For a real board, the bridge needs a trusted HTTPS address the board can reach. Your Mac's loopback address only works on that Mac. See [network setup](/troubleshooting#my-board-cannot-reach-the-bridge).
 
@@ -41,7 +41,7 @@ For a real board, the bridge needs a trusted HTTPS address the board can reach. 
 
 Follow [agent connections](/agents). Grant that connection **health** for your device in **Access**, then ask it to check the board's health and inspect the result. Add LED or matrix access when you want the Uno to use those functions.
 
-A grant names the connection, device, allowed functions, and expiry. Pairing alone does not give an agent permission.
+A grant names the agent connection, device, allowed functions, and optional expiry. Pairing alone does not give an agent permission.
 
 ## Work on the source
 

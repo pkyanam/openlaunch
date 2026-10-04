@@ -11,10 +11,11 @@ description: See the hosted software and device behaviors that have been checked
 - OAuth scopes and device capability grants are separate. Owners must approve capabilities for each device and agent.
 - The hosted API uses SQLite-backed Durable Objects keyed to the verified Clerk workspace identity.
 - Custom manifest functions are schema-validated, exposed as device-specific MCP tools after an owner grant, and checked against the live grant at invocation.
-- On deployed commit `6e317a0`, SDK-token acceptance verified stable attachment retry after a deliberately lost response: the retry returned the same child device credential, and the master token was not persisted on the device.
-- New SDK tokens have no device grants by default. An ungranted action and agent self-grant both return 403; attachment beyond the owner-set device limit returns 429. The owner can grant device health and a custom `custom.echo` function; changing the manifest clears those grants.
+- On deployed commit `6e317a0`, legacy combined SDK-token acceptance verified stable attachment retry after a deliberately lost response: the retry returned the same child device credential, and the master token was not persisted on the device. This predates the current attach-only `ol_sdk_` setup-token and separate `ol_agent_` agent-credential contract.
+- Legacy combined-token tests verified no grants by default. An ungranted action and agent self-grant both return 403; attachment beyond the owner-set device limit returns 429. The owner can grant device health and a custom `custom.echo` function; changing the manifest clears those grants. These historical results do not describe a new combined-token flow.
+- Automated permission and persistence tests cover the current split setup-token/API-connection routes and persistent grants.
 - An authenticated Node adapter received WebSocket wake hints and then rechecked work over HTTPS. A software fixture returned health in 601 ms and `custom.echo` in 508 ms. These timings verify the software path only, not a physical device.
-- Hosted revocation acceptance confirmed that revoking an SDK token denies its agent requests while leaving the paired device identity intact. Explicit device revocation then denies polling and reuse of an event ticket issued before revocation. Temporary acceptance devices and tokens were retired.
+- Hosted revocation acceptance on the legacy combined-token flow confirmed that revoking that token denied its agent requests while leaving the paired device identity intact. Explicit device revocation then denied polling and reuse of an event ticket issued before revocation. Temporary acceptance devices and tokens were retired. Under the current split contract, setup-token revocation does not revoke an issued child credential; agent-connection revocation stops agent access and removes its grants.
 - Broadcast requests support up to 20 devices and return an independent result for each device.
 
 ## Latest deployment checks
@@ -38,3 +39,7 @@ Physical acceptance remains open. Pi and Uno checks for network access, TLS and 
 ## Try openlaunch
 
 Start in the [hosted console](https://www.openlaunch.dev/console/), follow [setup](/setup), and use the hardware checklist for deliberate [Uno R4](/uno-r4) or [Pi](/pi) hardware acceptance. Website hosting and hosted identity do not establish that a physical board is connected.
+
+## Repaired Uno connection
+
+On October 4, 2026, the console-mux Roomba sketch retained its paired identity after a main-chip upload, automatically published 13 functions, and completed a real hosted health request. The custom ESP firmware was preserved. The Roomba was not wired to the Uno, so serial sensor responses, movement, cleaning and docking remain unverified.

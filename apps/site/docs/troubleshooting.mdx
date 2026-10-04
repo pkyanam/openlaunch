@@ -13,11 +13,11 @@ Uno firmware requires HTTPS on port 443, a trusted hostname, and a valid clock. 
 
 ## Device setup retry expired
 
-If SDK attachment loses its response, rerun the same setup command with the same SDK token within 10 minutes. If that window has passed, inspect **Devices** before starting another attachment. For older integrations using one-use enrollment codes, create a new code after expiry.
+If device setup loses its response, rerun the same setup command with the same `ol_sdk_` setup token within 10 minutes. If that window has passed, inspect **Devices** before starting another attachment. Revoking or expiring the setup token does not invalidate an already paired device's private credential. For older integrations using one-use enrollment codes, create a new code after expiry.
 
 ## The agent cannot see my board
 
-Device attachment and agent access are separate. Open the device's **Access** view, grant the right connection its functions, and check that the grant has not expired or been revoked. For the local adapter, the agent is `local-agent`.
+Device attachment and agent access are separate. Use OAuth or an `ol_agent_` API connection for the agent, then open the device's **Access** view and grant that connection its functions. Check that the grant has not expired or been revoked; grants can also remain active until explicitly revoked. For the local adapter, the agent is `local-agent`.
 
 ## My action stays queued
 

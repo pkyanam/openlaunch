@@ -13,6 +13,7 @@
 #include <EEPROM.h>
 #include "ResultJournal.h"
 #include "AttachmentClock.h"
+#include "HttpBodyWriter.h"
 
 #include <cstdint>
 #include <cstddef>
@@ -274,9 +275,9 @@ enum class HttpResult : std::uint8_t { Ok, NetworkError, HttpError, InvalidRespo
 static HttpResult post(const String &path, JsonDocument &data,
                        JsonDocument &response, const char *bearerOverride = nullptr) {
   lastHttpStatusCode = 0;
-  String body;
-  serializeJson(data, body);
-  if (body.length() > 16 * 1024) return HttpResult::InvalidResponse;
+  if (data.overflowed()) return HttpResult::InvalidResponse;
+  const size_t bodyLength = measureJson(data);
+  if (bodyLength > 16 * 1024) return HttpResult::InvalidResponse;
 
   WiFiSSLClient tls;
   HttpClient client(tls, cfg.host, 443);
@@ -284,14 +285,18 @@ static HttpResult post(const String &path, JsonDocument &data,
   client.beginRequest();
   client.post(path);
   client.sendHeader("Content-Type", "application/json");
-  client.sendHeader("Content-Length", body.length());
+  client.sendHeader("Content-Length", bodyLength);
   client.sendHeader("x-openlaunch-workspace", cfg.workspace);
   if (bearerOverride && bearerOverride[0])
     client.sendHeader("Authorization", String("Bearer ") + bearerOverride);
   else if (cfg.token[0])
     client.sendHeader("Authorization", String("Bearer ") + cfg.token);
   client.beginBody();
-  client.print(body);
+  openlaunch::HttpBodyWriter<HttpClient> writer(client);
+  if (serializeJson(data, writer) != bodyLength || !writer.flush()) {
+    client.stop();
+    return HttpResult::NetworkError;
+  }
   client.endRequest();
 
   const int status = client.responseStatusCode();

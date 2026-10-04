@@ -8,6 +8,7 @@ import {
   agentTokenWorkspace,
   type DeviceCredentialDeriver,
 } from "../../core/src/index.ts";
+import { functionGuide } from "../../core/src/function-guides.ts";
 import { createMcp } from "../../mcp/src/index.ts";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 const caps = capabilityName;
@@ -122,6 +123,11 @@ export async function handle(
     const p = agentTokenWorkspace(token)
       ? await hub.authenticateConnection(token, context.workspace ?? "")
       : await resolve(request);
+    if (
+      p.connectionPurpose === "device-setup" &&
+      !(path === "/v1/sdk/devices" && method === "POST")
+    )
+      throw new Fault("forbidden", 403, "Device setup tokens can only attach devices");
     if (path === "/mcp") {
       if (method !== "POST")
         throw new Fault("method", 405, "Stateless MCP uses POST");
@@ -165,6 +171,14 @@ export async function handle(
     if (path === "/v1/actions/export" && method === "GET")
       return json(hub.exportHistory(p));
     if (path === "/v1/grants" && method === "GET") return json(hub.grants(p));
+    if (path === "/v1/functions" && method === "GET") {
+      return json(
+        hub.functionCatalog(p).map((functionRow) => ({
+          ...functionRow,
+          guide: functionGuide(functionRow.kind, functionRow.definition),
+        })),
+      );
+    }
     if (path === "/v1/enrollments" && method === "POST") {
       const b = z
         .object({ kind: deviceKind })
@@ -172,27 +186,14 @@ export async function handle(
         .parse(await body(request));
       return json(await hub.enrollment(p, b.kind), 201);
     }
-    if (
-      ["/v1/agent-connections", "/v1/sdk-tokens"].includes(path) &&
-      method === "GET"
-    )
-      return json(hub.connections(p));
-    if (
-      ["/v1/agent-connections", "/v1/sdk-tokens"].includes(path) &&
-      method === "POST"
-    ) {
+    if (path === "/v1/agent-connections" && method === "GET")
+      return json(hub.connections(p).filter((c) => c.purpose !== "device-setup"));
+    if (path === "/v1/agent-connections" && method === "POST") {
       const b = z
         .object({
           name: z.string().min(1).max(64),
-          ttlSeconds: z.number().int().min(60).max(2592000).default(86400),
+          ttlSeconds: z.number().int().min(60).max(2592000).nullable().default(86400),
           access: z.enum(["read", "act"]).default("act"),
-          canAttach: z.boolean().default(path === "/v1/sdk-tokens"),
-          deviceLimit: z
-            .number()
-            .int()
-            .min(0)
-            .max(20)
-            .default(path === "/v1/sdk-tokens" ? 1 : 0),
         })
         .strict()
         .parse(await body(request));
@@ -203,13 +204,44 @@ export async function handle(
           b.name,
           b.ttlSeconds,
           b.access,
-          { canAttach: b.canAttach, deviceLimit: b.deviceLimit },
+          { canAttach: false, deviceLimit: 0 },
+          "agent",
+        ),
+        201,
+      );
+    }
+    if (
+      ["/v1/device-setup-tokens", "/v1/sdk-tokens"].includes(path) &&
+      method === "GET"
+    )
+      return json(hub.deviceSetupTokens(p));
+    if (
+      ["/v1/device-setup-tokens", "/v1/sdk-tokens"].includes(path) &&
+      method === "POST"
+    ) {
+      const b = z
+        .object({
+          name: z.string().min(1).max(64),
+          ttlSeconds: z.number().int().min(60).max(86400).default(600),
+          deviceLimit: z.number().int().min(1).max(20).default(1),
+        })
+        .strict()
+        .parse(await body(request));
+      return json(
+        await hub.createConnection(
+          p,
+          context.workspace ?? "",
+          b.name,
+          b.ttlSeconds,
+          "act",
+          { canAttach: true, deviceLimit: b.deviceLimit },
+          "device-setup",
         ),
         201,
       );
     }
     const connectionRevoke =
-      /^\/v1\/(?:agent-connections|sdk-tokens)\/([a-f0-9-]{36})\/revoke$/.exec(
+      /^\/v1\/(?:agent-connections|device-setup-tokens|sdk-tokens)\/([a-f0-9-]{36})\/revoke$/.exec(
         path,
       );
     if (connectionRevoke && method === "POST")
@@ -220,7 +252,7 @@ export async function handle(
           principal: z.string().min(1).max(128),
           deviceId: z.string().uuid(),
           capabilities: z.array(caps).min(1).max(16),
-          ttlSeconds: z.number().int().min(1).max(86400).default(3600),
+          ttlSeconds: z.number().int().min(1).max(86400).nullable().default(3600),
         })
         .strict()
         .parse(await body(request));

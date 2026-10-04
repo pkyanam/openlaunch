@@ -17,11 +17,39 @@ export interface Capability {
   access: "read" | "write";
   inputSchema: Record<string, unknown>;
 }
+export interface FunctionCatalogEntry {
+  deviceId: string;
+  deviceName: string;
+  kind: DeviceKind;
+  definition: Capability;
+  guide: string;
+}
 export interface DeviceManifest {
   name: string;
   kind: DeviceKind;
   capabilities: string[];
   functions?: Capability[];
+}
+/** Owner-approved function access. A null expiry remains active until revoked. */
+export interface CapabilityGrant {
+  principal: string;
+  deviceId: string;
+  capabilities: string[];
+  expiresAt: number | null;
+}
+export type AgentConnectionPurpose = "agent" | "device-setup";
+export interface AgentConnectionRecord {
+  id: string;
+  principal: string;
+  name: string;
+  expiresAt: number | null;
+  revoked: boolean;
+  access: "read" | "act";
+  /** Absent on legacy connections, which keep their original combined permissions. */
+  purpose?: AgentConnectionPurpose;
+  canAttach?: boolean;
+  deviceLimit?: number;
+  attachedDeviceCount?: number;
 }
 export interface ActionEnvelope {
   id: string;

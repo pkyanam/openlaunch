@@ -29,6 +29,9 @@ test("one SDK token attaches a device safely and still needs a separate function
   assert.equal(created.status, 201);
   const connection = (await created.json()).data;
   assert.match(connection.token, /^ol_sdk_/);
+  assert.equal(connection.purpose, "device-setup");
+  assert.equal(connection.expiresAt - Date.now() < 610000, true);
+  assert.equal(connection.deviceLimit, 1);
   const requestId = crypto.randomUUID();
   const device = createDevice({
     url: "https://bridge.test",
@@ -59,9 +62,23 @@ test("one SDK token attaches a device safely and still needs a separate function
   );
   assert.equal(hub.state.devices.length, 1);
   assert.equal(hub.state.attachAttempts.length, 1);
+  const agentConnectionResponse = await fetch("https://bridge.test/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "workbench agent" }),
+  });
+  assert.equal(agentConnectionResponse.status, 201);
+  const agentConnection = (await agentConnectionResponse.json()).data;
+  assert.match(agentConnection.token, /^ol_agent_/);
+  assert.equal(agentConnection.purpose, "agent");
+  const agentPrincipal = await hub.authenticateConnection(agentConnection.token, workspace);
+  await assert.rejects(
+    () => hub.attachDevice(agentPrincipal, workspace, crypto.randomUUID(), manifest, credentials),
+    (error) => error.status === 403,
+  );
   const agent = createClient({
     url: "https://bridge.test",
-    token: connection.token,
+    token: agentConnection.token,
     fetch,
   });
   assert.deepEqual(await agent.listDevices(), []);
@@ -92,7 +109,11 @@ test("one SDK token attaches a device safely and still needs a separate function
     });
     assert.equal(denied.status, 403);
   }
-  hub.grant(owner, principal.id, identity.deviceId, ["device.health"]);
+  assert.throws(
+    () => hub.grant(owner, principal.id, identity.deviceId, ["device.health"]),
+    (error) => error.status === 403,
+  );
+  hub.grant(owner, agentPrincipal.id, identity.deviceId, ["device.health"]);
   assert.equal((await agent.listDevices()).length, 1);
   assert(!("attachedConnectionId" in (await agent.listDevices())[0]));
   await device.nextAction();
@@ -116,10 +137,9 @@ test("one SDK token attaches a device safely and still needs a separate function
     (e) => e.status === 429,
   );
   hub.revokeConnection(owner, connection.id);
-  await assert.rejects(
-    () => agent.listDevices(),
-    (e) => e.status === 401,
-  );
+  assert.equal((await agent.listDevices()).length, 1);
+  hub.revokeConnection(owner, agentConnection.id);
+  await assert.rejects(() => agent.listDevices(), (e) => e.status === 401);
   // Revoking a bootstrap/agent token does not silently erase a paired device.
   assert.equal(await device.nextAction(), null);
   hub.revoke(owner, identity.deviceId);

@@ -42,6 +42,21 @@ arduino-cli upload --fqbn arduino:renesas_uno:unor4wifi \
 
 CI prepares, installs dependencies and compiles stock through the same isolated runner. CI cannot validate console-mux without the owner's external repair assets; those are deliberately excluded from the repository.
 
+## ArduRoomba sketch
+
+The `openlaunch_roomba` sketch exposes its implemented functions automatically, including standard cleaning, spot/max cleaning, docking and pause. It publishes its compact function contract at boot; openlaunch supplies agent-facing documentation. A changed contract requires reviewing device grants again.
+
+Use the pinned ArduRoomba commit `5120998789100c1aade14ebe0645524cae6f9349` and install `ArduinoBLE@2.1.0` in the isolated dependency directory. Select the sketch explicitly:
+
+```sh
+node scripts/firmware.mjs --sketch openlaunch_roomba \
+  --roomba-library /path/to/ArduRoomba
+```
+
+For the repaired board, also pass the console-mux arguments above. This sketch has separate staging, provenance and compiled artifacts under `build/firmware/PROFILE/openlaunch_roomba/`; uploads must use that sketch's `compiled` directory. The main-chip upload preserves the ESP connectivity firmware.
+
+Provision with the native Uno setup helper or `python3 scripts/provision-roomba.py`. Wi-Fi settings and a device setup token are entered interactively; agent OAuth/API credentials stay outside the board. The local D6/D7 enable contacts are required for motion. They are software inputs, not an independent emergency stop: synchronous network calls can delay their handling. Read [API coverage](API-COVERAGE.md) before wiring and testing. Compilation and successful device health do not verify Roomba operation.
+
 No repair patch, library or firmware binary is distributed in this repository. The installed Renesas core has an MIT license, but the local repair modifications and bridge tree have no top-level license establishing redistribution permission; vendored components have separate licenses. Keep repair assets local until provenance and permission are reviewed. Bridge rebuilding also requires the repair workbench's patched ESP 2.0.9 toolchain, certificate generation and image combiner; the ordinary RA application build does not rebuild it.
 
 Compilation proves toolchain compatibility only. Hardware acceptance still needs Wi-Fi/TLS/clock, USB provisioning, actual LED/matrix observation, restart/reconnect and upload-to-application transition on both board profiles. Historical workbench tests are not openlaunch hardware validation.

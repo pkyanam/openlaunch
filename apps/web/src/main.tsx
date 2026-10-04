@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import logoUrl from "../../site/public/icon.svg?url";
 import {
   ClerkProvider,
   SignIn,
@@ -25,23 +26,109 @@ type Connection = {
   id: string;
   principal: string;
   name: string;
-  expiresAt: number;
+  expiresAt: number | null;
   access: "read" | "act";
   canAttach?: boolean;
   deviceLimit?: number;
   attachedDeviceCount?: number;
+  purpose?: "agent" | "legacy";
+};
+type DeviceSetupToken = {
+  id: string;
+  principal: string;
+  name: string;
+  expiresAt: number;
+  canAttach: boolean;
+  deviceLimit: number;
+  attachedDeviceCount?: number;
+  purpose?: "device-setup" | "legacy";
 };
 type Grant = {
   id?: string;
   principal: string;
   deviceId: string;
   capabilities: string[];
-  expiresAt: number;
+  expiresAt: number | null;
 };
+
+const consolePages = ["Devices", "Connections", "Activity", "Build"] as const;
+const connectionTabs = ["Prompt", "MCP URL", "Command", "API token"] as const;
+function NavigationIcon({ page }: { page: (typeof consolePages)[number] }) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  return (
+    <svg
+      className="nav-icon"
+      viewBox="0 0 20 20"
+      width="17"
+      height="17"
+      aria-hidden="true"
+      focusable="false"
+      {...common}
+    >
+      {page === "Devices" ? (
+        <>
+          <rect x="2.75" y="2.75" width="5.5" height="5.5" rx="1" />
+          <rect x="11.75" y="2.75" width="5.5" height="5.5" rx="1" />
+          <rect x="2.75" y="11.75" width="5.5" height="5.5" rx="1" />
+          <rect x="11.75" y="11.75" width="5.5" height="5.5" rx="1" />
+        </>
+      ) : page === "Connections" ? (
+        <>
+          <path d="m7.5 12.5 5-5" />
+          <path d="M6.25 8.75 4.5 10.5a3 3 0 0 0 4.25 4.25l1.75-1.75" />
+          <path d="m13.75 11.25 1.75-1.75a3 3 0 0 0-4.25-4.25L9.5 7" />
+        </>
+      ) : page === "Activity" ? (
+        <path d="M2.5 10h3l2-5.5 4 11 2-5.5h4" />
+      ) : (
+        <>
+          <path d="m6.5 5-4 5 4 5" />
+          <path d="m13.5 5 4 5-4 5" />
+          <path d="m11.5 3-3 14" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function ConsoleNavigation({
+  page,
+  onSelect,
+}: {
+  page: (typeof consolePages)[number];
+  onSelect: (page: (typeof consolePages)[number]) => void;
+}) {
+  return (
+    <>
+      {consolePages.map((item) => (
+        <button
+          type="button"
+          key={item}
+          className={page === item ? "active" : ""}
+          aria-current={page === item ? "page" : undefined}
+          onClick={() => onSelect(item)}
+        >
+          <NavigationIcon page={item} />
+          <span>{item}</span>
+        </button>
+      ))}
+    </>
+  );
+}
 function App({ session }: { session?: () => Promise<string | null> }) {
   const [token, setToken] = useState(""),
     [devices, setDevices] = useState<Device[]>([]),
-    [notice, setNotice] = useState("Connect to see your devices."),
+    [deviceSearch, setDeviceSearch] = useState(""),
+    [deviceStatusFilter, setDeviceStatusFilter] = useState<
+      "all" | "online" | "offline"
+    >("all"),
+    [notice, setNoticeValue] = useState(""),
     [busy, setBusy] = useState(false),
     [enrollment, setEnrollment] = useState<any>(null),
     [action, setAction] = useState<any>(null),
@@ -52,13 +139,15 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [grantCapabilities, setGrantCapabilities] = useState<
       Record<string, string[]>
     >({}),
-    [grantLifetime, setGrantLifetime] = useState(3600),
+    [grantLifetime, setGrantLifetime] = useState<number | null>(null),
     [broadcastDevices, setBroadcastDevices] = useState<string[]>([]),
     [broadcastFunction, setBroadcastFunction] = useState("device.health"),
     [broadcastResults, setBroadcastResults] = useState<any[]>([]);
   const [page, setPage] = useState<
     "Devices" | "Connections" | "Activity" | "Build"
   >("Devices");
+  const [connectionTab, setConnectionTab] =
+    useState<(typeof connectionTabs)[number]>("Prompt");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<
     "Functions" | "Access" | "Details"
@@ -75,6 +164,20 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   } | null>(null);
   const confirmationDialog = useRef<HTMLDialogElement>(null);
   const connectDialog = useRef<HTMLDialogElement>(null);
+  const [noticeError, setNoticeError] = useState(false);
+  const setNotice = (value: string) => {
+    setNoticeValue(value);
+    setNoticeError(false);
+  };
+  const actionReceiptNotice =
+    /^(Queued\.|The device received|The device reported success|The outcome is unknown|Action .*See the receipt)/.test(
+      notice,
+    );
+  useEffect(() => {
+    if (!notice || noticeError || actionReceiptNotice) return;
+    const timer = window.setTimeout(() => setNoticeValue(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [notice, noticeError, actionReceiptNotice]);
   useEffect(() => {
     if (addOpen) connectDialog.current?.showModal();
     else connectDialog.current?.close();
@@ -90,37 +193,39 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     setConfirmation(null);
   };
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [deviceSetupTokens, setDeviceSetupTokens] = useState<
+    DeviceSetupToken[]
+  >([]);
   const [connectionName, setConnectionName] = useState("My app");
-  const [connectionLifetime, setConnectionLifetime] = useState(604800);
+  const [connectionLifetime, setConnectionLifetime] = useState<number | null>(
+    null,
+  );
   const [connectionAccess, setConnectionAccess] = useState<"read" | "act">(
     "act",
   );
-  const [connectionCanAttach, setConnectionCanAttach] = useState(true);
-  const [connectionDeviceLimit, setConnectionDeviceLimit] = useState(1);
   const [connectionSecret, setConnectionSecret] = useState<string | null>(null);
-  const [secretContext, setSecretContext] = useState<"connections" | "device">(
-    "connections",
+  const [secretContext, setSecretContext] = useState<"agents" | "device">(
+    "agents",
   );
   const [deviceSetupTokenId, setDeviceSetupTokenId] = useState("new");
-  const [deviceSetupName, setDeviceSetupName] = useState(
-    "Device and agent token",
-  );
-  const [deviceSetupLifetime, setDeviceSetupLifetime] = useState(604800);
+  const [deviceSetupName, setDeviceSetupName] = useState("Device setup token");
+  const [deviceSetupLifetime, setDeviceSetupLifetime] = useState(600);
   const [deviceSetupKind, setDeviceSetupKind] = useState<
     "custom" | "pi" | "uno" | "esp32" | null
   >(null);
   const [deviceSetupPort, setDeviceSetupPort] = useState("");
   const [legacyKind, setLegacyKind] = useState("custom.device");
-  const [setupConnection, setSetupConnection] = useState<Connection | null>(
-    null,
-  );
+  const [setupConnection, setSetupConnection] =
+    useState<DeviceSetupToken | null>(null);
   const sdkArchiveUrl = `https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz${import.meta.env.VITE_OPENLAUNCH_BUILD_COMMIT ? `?commit=${import.meta.env.VITE_OPENLAUNCH_BUILD_COMMIT}` : ""}`;
   const adapterSetupCommand = `npx --yes --package=${quoteShellValue(sdkArchiveUrl)} openlaunch-device setup --url ${quoteShellValue(window.location.origin)}`;
-  const codexConnectCommand =
-    "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
+  const mcpServerUrl = `${window.location.origin}/mcp`;
+  const connectPrompt = `Connect to the openlaunch MCP server at ${mcpServerUrl} using OAuth. Use only functions I have granted. Check action results before reporting success.`;
+  const codexConnectCommand = `codex mcp add openlaunch --url ${mcpServerUrl} --oauth-client-registration cimd`;
   const usbSetupCommand = (filename: string) =>
     `(ol_helper=$(mktemp) && trap 'rm -f "$ol_helper"' EXIT && curl -fsS --proto '=https' --max-redirs 0 ${quoteShellValue(`${window.location.origin}/downloads/${filename}`)} -o "$ol_helper" && python3 "$ol_helper" ${deviceSetupKind === "esp32" ? `--port ${quoteShellValue(deviceSetupPort)} ` : ""}--origin ${quoteShellValue(window.location.origin)})`;
-  const unoSetupCommand = usbSetupCommand("provision-uno.py");
+  const unoSetupCommand =
+    "curl -fsSL https://www.openlaunch.dev/setup-uno.sh | bash";
   const esp32SetupCommand = usbSetupCommand("provision-esp32.py");
   const deviceSetupCommand =
     deviceSetupKind === "pi"
@@ -169,7 +274,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     try {
       await fn();
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Request failed");
+      setNoticeValue(e instanceof Error ? e.message : "Request failed");
+      setNoticeError(true);
     } finally {
       setBusy(false);
     }
@@ -203,7 +309,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             setPairingBaseline(null);
             setAddOpen(false);
             setNotice(
-              `${paired.name} is connected. Review its saved access; the SDK token does not grant itself permission to use functions.`,
+              `${paired.name} is connected. Review its saved access; device setup credentials do not grant permission to use functions.`,
             );
           }
         }
@@ -284,15 +390,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   ]);
   const refresh = () =>
     run(async () => {
-      const [inventory, agentConnections, activity, savedGrants] =
+      const [inventory, agentConnections, setupTokens, activity, savedGrants] =
         await Promise.all([
           api("/v1/devices"),
-          api("/v1/sdk-tokens"),
+          api("/v1/agent-connections"),
+          api("/v1/device-setup-tokens"),
           api("/v1/actions"),
           api("/v1/grants"),
         ]);
       setDevices(inventory);
       setConnections(agentConnections);
+      setDeviceSetupTokens(setupTokens);
       setReceipts(activity);
       setGrants(savedGrants);
       if (pairingBaseline !== null) {
@@ -310,7 +418,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           setPairingBaseline(null);
           setAddOpen(false);
           setNotice(
-            `${paired.name} is connected. Review its saved access; the SDK token does not grant itself permission to use functions.`,
+            `${paired.name} is connected. Review its saved access; device setup credentials do not grant permission to use functions.`,
           );
         } else {
           setNotice(
@@ -319,56 +427,47 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         }
         return;
       }
-      setNotice(
-        "Device inventory refreshed. Online means seen within 45 seconds.",
-      );
+      setNotice("");
     });
   const startDeviceSetup = () =>
     run(async () => {
       if (!deviceSetupKind) throw new Error("Choose a device type first.");
-      if (
-        deviceSetupKind === "esp32" &&
-        !deviceSetupPort.trim()
-      )
+      if (deviceSetupKind === "esp32" && !deviceSetupPort.trim())
         throw new Error("Enter the confirmed USB serial port first.");
       setEnrollment(null);
       setEnrollmentRevealed(false);
       if (deviceSetupTokenId === "new") {
         if (connectionSecret) {
           throw new Error(
-            "Copy or finish the SDK token already being shown before creating another one.",
+            "Copy or finish the token already being shown before creating another one.",
           );
         }
         setSecretContext("device");
-        const created = await api("/v1/sdk-tokens", "POST", {
+        const created = await api("/v1/device-setup-tokens", "POST", {
           name: deviceSetupName,
           ttlSeconds: deviceSetupLifetime,
-          access: "act",
-          canAttach: true,
           deviceLimit: 1,
         });
         setPairingBaseline(devices.map((device) => device.id));
         const { token: newSecret, ...safeConnection } = created;
         setSetupConnection(safeConnection);
         setConnectionSecret(newSecret);
-        setConnections(await api("/v1/sdk-tokens"));
-        setPrincipal(created.principal);
+        setDeviceSetupTokens(await api("/v1/device-setup-tokens"));
         setNotice(
-          "One-device SDK token created. Copy it now, then enter it when the setup command prompts.",
+          "One-device setup token created. Copy it now, then enter it when the setup command prompts.",
         );
       } else {
-        const connection = connections.find(
+        const connection = deviceSetupTokens.find(
           (item) => item.id === deviceSetupTokenId,
         );
         if (!connection || !connection.canAttach)
           throw new Error(
-            "Choose an active token that can attach devices, or create a new one.",
+            "Choose an active device setup token, or create a new one.",
           );
         setPairingBaseline(devices.map((device) => device.id));
         setSetupConnection(connection);
-        setPrincipal(connection.principal);
         setNotice(
-          "Use the selected token when the setup command prompts. New device access still needs a saved grant.",
+          "Use the selected device setup token when prompted. It cannot make agent requests; device access still needs a saved grant.",
         );
       }
     });
@@ -411,6 +510,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         : (connections.find((connection) => connection.principal === value)
             ?.name ?? "Custom agent");
   const grantPrincipalLabel = principalLabel(principal);
+  const visibleDevices = devices.filter((device) => {
+    const query = deviceSearch.trim().toLocaleLowerCase();
+    const matchesQuery =
+      !query ||
+      device.name.toLocaleLowerCase().includes(query) ||
+      device.kind.toLocaleLowerCase().includes(query);
+    const matchesStatus =
+      deviceStatusFilter === "all" ||
+      (deviceStatusFilter === "online" ? device.online : !device.online);
+    return matchesQuery && matchesStatus;
+  });
   const commonFunctions = chosenDevices.length
     ? chosenDevices[0]!.capabilities.filter((name) =>
         chosenDevices.every((device) => device.capabilities.includes(name)),
@@ -421,52 +531,65 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     builtInFunctions.find((fn) => fn.name === broadcastFunction);
   return (
     <div className="console-shell">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
       <header className="console-header">
         <a className="brand" href="/" aria-label="openlaunch home">
-          <img src="/icon.svg" width="30" height="27" alt="" />
+          <img src={logoUrl} width="30" height="27" alt="" />
           <span>openlaunch</span>
         </a>
         <div className="console-header-tools">
           <nav className="console-nav mobile-nav" aria-label="Console sections">
-            {(["Devices", "Connections", "Activity", "Build"] as const).map(
-              (item) => (
-                <button
-                  key={item}
-                  className={page === item ? "active" : ""}
-                  aria-current={page === item ? "page" : undefined}
-                  onClick={() => setPage(item)}
-                >
-                  {item}
-                </button>
-              ),
-            )}
+            <ConsoleNavigation page={page} onSelect={setPage} />
           </nav>
-          {!session && <span className="badge">Local owner session</span>}
-          {session ? <UserButton /> : null}
+          {!session && (
+            <span className="badge mobile-session-badge">
+              Local owner session
+            </span>
+          )}
+          {session ? (
+            <span className="mobile-user-control">
+              <UserButton />
+            </span>
+          ) : null}
         </div>
       </header>
       <div className="console-layout">
         <aside className="console-sidebar" aria-label="Console sections">
-          <nav className="console-nav">
-            {(["Devices", "Connections", "Activity", "Build"] as const).map(
-              (item) => (
-                <button
-                  key={item}
-                  className={page === item ? "active" : ""}
-                  aria-current={page === item ? "page" : undefined}
-                  onClick={() => setPage(item)}
-                >
-                  {item}
-                </button>
-              ),
-            )}
+          <a
+            className="brand sidebar-brand"
+            href="/"
+            aria-label="openlaunch home"
+          >
+            <img src={logoUrl} width="28" height="26" alt="" />
+            <span>openlaunch</span>
+          </a>
+          <nav className="console-nav" aria-label="Console sections">
+            <ConsoleNavigation page={page} onSelect={setPage} />
           </nav>
           <div className="sidebar-bottom">
-            <a href="/docs">Documentation</a>
-            {session && <UserButton />}
+            <a href="/docs">
+              <svg
+                className="resource-icon"
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M4 3.5h8.5A2.5 2.5 0 0 1 15 6v10.5H6.5A2.5 2.5 0 0 1 4 14z" />
+                <path d="M4 14a2.5 2.5 0 0 1 2.5-2.5H15M7 6.5h4.5" />
+              </svg>
+              Documentation
+            </a>
+            {!session && <span className="sidebar-session">Local owner</span>}
+            {session && (
+              <span className="sidebar-user-control">
+                <UserButton />
+              </span>
+            )}
           </div>
         </aside>
-        <main className="console-main">
+        <main className="console-main" id="main" tabIndex={-1}>
           {!session && (
             <section className="panel session">
               <div>
@@ -503,19 +626,36 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </button>
             </section>
           )}
-          <div role="status" className="notice">
-            {notice}
-          </div>
+          {notice && (
+            <div
+              role={noticeError ? "alert" : "status"}
+              aria-live={noticeError ? "assertive" : "polite"}
+              className={`notice ${noticeError ? "notice-error" : ""}`}
+            >
+              <span>{notice}</span>
+              <button
+                type="button"
+                className="notice-dismiss"
+                aria-label="Dismiss message"
+                onClick={() => {
+                  setNotice("");
+                  setNoticeError(false);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {page === "Devices" && (
             <>
               <div className="page-header">
                 <div>
-                  <h1>Devices</h1>
-                  <p>
-                    Connect hardware, inspect its functions, and control saved
-                    access.
-                  </p>
+                  <h1>
+                    Devices{" "}
+                    <span className="device-count">{devices.length}</span>
+                  </h1>
+                  <p>Pair devices, inspect functions, and control access.</p>
                 </div>
                 <div className="row">
                   <button
@@ -541,6 +681,41 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   </button>
                 </div>
               </div>
+              <div className="device-toolbar" role="search">
+                <label className="device-search">
+                  <span className="sr-only">
+                    Search devices by name or type
+                  </span>
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                    <circle cx="8.5" cy="8.5" r="5.5" />
+                    <path d="m12.5 12.5 4 4" />
+                  </svg>
+                  <input
+                    type="search"
+                    value={deviceSearch}
+                    onChange={(event) => setDeviceSearch(event.target.value)}
+                    placeholder="Search devices"
+                    disabled={devices.length === 0}
+                  />
+                </label>
+                <label className="device-filter">
+                  <span>Filters</span>
+                  <select
+                    aria-label="Filter devices by status"
+                    value={deviceStatusFilter}
+                    onChange={(event) =>
+                      setDeviceStatusFilter(
+                        event.target.value as "all" | "online" | "offline",
+                      )
+                    }
+                    disabled={devices.length === 0}
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="online">Online</option>
+                    <option value="offline">Offline</option>
+                  </select>
+                </label>
+              </div>
               {devices.length === 0 ? (
                 <section className="empty-state panel">
                   <h2>Connect your first device</h2>
@@ -562,35 +737,69 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     Add a device
                   </button>
                 </section>
+              ) : visibleDevices.length === 0 ? (
+                <section className="empty-state panel">
+                  <h2>No devices match</h2>
+                  <p>Try another name or status filter.</p>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setDeviceSearch("");
+                      setDeviceStatusFilter("all");
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                </section>
               ) : (
                 <div className="device-grid">
-                  {devices.map((d) => (
+                  {visibleDevices.map((d) => (
                     <article
                       className={`device-card ${selectedDeviceId === d.id ? "selected" : ""}`}
                       key={d.id}
                     >
-                      <div className="device-card-top">
-                        <span>
-                          {d.online
-                            ? "Online · seen recently"
-                            : "Offline · last seen may be stale"}
+                      <div className="device-card-heading">
+                        <span className="device-card-icon" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" focusable="false">
+                            <rect x="4" y="4" width="16" height="12" rx="2" />
+                            <path d="M9 20h6M12 16v4M8 9h8" />
+                          </svg>
                         </span>
-                        <span>{d.kind}</span>
+                        <div className="device-card-title">
+                          <button
+                            type="button"
+                            className="device-card-open"
+                            aria-label={`Open ${d.name}`}
+                            onClick={() => {
+                              setSelectedDeviceId(d.id);
+                              setDetailTab("Functions");
+                            }}
+                          >
+                            <span>{d.name}</span>
+                            <svg
+                              viewBox="0 0 20 20"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <path d="m7 4 6 6-6 6" />
+                            </svg>
+                          </button>
+                          <span className="device-kind">{d.kind}</span>
+                        </div>
                       </div>
-                      <h2>{d.name}</h2>
-                      <p>
-                        {d.capabilities.length}{" "}
-                        {d.capabilities.length === 1 ? "function" : "functions"}
-                      </p>
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          setSelectedDeviceId(d.id);
-                          setDetailTab("Functions");
-                        }}
-                      >
-                        Open device
-                      </button>
+                      <div className="device-card-footer">
+                        <span className="device-status">
+                          <span className={`dot ${d.online ? "online" : ""}`} />
+                          {d.online ? "Online" : "Offline"}
+                        </span>
+                        <span>
+                          {d.capabilities.length}{" "}
+                          {d.capabilities.length === 1
+                            ? "function"
+                            : "functions"}
+                        </span>
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -667,8 +876,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     <div className="access-panel">
                       <h3>Saved agent access</h3>
                       <p>
-                        Only saved, unexpired grants authorize an agent. Unsaved
-                        selections below have no effect.
+                        Only saved grants that have not expired or been revoked
+                        authorize an agent. Unsaved selections below have no
+                        effect.
                       </p>
                       {grants.filter(
                         (grant) => grant.deviceId === selectedDevice.id,
@@ -698,8 +908,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                     .join(", ")}
                                 </span>
                                 <span>
-                                  Expires{" "}
-                                  {new Date(grant.expiresAt).toLocaleString()}
+                                  {grant.expiresAt === null
+                                    ? "Access until revoked"
+                                    : grant.expiresAt <= Date.now()
+                                      ? `Expired ${new Date(grant.expiresAt).toLocaleString()}`
+                                      : `Expires ${new Date(grant.expiresAt).toLocaleString()}`}
                                 </span>
                                 <details>
                                   <summary>Agent ID</summary>
@@ -732,8 +945,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       <details className="grant-editor">
                         <summary>Grant an agent access</summary>
                         <p>
-                          Select only the functions this agent needs and set
-                          when access expires.
+                          Select only the functions this agent needs and choose
+                          when its grant expires.
                         </p>
                         {session ? (
                           <label>
@@ -800,11 +1013,16 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                         <label>
                           Access expires
                           <select
-                            value={grantLifetime}
+                            value={grantLifetime ?? "until-revoked"}
                             onChange={(e) =>
-                              setGrantLifetime(Number(e.target.value))
+                              setGrantLifetime(
+                                e.target.value === "until-revoked"
+                                  ? null
+                                  : Number(e.target.value),
+                              )
                             }
                           >
+                            <option value="until-revoked">Until revoked</option>
                             <option value={900}>In 15 minutes</option>
                             <option value={3600}>In one hour</option>
                             <option value={86400}>In 24 hours</option>
@@ -831,7 +1049,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               );
                               if (
                                 !(await confirmAction(
-                                  `Allow ${grantPrincipalLabel} to use ${capabilityNames.join(", ")} on ${selectedDevice.name} for ${grantLifetime / 60} minutes?`,
+                                  `Allow ${grantPrincipalLabel} to use ${capabilityNames.join(", ")} on ${selectedDevice.name} ${grantLifetime === null ? "until you revoke access" : `for ${grantLifetime / 60} minutes`}?`,
                                 ))
                               )
                                 return;
@@ -904,261 +1122,499 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               <div className="page-header">
                 <div>
                   <h1>Connections</h1>
-                  <p>
-                    One SDK token can connect an adapter and act as an agent,
-                    within the access you approve.
-                  </p>
+                  <p>Connect an agent through MCP, OAuth, or an API token.</p>
                 </div>
               </div>
-              <section className="panel help-panel">
-                <h2>Connect ChatGPT or Codex</h2>
-                <p>
-                  Use OAuth for ChatGPT and Codex. These connections do not need
-                  an SDK token; control each one's access with the saved grants
-                  on a device.
-                </p>
-                <div className="setup-command">
-                  <code>https://www.openlaunch.dev/mcp</code>
-                </div>
-                <div className="row">
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      run(async () => {
-                        await navigator.clipboard.writeText(
-                          "https://www.openlaunch.dev/mcp",
-                        );
-                        setNotice("MCP URL copied.");
-                      })
-                    }
-                  >
-                    Copy MCP URL
-                  </button>
-                  <a href="/downloads/openlaunch-plugin.zip">Download plugin</a>
-                  <a href="/docs/agents">Connection guide</a>
-                </div>
-                <details>
-                  <summary>Connect Codex CLI</summary>
-                  <div className="setup-command">
-                    <code>{codexConnectCommand}</code>
-                  </div>
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      run(async () => {
-                        await navigator.clipboard.writeText(
-                          codexConnectCommand,
-                        );
-                        setNotice("Codex connection command copied.");
-                      })
-                    }
-                  >
-                    Copy Codex command
-                  </button>
-                </details>
-              </section>
-              <section className="panel">
-                <h2>Create an SDK token</h2>
-                <p>
-                  Start with agent access and a one-device attachment limit.
-                  Change its name and expiry below; advanced options can narrow
-                  its access.
-                </p>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    run(async () => {
-                      const connection = await api("/v1/sdk-tokens", "POST", {
-                        name: connectionName,
-                        ttlSeconds: connectionLifetime,
-                        access: connectionAccess,
-                        canAttach: connectionCanAttach,
-                        deviceLimit: connectionCanAttach
-                          ? connectionDeviceLimit
-                          : 0,
-                      });
-                      setConnectionSecret(connection.token);
-                      setSecretContext("connections");
-                      setPrincipal(connection.principal);
-                      setConnections(await api("/v1/sdk-tokens"));
-                      setNotice(
-                        "SDK token created. Copy it now; it is shown only once.",
-                      );
-                    });
-                  }}
-                >
-                  <label>
-                    Token name
-                    <input
-                      value={connectionName}
-                      maxLength={64}
-                      required
-                      onChange={(e) => setConnectionName(e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Expires
-                    <select
-                      value={connectionLifetime}
-                      onChange={(e) =>
-                        setConnectionLifetime(Number(e.target.value))
-                      }
-                    >
-                      <option value={3600}>In one hour</option>
-                      <option value={86400}>In 24 hours</option>
-                      <option value={604800}>In 7 days</option>
-                      <option value={2592000}>In 30 days</option>
-                    </select>
-                  </label>
-                  <details>
-                    <summary>Advanced access and device options</summary>
-                    <label>
-                      Agent access
-                      <select
-                        value={connectionAccess}
-                        onChange={(e) =>
-                          setConnectionAccess(e.target.value as "read" | "act")
-                        }
-                      >
-                        <option value="act">
-                          Request functions approved for this token
-                        </option>
-                        <option value="read">
-                          Read health and action results only
-                        </option>
-                      </select>
-                    </label>
-                    <label className="permission">
-                      <input
-                        type="checkbox"
-                        checked={connectionCanAttach}
-                        onChange={(e) =>
-                          setConnectionCanAttach(e.target.checked)
-                        }
-                      />
-                      Allow this token to attach devices
-                    </label>
-                    {connectionCanAttach && (
-                      <label>
-                        Device limit
-                        <select
-                          value={connectionDeviceLimit}
-                          onChange={(e) =>
-                            setConnectionDeviceLimit(Number(e.target.value))
-                          }
-                        >
-                          {[1, 2, 5, 10, 20].map((limit) => (
-                            <option key={limit} value={limit}>
-                              {limit} {limit === 1 ? "device" : "devices"}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                  </details>
-                  <button
-                    disabled={
-                      busy ||
-                      !connectionName.trim() ||
-                      connectionSecret !== null
-                    }
-                  >
-                    Create SDK token
-                  </button>
-                </form>
-                {connectionSecret && secretContext === "connections" && (
-                  <div className="connection-secret">
-                    <label>
-                      SDK token · shown once
-                      <textarea readOnly value={connectionSecret} />
-                    </label>
+              <section
+                className="panel connection-panel"
+                aria-labelledby="connection-panel-title"
+              >
+                <div className="connection-panel-heading">
+                  <div>
+                    <h2 id="connection-panel-title">Connect an agent</h2>
                     <p>
-                      Copy this token into your app's secret settings. The same
-                      token can connect its allowed devices and request
-                      functions you grant.
+                      Choose a connection method. Function access stays under
+                      your control.
                     </p>
-                    <div className="row">
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          run(async () => {
-                            await navigator.clipboard.writeText(
-                              connectionSecret,
-                            );
-                            setNotice("SDK token copied.");
-                          })
-                        }
-                      >
-                        Copy token
-                      </button>
-                      <button onClick={() => setConnectionSecret(null)}>
-                        Done
-                      </button>
-                    </div>
                   </div>
-                )}
-              </section>
-              <section className="panel">
-                <h2>Active SDK tokens</h2>
-                {connections.length ? (
-                  <ul className="connection-list">
-                    {connections.map((c) => (
-                      <li key={c.id}>
-                        <div>
-                          <strong>{c.name}</strong>
-                          <span>
-                            Expires {new Date(c.expiresAt).toLocaleString()}
-                          </span>
-                          <span>
-                            {c.access === "read"
-                              ? "Read health and results"
-                              : "Can request functions approved for this token"}
-                          </span>
-                          <span>
-                            {c.canAttach
-                              ? `${c.attachedDeviceCount ?? 0} of ${c.deviceLimit ?? 1} ${(c.deviceLimit ?? 1) === 1 ? "device" : "devices"} attached`
-                              : "Cannot attach new devices"}
-                          </span>
-                        </div>
+                </div>
+                <div
+                  className="connection-tabs"
+                  role="tablist"
+                  aria-label="Connection method"
+                >
+                  {connectionTabs.map((tab) => (
+                    <button
+                      type="button"
+                      role="tab"
+                      id={`connection-tab-${tab.toLowerCase().replaceAll(" ", "-")}`}
+                      tabIndex={connectionTab === tab ? 0 : -1}
+                      aria-selected={connectionTab === tab}
+                      aria-controls="connection-tab-content"
+                      className={connectionTab === tab ? "active" : ""}
+                      key={tab}
+                      onClick={() => setConnectionTab(tab)}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key !== "ArrowLeft" &&
+                          event.key !== "ArrowRight"
+                        )
+                          return;
+                        event.preventDefault();
+                        const current = connectionTabs.indexOf(tab);
+                        const offset = event.key === "ArrowRight" ? 1 : -1;
+                        const next =
+                          connectionTabs[
+                            (current + offset + connectionTabs.length) %
+                              connectionTabs.length
+                          ]!;
+                        setConnectionTab(next);
+                        document
+                          .getElementById(
+                            `connection-tab-${next.toLowerCase().replaceAll(" ", "-")}`,
+                          )
+                          ?.focus();
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className="connection-tab-content"
+                  id="connection-tab-content"
+                  role="tabpanel"
+                  aria-labelledby={`connection-tab-${connectionTab.toLowerCase().replaceAll(" ", "-")}`}
+                  tabIndex={0}
+                >
+                  {connectionTab === "Prompt" && (
+                    <div className="connection-method">
+                      <p>
+                        Paste this into ChatGPT or another MCP-capable assistant
+                        to connect openlaunch with OAuth. Review function access
+                        on each device before using it.
+                      </p>
+                      <pre className="connect-prompt">{connectPrompt}</pre>
+                      <div className="row">
                         <button
+                          type="button"
                           className="secondary"
-                          disabled={busy}
                           onClick={() =>
                             run(async () => {
-                              if (
-                                !(await confirmAction(
-                                  `Revoke ${c.name}? Devices already attached with this token remain paired, but the token can no longer authorize agent requests or attach devices.`,
-                                ))
-                              )
-                                return;
-                              await api(
-                                `/v1/sdk-tokens/${c.id}/revoke`,
-                                "POST",
-                                {},
+                              await navigator.clipboard.writeText(
+                                connectPrompt,
                               );
-                              if (principal === c.principal)
-                                setPrincipal(
-                                  session
-                                    ? "https://chatgpt.com/oauth/codex/client.json"
-                                    : "local-agent",
-                                );
-                              setConnectionSecret(null);
-                              setConnections(await api("/v1/sdk-tokens"));
-                              setGrants(await api("/v1/grants"));
-                              setNotice(
-                                "SDK token revoked. Previously attached devices remain paired and can be revoked individually.",
-                              );
+                              setNotice("Connection prompt copied.");
                             })
                           }
                         >
-                          Revoke
+                          Copy prompt
                         </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No active SDK tokens.</p>
-                )}
+                        <a href="/docs/agents">Agent guide</a>
+                        <a href="/docs/functions">Function permissions</a>
+                      </div>
+                    </div>
+                  )}
+                  {connectionTab === "MCP URL" && (
+                    <div className="connection-method">
+                      <p>
+                        Use this server URL in an MCP client. OAuth sign-in is
+                        handled by openlaunch.
+                      </p>
+                      <pre className="setup-command">
+                        <code>{mcpServerUrl}</code>
+                      </pre>
+                      <div className="row">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            run(async () => {
+                              await navigator.clipboard.writeText(mcpServerUrl);
+                              setNotice("MCP URL copied.");
+                            })
+                          }
+                        >
+                          Copy URL
+                        </button>
+                        <a href="/docs/agents">MCP documentation</a>
+                      </div>
+                    </div>
+                  )}
+                  {connectionTab === "Command" && (
+                    <div className="connection-method">
+                      <p>
+                        Paste this command into a terminal to connect Codex with
+                        OAuth.
+                      </p>
+                      <pre className="setup-command">
+                        <code>{codexConnectCommand}</code>
+                      </pre>
+                      <div className="row">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            run(async () => {
+                              await navigator.clipboard.writeText(
+                                codexConnectCommand,
+                              );
+                              setNotice("Codex command copied.");
+                            })
+                          }
+                        >
+                          Copy command
+                        </button>
+                        <a href="/docs/agents">Codex setup guide</a>
+                      </div>
+                    </div>
+                  )}
+                  {connectionTab === "API token" && (
+                    <div className="connection-method api-token-method">
+                      <p>
+                        Agent API tokens can call MCP and the API, but cannot
+                        attach devices. They remain limited by your saved
+                        function grants.
+                      </p>
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          run(async () => {
+                            const connection = await api(
+                              "/v1/agent-connections",
+                              "POST",
+                              {
+                                name: connectionName,
+                                ttlSeconds: connectionLifetime,
+                                access: connectionAccess,
+                              },
+                            );
+                            setConnectionSecret(connection.token);
+                            setSecretContext("agents");
+                            setPrincipal(connection.principal);
+                            setConnections(await api("/v1/agent-connections"));
+                            setNotice(
+                              "Agent API token created. Copy it now; it is shown only once.",
+                            );
+                          });
+                        }}
+                      >
+                        <label>
+                          Token name
+                          <input
+                            value={connectionName}
+                            maxLength={64}
+                            required
+                            onChange={(event) =>
+                              setConnectionName(event.target.value)
+                            }
+                          />
+                        </label>
+                        <label>
+                          Expires
+                          <select
+                            value={connectionLifetime ?? "until-revoked"}
+                            onChange={(event) =>
+                              setConnectionLifetime(
+                                event.target.value === "until-revoked"
+                                  ? null
+                                  : Number(event.target.value),
+                              )
+                            }
+                          >
+                            <option value="until-revoked">Until revoked</option>
+                            <option value={3600}>In one hour</option>
+                            <option value={86400}>In 24 hours</option>
+                            <option value={604800}>In 7 days</option>
+                            <option value={2592000}>In 30 days</option>
+                          </select>
+                        </label>
+                        <details>
+                          <summary>Agent access</summary>
+                          <label>
+                            Agent access
+                            <select
+                              value={connectionAccess}
+                              onChange={(event) =>
+                                setConnectionAccess(
+                                  event.target.value as "read" | "act",
+                                )
+                              }
+                            >
+                              <option value="act">
+                                Request functions approved for this token
+                              </option>
+                              <option value="read">
+                                Read health and action results only
+                              </option>
+                            </select>
+                          </label>
+                        </details>
+                        <button
+                          type="submit"
+                          disabled={
+                            busy ||
+                            !connectionName.trim() ||
+                            connectionSecret !== null
+                          }
+                        >
+                          Create agent token
+                        </button>
+                      </form>
+                      {connectionSecret && secretContext === "agents" && (
+                        <div className="connection-secret">
+                          <label>
+                            Agent API token · shown once
+                            <textarea readOnly value={connectionSecret} />
+                          </label>
+                          <p>
+                            Copy this token into your agent's secret settings.
+                            It cannot attach devices.
+                          </p>
+                          <div className="row">
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() =>
+                                run(async () => {
+                                  await navigator.clipboard.writeText(
+                                    connectionSecret,
+                                  );
+                                  setNotice("Agent API token copied.");
+                                })
+                              }
+                            >
+                              Copy token
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConnectionSecret(null)}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <section
+                        className="token-list-section"
+                        aria-labelledby="agent-token-list-title"
+                      >
+                        <h3 id="agent-token-list-title">
+                          Active agent API tokens
+                        </h3>
+                        {connections.some(
+                          (connection) => connection.purpose === "agent",
+                        ) ? (
+                          <ul className="connection-list">
+                            {connections
+                              .filter(
+                                (connection) => connection.purpose === "agent",
+                              )
+                              .map((connection) => (
+                                <li key={connection.id}>
+                                  <div>
+                                    <strong>{connection.name}</strong>
+                                    <span>
+                                      {connection.expiresAt === null
+                                        ? "Until revoked"
+                                        : `Expires ${new Date(connection.expiresAt).toLocaleString()}`}
+                                    </span>
+                                    <span>
+                                      {connection.access === "read"
+                                        ? "Read health and results"
+                                        : "Can request functions approved for this token"}
+                                    </span>
+                                    <span>Cannot attach devices</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      run(async () => {
+                                        if (
+                                          !(await confirmAction(
+                                            `Revoke agent API token ${connection.name}? It can no longer authorize agent requests.`,
+                                          ))
+                                        )
+                                          return;
+                                        await api(
+                                          `/v1/agent-connections/${connection.id}/revoke`,
+                                          "POST",
+                                          {},
+                                        );
+                                        if (principal === connection.principal)
+                                          setPrincipal(
+                                            session
+                                              ? "https://chatgpt.com/oauth/codex/client.json"
+                                              : "local-agent",
+                                          );
+                                        setConnectionSecret(null);
+                                        setConnections(
+                                          await api("/v1/agent-connections"),
+                                        );
+                                        setGrants(await api("/v1/grants"));
+                                        setNotice("Agent API token revoked.");
+                                      })
+                                    }
+                                  >
+                                    Revoke
+                                  </button>
+                                </li>
+                              ))}
+                          </ul>
+                        ) : (
+                          <p>No active agent API tokens.</p>
+                        )}
+                      </section>
+                      <details className="advanced-token-settings">
+                        <summary>Advanced · setup and legacy tokens</summary>
+                        <section
+                          className="token-list-section"
+                          aria-labelledby="setup-token-list-title"
+                        >
+                          <h3 id="setup-token-list-title">
+                            Device setup tokens
+                          </h3>
+                          <p>
+                            Short-lived credentials used only to attach a
+                            device.
+                          </p>
+                          {deviceSetupTokens.some(
+                            (item) => item.purpose === "device-setup",
+                          ) ? (
+                            <ul className="connection-list">
+                              {deviceSetupTokens
+                                .filter(
+                                  (item) => item.purpose === "device-setup",
+                                )
+                                .map((item) => (
+                                  <li key={item.id}>
+                                    <div>
+                                      <strong>{item.name}</strong>
+                                      <span>
+                                        {item.attachedDeviceCount ?? 0} of{" "}
+                                        {item.deviceLimit} devices attached
+                                      </span>
+                                      <span>
+                                        Expires{" "}
+                                        {new Date(
+                                          item.expiresAt,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="secondary"
+                                      disabled={busy}
+                                      onClick={() =>
+                                        run(async () => {
+                                          if (
+                                            !(await confirmAction(
+                                              `Revoke device setup token ${item.name}? Devices already attached remain paired.`,
+                                            ))
+                                          )
+                                            return;
+                                          await api(
+                                            `/v1/device-setup-tokens/${item.id}/revoke`,
+                                            "POST",
+                                            {},
+                                          );
+                                          setDeviceSetupTokens(
+                                            await api(
+                                              "/v1/device-setup-tokens",
+                                            ),
+                                          );
+                                          setNotice(
+                                            "Device setup token revoked.",
+                                          );
+                                        })
+                                      }
+                                    >
+                                      Revoke
+                                    </button>
+                                  </li>
+                                ))}
+                            </ul>
+                          ) : (
+                            <p>No active device setup tokens.</p>
+                          )}
+                        </section>
+                        {connections.some(
+                          (connection) =>
+                            !connection.purpose ||
+                            connection.purpose === "legacy",
+                        ) && (
+                          <section
+                            className="token-list-section legacy-token-panel"
+                            aria-labelledby="legacy-token-list-title"
+                          >
+                            <h3 id="legacy-token-list-title">
+                              Legacy combined tokens
+                            </h3>
+                            <p>
+                              Existing SDK tokens retain their combined behavior
+                              until revoked. New credentials use separate setup
+                              and agent flows.
+                            </p>
+                            <ul className="connection-list">
+                              {connections
+                                .filter(
+                                  (connection) =>
+                                    !connection.purpose ||
+                                    connection.purpose === "legacy",
+                                )
+                                .map((connection) => (
+                                  <li key={connection.id}>
+                                    <div>
+                                      <strong>{connection.name}</strong>
+                                      <span>
+                                        {connection.expiresAt === null
+                                          ? "Until revoked"
+                                          : `Expires ${new Date(connection.expiresAt).toLocaleString()}`}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="secondary"
+                                      disabled={busy}
+                                      onClick={() =>
+                                        run(async () => {
+                                          if (
+                                            !(await confirmAction(
+                                              `Revoke legacy token ${connection.name}? Devices already attached remain paired.`,
+                                            ))
+                                          )
+                                            return;
+                                          await api(
+                                            `/v1/agent-connections/${connection.id}/revoke`,
+                                            "POST",
+                                            {},
+                                          );
+                                          const [agentRows, setupRows] =
+                                            await Promise.all([
+                                              api("/v1/agent-connections"),
+                                              api("/v1/device-setup-tokens"),
+                                            ]);
+                                          setConnections(agentRows);
+                                          setDeviceSetupTokens(setupRows);
+                                          setNotice(
+                                            "Legacy combined token revoked.",
+                                          );
+                                        })
+                                      }
+                                    >
+                                      Revoke
+                                    </button>
+                                  </li>
+                                ))}
+                            </ul>
+                          </section>
+                        )}
+                      </details>
+                    </div>
+                  )}
+                </div>
               </section>
             </>
           )}
@@ -1180,7 +1636,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     onClick={() =>
                       run(async () => {
                         setReceipts(await api("/v1/actions"));
-                        setNotice("Activity refreshed.");
+                        setNotice("");
                       })
                     }
                   >
@@ -1467,6 +1923,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           <footer>
             openlaunch ·{" "}
             <a href="https://www.openlaunch.dev/docs">Documentation</a>
+            {" · "}
+            <a href="/docs/terms">Terms</a>
+            {" · "}
+            <a href="/docs/privacy">Privacy</a>
           </footer>
         </main>
       </div>
@@ -1494,7 +1954,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             </h2>
             <p>
               {setupConnection
-                ? "Use the same SDK token for device attachment and later agent requests."
+                ? "This short-lived setup token only attaches the device. Use a separate agent API token or OAuth connection for agent requests."
                 : enrollment
                   ? "Compatibility flow for an adapter that already uses one-time enrollment."
                   : "Choose a board or adapter to see its setup command."}
@@ -1532,8 +1992,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             ) : deviceSetupKind === "uno" ? (
               <>
                 <p>
-                  This helper sends Wi-Fi settings and the SDK token over USB
-                  after you confirm. It does not flash firmware.
+                  This helper sends Wi-Fi settings and the device setup token
+                  over USB after you confirm. It does not flash firmware.
                 </p>
                 <p>
                   Flash the matching stock or console-mux profile first and
@@ -1545,7 +2005,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               <>
                 <p>
                   Upload the ESP32 firmware first. The helper configures Wi-Fi
-                  and the SDK token over USB; it does not flash firmware.
+                  and the device setup token over USB; it does not flash
+                  firmware.
                 </p>
                 <p>
                   For the hosted openlaunch origin, it uses its embedded
@@ -1577,13 +2038,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             {connectionSecret && secretContext === "device" && (
               <div className="connection-secret">
                 <label>
-                  SDK token · shown once
+                  Device setup token · shown once
                   <textarea readOnly value={connectionSecret} />
                 </label>
                 <p>
-                  Copy it now. The setup command prompts for this token without
-                  placing it in shell history. This same token can later act as
-                  an agent within the grants you approve.
+                  Copy it now. The setup command prompts for this short-lived
+                  token without placing it in shell history. It can only attach
+                  the device; it cannot make agent requests.
                 </p>
                 <div className="row">
                   <button
@@ -1591,7 +2052,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     onClick={() =>
                       run(async () => {
                         await navigator.clipboard.writeText(connectionSecret);
-                        setNotice("SDK token copied.");
+                        setNotice("Device setup token copied.");
                       })
                     }
                   >
@@ -1690,9 +2151,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           </div>
         ) : (
           <div className="connect-options">
-            {connectionSecret && secretContext === "connections" && (
+            {connectionSecret && secretContext === "agents" && (
               <p>
-                Finish copying the SDK token shown on Connections before
+                Finish copying the agent API token shown on Connections before
                 creating another. You can continue with an existing token.
               </p>
             )}
@@ -1741,7 +2202,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               {deviceSetupKind && (
                 <div className="enrollment-steps">
                   {deviceSetupKind === "uno" && (
-                    <p>Connect your Uno by USB. The setup helper detects it on your computer; you don’t need to enter a port here.</p>
+                    <p>
+                      Connect your Uno by USB. The setup helper detects it on
+                      your computer; you don’t need to enter a port here.
+                    </p>
                   )}
                   {deviceSetupKind === "esp32" && (
                     <>
@@ -1760,14 +2224,19 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     </>
                   )}
                   <label>
-                    SDK token
+                    Device setup token
                     <select
                       value={deviceSetupTokenId}
                       onChange={(e) => setDeviceSetupTokenId(e.target.value)}
                     >
                       <option value="new">Create a new one-device token</option>
-                      {connections
-                        .filter((c) => c.canAttach && c.expiresAt > Date.now())
+                      {deviceSetupTokens
+                        .filter(
+                          (c) =>
+                            c.purpose === "device-setup" &&
+                            c.canAttach &&
+                            c.expiresAt > Date.now(),
+                        )
                         .map((c) => (
                           <option
                             key={c.id}
@@ -1778,10 +2247,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                             }
                           >
                             {c.name} · {c.attachedDeviceCount ?? 0}/
-                            {c.deviceLimit ?? 1} devices ·{" "}
-                            {c.access === "read" ? "read-only" : "agent access"}{" "}
-                            · expires{" "}
-                            {new Date(c.expiresAt).toLocaleDateString()}
+                            {c.deviceLimit ?? 1} devices · device setup only ·
+                            expires {new Date(c.expiresAt).toLocaleDateString()}
                           </option>
                         ))}
                     </select>
@@ -1804,9 +2271,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                             setDeviceSetupLifetime(Number(e.target.value))
                           }
                         >
+                          <option value={600}>In 10 minutes</option>
+                          <option value={3600}>In 1 hour</option>
                           <option value={86400}>In 24 hours</option>
-                          <option value={604800}>In 7 days</option>
-                          <option value={2592000}>In 30 days</option>
                         </select>
                       </label>
                       <button
@@ -1848,8 +2315,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               <summary>Compatibility: existing one-time enrollment</summary>
               <p>
                 For an already-installed adapter that implements the old
-                one-time enrollment endpoint. This does not create an SDK token
-                or grant agent permissions.
+                one-time enrollment endpoint. This does not create a device
+                setup token or grant agent permissions.
               </p>
               <label>
                 Adapter type
@@ -2125,11 +2592,17 @@ function GoogleSignIn() {
     <main className="auth-screen">
       <section className="auth-card">
         <a className="auth-brand" href="/">
-          <img src="/icon.svg" width="48" height="42" alt="ol" />
+          <img src={logoUrl} width="48" height="42" alt="ol" />
           <span>openlaunch</span>
         </a>
         <h1>Sign in to openlaunch</h1>
         <p>Sign in to connect a device and choose what your agents can do.</p>
+        <p className="auth-policy">
+          By continuing, you agree to the{" "}
+          <a href="/docs/terms">Terms of Service</a>
+          {" and acknowledge the "}
+          <a href="/docs/privacy">Privacy Policy</a>.
+        </p>
         {callback === "verify" ? (
           <SignIn
             routing="hash"

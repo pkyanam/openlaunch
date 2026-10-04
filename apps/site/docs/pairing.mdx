@@ -1,19 +1,23 @@
 ---
 title: Pairing, access and permissions
-description: Pair agents and devices with one SDK token, then approve device functions separately and revoke each credential when needed.
+description: Use a short-lived setup token to pair one device, connect agents separately, then approve device functions and revoke access when needed.
 ---
 
-## Create one SDK token
+## Create a device setup token
 
-In **Connections**, create a named token and choose read or action access and an expiry. To use it for device setup, enable device attachment and set a limit of 1–20 devices. The default is one device for seven days. Copy the token when shown; the console cannot show it again.
+In **Devices → Add device**, create a device setup token. It uses the `ol_sdk_` prefix, expires after 10 minutes by default, and can attach one device by default. Copy it when shown; the console cannot show it again. This token is for setup only: it cannot authenticate an agent, call MCP tools, or approve grants.
 
-The same token can authenticate an SDK agent and attach new devices. Device attachment creates a separate, private credential for each device. The setup command keeps the SDK token out of the device identity file.
+Setup exchanges the token for a separate private credential stored by the device. That child credential remains valid after the setup token expires or is revoked. The setup token is never saved in the device identity.
+
+## Connect an agent separately
+
+Use an admitted OAuth connection such as ChatGPT or Codex, or create a named agent API connection in **Connections**. Agent API credentials use the `ol_agent_` prefix and have read or action access. They cannot pair devices. Keep agent credentials out of device setup and device identity storage.
 
 ## Grant device functions
 
-An attached device appears in **Devices**. Open its **Access** view and choose which agent connection may call which functions, then set a grant expiry. Pairing alone does not grant function access, and a token cannot approve its own grants. A changed function manifest clears earlier grants; review and grant the updated functions again.
+An attached device appears in **Devices**. Open its **Access** view and choose which agent connection may call which functions. A grant can have a time limit or remain active until you revoke it. Pairing alone does not grant function access, and an agent credential cannot approve its own grants. A changed function manifest clears earlier grants; review and grant the updated functions again.
 
-Revoking an SDK token removes that connection's grants, stops its agent requests and blocks future attachments. A device already attached stays paired until you remove it from **Devices**. Removing a device revokes its private device credential. You can also revoke one device grant without revoking the connection or removing the device.
+Revoking an agent connection removes its grants and stops its agent requests. Revoking a setup token prevents future use of that token, but does not invalidate a child credential already issued to a paired device. Remove a device from **Devices** to revoke its child credential. You can revoke one device grant without revoking the agent connection or removing the device.
 
 ## Safe retries and action results
 
@@ -23,7 +27,7 @@ Actions expire after their time-to-live. Devices poll the bridge about every 10 
 
 ## Older integrations
 
-The one-use enrollment code flow remains for older clients. It is bound to a workspace, can be used once, and expires after 10 minutes. Use the SDK token flow for new integrations; see the [SDK guide](/sdk).
+Older combined connection records remain supported for compatibility. New setups use a device setup token and a separate agent OAuth or API connection; do not create a legacy combined token for a new integration. The older one-use enrollment code flow remains for existing clients. See the [SDK guide](/sdk).
 
 ## Hardware checks
 

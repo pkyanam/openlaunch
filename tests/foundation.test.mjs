@@ -34,6 +34,14 @@ test("expired/revoked grants fail closed", () => {
     false,
   );
 });
+test("null expiry permits access until the grant is revoked", () => {
+  const permanent = { ...grant, expiresAt: null };
+  assert.equal(permits(permanent, "user-a", "device-a", "display.show", 1e15), true);
+  assert.equal(
+    permits({ ...permanent, revoked: true }, "user-a", "device-a", "display.show", 1e15),
+    false,
+  );
+});
 test("command expiry includes boundary", () => {
   assert.equal(isExpired({ expiresAt: 100 }, 100), true);
   assert.equal(isExpired({ expiresAt: 100 }, 99), false);

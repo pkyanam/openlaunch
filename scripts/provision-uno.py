@@ -238,7 +238,7 @@ class SerialSession:
 def query_status(port):
     with SerialSession(port) as serial:
         serial.send(make_command("status"))
-        response = serial.read_event(8)
+        response = serial.read_event(20)
     if response.get("event") != "status":
         raise RuntimeError("Uno did not return a usable configuration status")
     return response
@@ -255,14 +255,14 @@ def show_status(port):
 def reset_device(port):
     with SerialSession(port) as serial:
         serial.send(make_command("status"))
-        status = serial.read_event(8)
+        status = serial.read_event(20)
         if status.get("event") != "status":
             raise RuntimeError("Uno did not return status; reset was not sent")
         print("This erases Uno Wi-Fi settings, device identity, and local action state.")
         if input("Type reset to continue: ") != "reset":
             return
         serial.send(make_command("reset"))
-        if serial.read_event(8).get("event") != "reset":
+        if serial.read_event(20).get("event") != "reset":
             raise RuntimeError("Uno did not confirm reset")
     print("Uno configuration and identity were erased.")
 
@@ -283,7 +283,7 @@ def provision(args):
         return
     with SerialSession(args.port) as serial:
         serial.send(make_command("status"))
-        status = serial.read_event(8)
+        status = serial.read_event(20)
         if status.get("event") != "status":
             raise RuntimeError("Uno did not return status; no configuration was sent")
         state = status.get("state")

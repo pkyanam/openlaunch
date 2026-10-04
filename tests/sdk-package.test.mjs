@@ -41,6 +41,14 @@ test("hosted SDK archive installs offline with a commit version and working CLI"
       ),
     );
     assert.equal(manifest.version, `0.1.0-dev.g${commit.slice(0, 12)}`);
+    assert.equal(manifest.bin.ol, "./dist/agent-cli.js");
+    assert.equal(manifest.bin["openlaunch-agent"], "./dist/agent-cli.js");
+    const sdkTypes = readFileSync(
+      join(temporary, "node_modules/@openlaunch/sdk/dist/index.d.ts"),
+      "utf8",
+    );
+    assert.match(sdkTypes, /createAdapter/);
+    assert.match(sdkTypes, /listFunctions/);
     const readme = readFileSync(
       join(temporary, "node_modules/@openlaunch/sdk/README.md"),
       "utf8",
@@ -53,6 +61,14 @@ test("hosted SDK archive installs offline with a commit version and working CLI"
     );
     assert.match(help, /openlaunch-device setup/);
     assert.match(help, /openlaunch-device publish/);
+    const agentHelp = execFileSync(
+      process.execPath,
+      [join(temporary, "node_modules/.bin/ol"), "--help"],
+      { encoding: "utf8" },
+    );
+    assert.match(agentHelp, /ol functions list/);
+    assert.match(agentHelp, /ol call DEVICE_ID FUNCTION/);
+    assert.match(agentHelp, /OPENLAUNCH_AGENT_TOKEN/);
     writeFileSync(
       join(temporary, "consumer.mts"),
       `import { createClient, createDevice, type DeviceManifest } from "@openlaunch/sdk";

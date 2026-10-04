@@ -68,6 +68,17 @@ test("permission, idempotency and acknowledgement lifecycle", async () => {
   h.result(d.deviceId, a.id, "succeeded", { on: true });
   assert.equal(h.get(agent, a.id).status, "succeeded");
 });
+test("until-revoked grant authorizes transport after time advances and revocation still cancels", async () => {
+  const { h, d, setTime } = await fixture();
+  h.grant(owner, "agent", d.deviceId, ["led.set"], null);
+  assert.deepEqual(h.grants(owner).map((g) => g.expiresAt), [null]);
+  setTime(90 * 24 * 60 * 60 * 1000);
+  h.state.devices[0].lastSeen = 90 * 24 * 60 * 60 * 1000;
+  const queued = h.request(agent, d.deviceId, "led.set", { on: true }, "long-lived");
+  assert.equal(h.next(d.deviceId).id, queued.id);
+  h.revokeGrant(owner, "agent", d.deviceId);
+  assert.throws(() => h.request(agent, d.deviceId, "led.set", { on: false }, "revoked"));
+});
 test("queued expiry differs from ambiguous dispatched expiry", async () => {
   const { h, d, setTime } = await fixture();
   const a = h.request(owner, d.deviceId, "led.set", { on: true }, "a", 1);

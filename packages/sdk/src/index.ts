@@ -10,7 +10,7 @@ export type { DeviceEventOptions, DeviceEventSocket, DeviceEventSocketFactory } 
 export interface ClientOptions {
   /** openlaunch API origin, for example https://www.openlaunch.dev. */
   url: string;
-  /** Owner-issued SDK token. Keep it server-side and private. */
+  /** Agent OAuth bearer or owner-issued agent API token. Keep it private. */
   token: string;
   /** Optional workspace routing ID for self-hosted/local bridges. */
   workspace?: string;
@@ -21,7 +21,7 @@ export interface ClientOptions {
 export interface DeviceOptions {
   /** openlaunch API origin. */
   url: string;
-  /** Owner-issued SDK token, used only to attach this device. */
+  /** Owner-issued device setup token, used only to attach this device. */
   token?: string;
   /** Workspace routing ID for legacy enrollment or local device credentials. */
   workspace?: string;
@@ -34,7 +34,7 @@ export interface DeviceOptions {
   webSocketFactory?: DeviceEventSocketFactory;
 }
 
-/** Return the workspace encoded in an owner-issued SDK or legacy agent token. */
+/** Return the workspace encoded in an device setup or agent API token. */
 export function sdkTokenWorkspace(token: string): string | undefined {
   return /^ol_(?:sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}$/.exec(token)?.[1];
 }
@@ -56,6 +56,73 @@ export interface DeviceManifest {
       additionalProperties: false;
     };
   }>;
+}
+
+export type AdapterHandler = (
+  args: Record<string, unknown>,
+) => unknown | Promise<unknown>;
+
+export interface AdapterTool {
+  title: string;
+  description: string;
+  access: "read" | "write";
+  /** The exact JSON Schema accepted by the function. */
+  inputSchema: NonNullable<DeviceManifest["functions"]>[number]["inputSchema"];
+  handler: AdapterHandler;
+}
+
+/**
+ * Derive an adapter manifest and its handler map from one tool declaration.
+ * This keeps advertised function names and executable handlers in sync; it
+ * does not infer schemas or implement device operations.
+ */
+export function createAdapter(input: {
+  name: string;
+  kind: string;
+  tools: Record<string, AdapterTool>;
+}): {
+  manifest: DeviceManifest;
+  handlers: Record<string, AdapterHandler>;
+} {
+  const entries = Object.entries(input.tools);
+  if (entries.length < 1 || entries.length > 16)
+    throw new TypeError("tools must contain 1–16 explicit function definitions");
+  if (!input.name || input.name.length > 64 || !input.kind || input.kind.length > 64)
+    throw new TypeError("adapter name and kind must be 1–64 characters");
+  const functions = entries.map(([name, tool]) => {
+    if (!/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/.test(name))
+      throw new TypeError(`Invalid function name: ${name}`);
+    if (!tool.title || tool.title.length > 64 || !tool.description || tool.description.length > 240)
+      throw new TypeError(`Invalid title or description for ${name}`);
+    if (typeof tool.handler !== "function")
+      throw new TypeError(`Function ${name} requires a handler`);
+    if (
+      !tool.inputSchema ||
+      tool.inputSchema.type !== "object" ||
+      tool.inputSchema.additionalProperties !== false ||
+      !tool.inputSchema.properties ||
+      !Array.isArray(tool.inputSchema.required)
+    )
+      throw new TypeError(`Function ${name} requires an explicit closed object input schema`);
+    return {
+      name,
+      title: tool.title,
+      description: tool.description,
+      access: tool.access,
+      inputSchema: tool.inputSchema,
+    };
+  });
+  return {
+    manifest: {
+      name: input.name,
+      kind: input.kind,
+      capabilities: entries.map(([name]) => name),
+      functions,
+    },
+    handlers: Object.fromEntries(
+      entries.map(([name, tool]) => [name, tool.handler]),
+    ),
+  };
 }
 
 export interface Device {
@@ -92,6 +159,27 @@ export interface ActionRequest {
   /** Required to make retries safe. Reuse only for an identical request. */
   idempotencyKey: string;
   ttlSeconds?: number;
+}
+
+export interface FunctionDefinition {
+  name: string;
+  title: string;
+  description: string;
+  access: "read" | "write";
+  inputSchema: {
+    type: "object";
+    properties: Record<string, Record<string, unknown>>;
+    required: string[];
+    additionalProperties: false;
+  };
+}
+
+export interface DeviceFunction {
+  deviceId: string;
+  deviceName: string;
+  kind: string;
+  definition: FunctionDefinition;
+  guide: string;
 }
 
 export class OpenLaunchError extends Error {
@@ -202,7 +290,7 @@ function validateIdempotencyKey(key: string) {
     throw new TypeError("idempotencyKey must be 1–128 characters");
 }
 
-/** Create a client authenticated as an owner-issued openlaunch SDK connection. */
+/** Create an agent client authenticated with OAuth or an agent API connection. */
 export function createClient(options: ClientOptions) {
   if (!options.token || /\s/.test(options.token))
     throw new TypeError("token must be a non-empty bearer credential");
@@ -215,6 +303,8 @@ export function createClient(options: ClientOptions) {
   });
   return {
     listDevices: () => request<Device[]>("/v1/devices"),
+    /** List only functions that this credential may currently use. */
+    listFunctions: () => request<DeviceFunction[]>("/v1/functions"),
     requestAction: (deviceId: string, action: ActionRequest) => {
       validateIdempotencyKey(action.idempotencyKey);
       return request<Action>(
@@ -264,12 +354,12 @@ export function createClient(options: ClientOptions) {
 /**
  * Create an outbound-polling device bridge. The issued per-device credential
  * remains in memory and is returned so callers can persist it securely.
- * The owner-issued SDK token is used only for attach and is never returned.
+ * The device setup token is used only for attach and is never returned.
  */
 export function createDevice(options: DeviceOptions) {
   const tokenWorkspace = options.token ? sdkTokenWorkspace(options.token) : undefined;
   if (options.token && (!tokenWorkspace || !options.token.startsWith("ol_sdk_")))
-    throw new TypeError("Use an owner-issued SDK token (ol_sdk_); legacy agent tokens cannot pair devices");
+    throw new TypeError("Use a device setup token (ol_sdk_); agent tokens cannot pair devices");
   const workspace = tokenWorkspace ?? options.workspace;
   if (!workspace || !/^[a-f0-9]{64}$/.test(workspace))
     throw new TypeError(
@@ -339,10 +429,10 @@ export function createDevice(options: DeviceOptions) {
       credential = enrolled.token;
       return { deviceId, token: enrolled.token };
     },
-    /** Attach with an owner-issued SDK token; retries must reuse requestId and manifest. */
+    /** Attach with a device setup token; retries must reuse requestId and manifest. */
     async attach(manifest: DeviceManifest, requestId: string) {
       if (!options.token)
-        throw new TypeError("An SDK token is required to attach this device");
+        throw new TypeError("A device setup token is required to attach this device");
       if (deviceId && credential)
         throw new TypeError(
           "This device client already has an identity; create a new client to attach another device",

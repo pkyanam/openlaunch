@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Hub, emptyState } from "../packages/core/src/index.ts";
+import { Hub, emptyState, agentTokenPurpose } from "../packages/core/src/index.ts";
+import { createDeviceCredentialDeriver } from "../packages/core/src/device-credentials.ts";
 import { handle } from "../packages/http/src/index.ts";
 import { createClient, createDevice } from "../packages/sdk/src/index.ts";
 const owner = { id: "owner", owner: true };
@@ -11,6 +12,114 @@ const schema = {
   required: ["on"],
   additionalProperties: false,
 };
+test("explicit setup and agent tokens have separate purposes and endpoints", async () => {
+  const hub = new Hub(emptyState());
+  const fetch = async (input, init) =>
+    handle(new Request(input, init), hub, async () => owner, {
+      workspace,
+      deviceCredentials: createDeviceCredentialDeriver(JSON.stringify({ v1: "b".repeat(64) })),
+    });
+  const setupResponse = await fetch("https://bridge.test/v1/device-setup-tokens", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "sensor setup" }),
+  });
+  assert.equal(setupResponse.status, 201);
+  const setup = (await setupResponse.json()).data;
+  assert.equal(setup.purpose, "device-setup");
+  assert.match(setup.token, /^ol_sdk_/);
+  assert.equal(agentTokenPurpose(setup.token), "device-setup");
+  assert.ok(setup.expiresAt - Date.now() <= 600000);
+  assert.equal(setup.deviceLimit, 1);
+  const listedSetup = await fetch("https://bridge.test/v1/device-setup-tokens");
+  assert.equal((await listedSetup.json()).data[0].id, setup.id);
+
+  const agentResponse = await fetch("https://bridge.test/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "health agent" }),
+  });
+  assert.equal(agentResponse.status, 201);
+  const agentConnection = (await agentResponse.json()).data;
+  assert.equal(agentConnection.purpose, "agent");
+  assert.match(agentConnection.token, /^ol_agent_/);
+  assert.equal(agentTokenPurpose(agentConnection.token), "agent");
+  assert.equal(agentConnection.canAttach, false);
+  assert.ok(agentConnection.expiresAt > Date.now());
+  const perpetualResponse = await fetch("https://bridge.test/v1/agent-connections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "perpetual agent", ttlSeconds: null }),
+  });
+  assert.equal(perpetualResponse.status, 201);
+  const perpetual = (await perpetualResponse.json()).data;
+  assert.equal(perpetual.expiresAt, null);
+  const invalidSetup = await fetch("https://bridge.test/v1/device-setup-tokens", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "invalid setup", ttlSeconds: null }),
+  });
+  assert.equal(invalidSetup.status, 400);
+  const setupOnly = await fetch("https://bridge.test/v1/devices", {
+    headers: { authorization: `Bearer ${setup.token}` },
+  });
+  assert.equal(setupOnly.status, 403);
+  const cannotAttach = await fetch("https://bridge.test/v1/sdk/devices", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${agentConnection.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ requestId: crypto.randomUUID(), manifest: { name: "x" } }),
+  });
+  assert.equal(cannotAttach.status, 403);
+  const enrollment = await hub.enrollment(owner, "custom.device");
+  const device = await hub.enroll(enrollment.token, {
+    name: "sensor",
+    kind: "custom.device",
+    capabilities: ["device.health"],
+  });
+  assert.throws(
+    () => hub.grant(owner, setup.principal, device.deviceId, ["device.health"]),
+    (error) => error.status === 403,
+  );
+  const revoked = await fetch(`https://bridge.test/v1/device-setup-tokens/${setup.id}/revoke`, {
+    method: "POST",
+  });
+  assert.equal(revoked.status, 200);
+  assert.equal((await fetch("https://bridge.test/v1/device-setup-tokens").then((r) => r.json())).data.length, 0);
+});
+test("until-revoked agent connections survive time passage and still revoke", async () => {
+  let now = 1000;
+  const hub = new Hub(emptyState(), () => now);
+  const perpetual = await hub.createConnection(
+    owner,
+    workspace,
+    "perpetual",
+    null,
+    "act",
+    { canAttach: false, deviceLimit: 0 },
+    "agent",
+  );
+  const finite = await hub.createConnection(
+    owner,
+    workspace,
+    "finite",
+    60,
+    "act",
+    { canAttach: false, deviceLimit: 0 },
+    "agent",
+  );
+  now = 10 * 365 * 24 * 60 * 60 * 1000;
+  assert.equal(
+    (await hub.authenticateConnection(perpetual.token, workspace)).connectionPurpose,
+    "agent",
+  );
+  await assert.rejects(() => hub.authenticateConnection(finite.token, workspace));
+  assert.deepEqual(hub.connections(owner).map((entry) => entry.id), [perpetual.id]);
+  hub.revokeConnection(owner, perpetual.id);
+  await assert.rejects(() => hub.authenticateConnection(perpetual.token, workspace));
+});
 test("generic device SDK and agent connection share grants, receipts and revocation", async () => {
   const hub = new Hub(emptyState());
   const fetch = async (input, init) =>

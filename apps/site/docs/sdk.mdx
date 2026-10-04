@@ -1,15 +1,15 @@
 ---
 title: Device and agent SDK
-description: Use one owner-issued SDK token to connect agents and attach devices, with separate owner approval for each device function.
+description: Pair devices with short-lived setup tokens, connect agents separately, and approve each device function.
 ---
 
-The openlaunch SDK connects agents to devices through one bridge token. That token can authenticate an agent and, when enabled by the owner, attach devices to the workspace. Attaching a device does not grant the agent permission to use its functions; the owner approves those separately.
+The openlaunch SDK has separate credentials for device setup and agent access. A short-lived `ol_sdk_` token pairs a device; it cannot call agent or MCP APIs. An `ol_agent_` API connection authenticates an agent; it cannot pair devices. Pairing does not grant an agent permission to use device functions; the owner approves those separately.
 
-## Make a token
+## Create an agent API connection
 
-In the console, open **Connections** and create a named SDK token. Choose read or action access, set an expiry, and enable device attachment with a limit from 1 to 20 devices if the token will pair hardware. The default is one device for seven days. Copy the token when it appears; it is shown once. Save it in a secret manager or environment variable. Do not put it in source code, prompts, shell history, or logs.
+In the console, open **Connections** and create a named agent API connection. Choose read or action access and set a finite expiry or choose until revoked. The `ol_agent_` credential is shown once. Save it in a secret manager or environment variable. Do not put it in source code, prompts, shell history, or logs.
 
-Revoke a token in **Connections** to stop agent requests and future device attachments. Devices already attached remain paired until you remove them from **Devices**. Per-device function grants are separate and can also be revoked or allowed to expire.
+Revoke an agent connection in **Connections** to stop agent requests and remove its grants. Per-device function grants are separate and can also expire or remain active until revoked.
 
 ## Connect an agent
 
@@ -26,10 +26,11 @@ import { createClient } from "@openlaunch/sdk";
 
 const openlaunch = createClient({
   url: "https://www.openlaunch.dev",
-  token: process.env.OPENLAUNCH_SDK_TOKEN!,
+  token: process.env.OPENLAUNCH_AGENT_TOKEN!,
 });
 
 const devices = await openlaunch.listDevices();
+const functions = await openlaunch.listFunctions(); // Custom functions this connection may use.
 const device = devices[0];
 if (!device) throw new Error("No devices are granted to this agent");
 
@@ -46,21 +47,21 @@ while (["queued", "received"].includes(result.status)) {
 console.log(result.status, result.result);
 ```
 
-Choose action access for this example; a read token can list devices and inspect actions but cannot request them. Device grants still decide which functions the agent can use. A queued action is not a completed action; check the final result. See [Connect an agent](/agents) for MCP clients and other connection options.
+Choose action access for this example; a read-only agent connection can list devices and inspect actions but cannot request them. Device grants still decide which functions the agent can use. A queued action is not a completed action; check the final result. See [Connect an agent](/agents) for MCP clients and other connection options.
 
-Use `cancelAction(id)` before a device receives an action. `broadcast({ deviceIds, capability, arguments, idempotencyKey })` requests the same function from several devices and returns a result per device. Retry a request with the same idempotency key only when its arguments are identical. Agents written in other languages can use the same HTTP endpoints with `Authorization: Bearer <SDK token>`; see the [API reference](/api).
+Use `cancelAction(id)` before a device receives an action. `broadcast({ deviceIds, capability, arguments, idempotencyKey })` requests the same function from several devices and returns a result per device. Retry a request with the same idempotency key only when its arguments are identical. Agents written in other languages can use the same HTTP endpoints with `Authorization: Bearer <agent API credential>`; see the [API reference](/api).
 
 ## Attach a device with one command
 
-For a Linux machine, gateway or Node adapter, open **Devices → Add device** and choose **Create a new one-device token**. Give it a name and expiry, then select **Create token and continue**. The console shows the one-time token and a setup command. Copy the command and run it on the machine beside your hardware:
+For a Linux machine, gateway or Node adapter, open **Devices → Add device** and create a device setup token. It uses the `ol_sdk_` prefix, expires after 10 minutes by default, and attaches one device by default. The console shows the one-time token and a setup command. Copy the command and run it on the machine beside your hardware:
 
 ```sh
 npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device setup --url https://www.openlaunch.dev
 ```
 
-The command asks only for the SDK token, with the input hidden. It gets the workspace from the token, creates a starter adapter, saves a private per-device credential, and starts the Node runner. It never saves the SDK token. If setup loses its connection, rerun the same command with the same token within 10 minutes to resume the saved request.
+The command asks only for the device setup token, with the input hidden. It gets the workspace from the token, creates a starter adapter, saves a private per-device credential, and starts the Node runner. It never saves the setup token. If setup loses its connection, rerun the same command with the same token within 10 minutes to resume the saved request. Once paired, the private child credential survives setup-token expiry or revocation; removing the device revokes that child credential.
 
-After the device appears, the console opens its **Access** view. Choose which functions the agent connection may use and set a grant expiry. The starter reports the adapter process health; connect your hardware library and implement its functions in `adapter.mjs` to control real hardware.
+After the device appears, the console opens its **Access** view. Choose which functions the agent connection may use. A grant can have an expiry or remain active until you revoke it. The starter reports the adapter process health; connect your hardware library and implement its functions in `adapter.mjs` to control real hardware.
 
 Change and publish the function list with:
 
@@ -80,7 +81,7 @@ Publishing a changed manifest clears earlier grants and cancels queued actions. 
 
 The adapter keeps a private result journal. It retries a saved result without running its handler again, and verifies the server receipt before acknowledging it. If a restart leaves an action's outcome unknown, it reports that uncertainty and stops accepting new commands, including on later restarts.
 
-Inspect the physical device first. If you retire the interrupted adapter, revoke its device identity in the console and start a replacement in a new directory with an SDK token that has an available attachment slot:
+Inspect the physical device first. If you retire the interrupted adapter, revoke its device identity in the console and start a replacement in a new directory with a fresh device setup token:
 
 ```sh
 npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device setup --directory ./recovered-adapter
@@ -90,7 +91,7 @@ The old private identity and journal remain available for inspection. Do not cle
 
 ## Use the SDK directly
 
-The same token can attach a device from JavaScript or TypeScript. Use a stable UUID request ID for retries of the same attachment and manifest:
+The setup token can attach a device from JavaScript or TypeScript. Use a stable UUID request ID for retries of the same attachment and manifest:
 
 ```ts
 import { createDevice } from "@openlaunch/sdk";
@@ -103,7 +104,7 @@ const identity = await device.attach(manifest, crypto.randomUUID());
 // Store identity.deviceId and identity.token in protected device storage.
 ```
 
-`createDevice()` uses the SDK token only to attach; the device polls with the private child credential. The SDK keeps credentials in memory, so store the returned device identity securely if the process must restart. `nextAction()` retrieves one action and `submitResult()` reports its outcome. Node adapters can call `openEvents(onWake)` to receive a wake hint and immediately check `nextAction()` over HTTPS.
+`createDevice()` uses the device setup token only to attach; the device polls with the private child credential. The child credential remains valid after setup-token expiry or revocation. The SDK keeps credentials in memory, so store the returned device identity securely if the process must restart. `nextAction()` retrieves one action and `submitResult()` reports its outcome. Node adapters can call `openEvents(onWake)` to receive a wake hint and immediately check `nextAction()` over HTTPS.
 
 ## Bring another board
 
@@ -111,7 +112,7 @@ The Node runner uses an authenticated WebSocket for payload-free wake hints. It 
 
 The maintained integrations are Uno R4 WiFi and Raspberry Pi. Their real board behavior is still subject to the hardware checks in the [verification guide](/status). See [Build your own functions](/functions) for input and permission rules, and the [API reference](/api) for request routes.
 
-The former one-use enrollment flow remains available for existing integrations. New agent and device connections should use the SDK token flow above.
+The former one-use enrollment flow and older combined connection records remain available for existing integrations. New integrations should use a device setup token for pairing and a separate agent API connection or OAuth for agent access.
 
 ## Standalone ESP32
 
@@ -121,4 +122,4 @@ The [ESP32 Arduino library](/downloads/openlaunch-esp32.zip) includes a health e
 python3 provision-esp32.py --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://www.openlaunch.dev
 ```
 
-The helper prompts for Wi-Fi details and an SDK token with hidden input, then asks before sending settings. It does not ask you to edit a `secrets.h` file or flash firmware. The hosted origin uses a bundled, fingerprint-checked public CA. For another origin, supply its trusted public root certificate with `--ca-file`. The archive is compile-verified; physical ESP32 operation remains unverified. See [downloads and resources](/resources).
+The helper prompts for Wi-Fi details and a device setup token with hidden input, then asks before sending settings. The `ol_sdk_` token is only used to pair this device; it cannot authenticate an agent. The helper does not ask you to edit a `secrets.h` file or flash firmware. The hosted origin uses a bundled, fingerprint-checked public CA. For another origin, supply its trusted public root certificate with `--ca-file`. The archive is compile-verified; physical ESP32 operation remains unverified. See [downloads and resources](/resources).

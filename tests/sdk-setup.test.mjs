@@ -419,7 +419,7 @@ test("publish updates capabilities without re-enrollment and asks owner to grant
       sdkToken: sdkToken.replace("ol_sdk_", "ol_agent_"), enrollOnly: true,
       fetch: async () => { calls++; throw new Error("unexpected network request"); },
       output: { write() {} },
-    }), /legacy agent tokens cannot pair devices/);
+    }), /agent tokens cannot pair devices/);
     assert.equal(calls, 0);
     await assert.rejects(stat(join(directory, "identity.json")), { code: "ENOENT" });
   } finally { await rm(directory, { recursive: true, force: true }); }

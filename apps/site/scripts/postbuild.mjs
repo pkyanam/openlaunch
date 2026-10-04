@@ -11,7 +11,9 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 // GitHub remains a source/backup link, never the primary installer redirect.
 for (const [source, destination] of [
   ["../../scripts/install.sh", "dist/client/install.sh"],
+  ["../../scripts/setup-uno.sh", "dist/client/setup-uno.sh"],
   ["../../scripts/provision-uno.py", "dist/client/downloads/provision-uno.py"],
+  ["../../scripts/provision-roomba.py", "dist/client/downloads/provision-roomba.py"],
   [
     "../../scripts/provision-esp32.py",
     "dist/client/downloads/provision-esp32.py",

@@ -52,6 +52,89 @@ async function api(h, path, method = "GET", data, token = "owner-fixture") {
     resolve,
   );
 }
+test("grant API accepts null ttlSeconds as until revoked and rejects other non-numeric values", async () => {
+  const h = new Hub();
+  const enrollment = (
+    await (await api(h, "/v1/enrollments", "POST", { kind: "raspberry-pi-4" })).json()
+  ).data;
+  const enrolled = await api(h, "/v1/device/enroll", "POST", {
+    token: enrollment.token,
+    manifest: { name: "fixture", kind: "raspberry-pi-4", capabilities: ["device.health"] },
+  });
+  const { deviceId } = (await enrolled.json()).data;
+  const response = await api(h, "/v1/grants", "POST", {
+    principal: agent.id,
+    deviceId,
+    capabilities: ["device.health"],
+    ttlSeconds: null,
+  });
+  assert.equal(response.status, 200);
+  const listed = await api(h, "/v1/grants");
+  assert.equal((await listed.json()).data[0].expiresAt, null);
+  assert.equal(h.grants(owner)[0].expiresAt, null);
+  const invalid = await api(h, "/v1/grants", "POST", {
+    principal: agent.id,
+    deviceId,
+    capabilities: ["device.health"],
+    ttlSeconds: "forever",
+  });
+  assert.equal(invalid.status, 400);
+});
+test("function catalog returns only granted device definitions and follows manifest revocation", async () => {
+  const h = new Hub();
+  const manifest = (name) => ({
+    name,
+    kind: "custom.device",
+    capabilities: ["switch.set", "device.health", "led.set"],
+    functions: [{
+      name: "switch.set",
+      title: "Set switch",
+      description: "Set this device switch",
+      access: "write",
+      inputSchema: {
+        type: "object",
+        properties: { on: { type: "boolean" } },
+        required: ["on"],
+        additionalProperties: false,
+      },
+    }],
+  });
+  const enrollment = await h.enrollment(owner, "custom.device");
+  const first = await h.enroll(enrollment.token, manifest("first"));
+  const secondEnrollment = await h.enrollment(owner, "custom.device");
+  const second = await h.enroll(secondEnrollment.token, manifest("second"));
+  h.grant(owner, agent.id, first.deviceId, ["switch.set", "device.health"]);
+  const response = await api(h, "/v1/functions", "GET", undefined, "agent-fixture");
+  const functions = (await response.json()).data;
+  assert.deepEqual(functions.map(({ deviceId, deviceName, kind, definition }) => ({
+    deviceId, deviceName, kind, name: definition.name,
+  })), [
+    {
+      deviceId: first.deviceId,
+      deviceName: "first",
+      kind: "custom.device",
+      name: "switch.set",
+    },
+    {
+      deviceId: first.deviceId,
+      deviceName: "first",
+      kind: "custom.device",
+      name: "device.health",
+    },
+  ]);
+  assert.equal(functions.some((row) => row.definition.name === "led.set"), false);
+  assert.match(functions[0].guide, /Schema guide/);
+  assert.equal(functions.some((row) => row.deviceId === second.deviceId), false);
+  h.publishManifest(first.deviceId, {
+    name: "first",
+    kind: "custom.device",
+    capabilities: ["device.health"],
+  });
+  assert.deepEqual(
+    (await api(h, "/v1/functions", "GET", undefined, "agent-fixture").then((r) => r.json())).data,
+    [],
+  );
+});
 test("REST enrollment, MCP action, authenticated device receipt, revocation", async () => {
   const h = new Hub();
   const enrollment = (
@@ -86,7 +169,9 @@ test("REST enrollment, MCP action, authenticated device receipt, revocation", as
   );
   await client.connect(transport);
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 6);
+  assert.equal(listed.tools.length, 7);
+  const generatedLed = listed.tools.find((tool) => tool.name.startsWith("device_"));
+  assert(generatedLed);
   const denied = await client.callTool({
     name: "request_device_health",
     arguments: { deviceId: d.deviceId, idempotencyKey: "no-health" },
@@ -126,6 +211,14 @@ test("REST enrollment, MCP action, authenticated device receipt, revocation", as
     arguments: { actionId: action.id },
   });
   assert.equal(result.structuredContent.data.status, "succeeded");
+  const generated = await client.callTool({
+    name: generatedLed.name,
+    arguments: {
+      arguments: { on: false },
+      idempotencyKey: "led-generated",
+    },
+  });
+  assert.equal(generated.structuredContent.data.capability, "led.set");
   await api(h, `/v1/devices/${d.deviceId}/revoke`, "POST", {});
   assert.equal(
     (await api(h, `/v1/device/${d.deviceId}/next`, "POST", {}, d.token)).status,

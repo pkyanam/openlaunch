@@ -3,7 +3,7 @@ export interface Grant {
   subject: string;
   deviceId: string;
   capability: string;
-  expiresAt: number;
+  expiresAt: number | null;
   revoked: boolean;
 }
 export function permits(
@@ -15,7 +15,7 @@ export function permits(
 ): boolean {
   return (
     !grant.revoked &&
-    now < grant.expiresAt &&
+    (grant.expiresAt === null || now < grant.expiresAt) &&
     grant.subject === subject &&
     grant.deviceId === deviceId &&
     grant.capability === capability

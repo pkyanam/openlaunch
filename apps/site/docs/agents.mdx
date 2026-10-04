@@ -3,7 +3,7 @@ title: Connect an agent
 description: Connect ChatGPT, Codex or any JavaScript agent to openlaunch, approve device functions and inspect each action result.
 ---
 
-ChatGPT and Codex can connect over MCP with OAuth. Any JavaScript agent can use the openlaunch SDK and an owner-issued SDK token. Both routes follow the same per-device function grants. A token does not grant access to every device automatically.
+ChatGPT and Codex can connect over MCP with OAuth. Other agents can use the openlaunch SDK with an owner-issued `ol_agent_` API connection. Device setup uses a separate short-lived `ol_sdk_` token and cannot authenticate an agent. Every agent connection follows the same per-device function grants; a credential alone does not grant access to a device.
 
 ## ChatGPT and Codex
 
@@ -18,17 +18,33 @@ codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oaut
 
 OAuth consent and device grants are separate. Reconnect your MCP client after granting newly published custom functions so it refreshes tool discovery.
 
-## Any agent with the bridge SDK
+## Any agent with the API connection
 
-In **Connections**, create a named SDK token, choose read or action access, and set an expiry. To let the same token pair devices, enable device attachment and choose a device limit. The token is shown once. Provide it to your agent through a secret environment variable; never put it in a prompt, source file, shell command, or log. Revoke it in Connections to stop agent requests and new attachments.
+In **Connections**, create a named agent API connection and choose read or action access. Set a finite expiry or choose until revoked. Its credential uses the `ol_agent_` prefix and is shown once. Provide it to your agent through a secret environment variable; never put it in a prompt, source file, shell command, or log. Revoke it in Connections to stop agent requests and remove its grants.
 
-Install the SDK archive and use `createClient({ url, token })`. The client lists devices visible to that token, requests approved functions, and reads or cancels actions. The owner grants functions for each device with an expiry. Without a grant, the agent cannot operate that device.
+Install the SDK archive and use `createClient({ url, token })`. The client lists devices visible to that connection and `listFunctions()` returns the currently granted custom functions with their advertised input schemas and bounded `guide` text. The schema is authoritative; guide text does not grant access or add device behavior. The client can request approved functions and read or cancel actions. The owner grants functions for each device; a grant may expire or remain active until revoked. Without a grant, the agent cannot operate that device.
 
 ```sh
 npm install 'https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz'
 ```
 
 See the [Bridge SDK guide](/sdk) for a minimal code example, action lifecycle, and adapter interface.
+
+## Agent CLI
+
+Install the SDK archive, then provide the separate `ol_agent_` credential through `OPENLAUNCH_AGENT_TOKEN`. The token is read from the environment and is never accepted as a command-line argument. `OPENLAUNCH_URL` optionally selects another bridge origin; `OPENLAUNCH_WORKSPACE` optionally overrides the workspace encoded in the token. The canonical command is `ol`; `openlaunch-agent` remains an alias.
+
+```sh
+npm install 'https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz'
+ol devices list
+ol functions list
+ol functions list --device DEVICE_ID
+ol call DEVICE_ID FUNCTION [ARGUMENTS_JSON] [--key KEY] [--ttl SECONDS]
+ol actions get ACTION_ID
+ol actions watch ACTION_ID
+```
+
+`functions list` returns only custom functions this connection may currently use, with the device's advertised input schema and guide. Use that schema for `ARGUMENTS_JSON`; guide text cannot add arguments or permission. `call` generates a key and includes it in success or error output. Reuse it with `--key KEY` (1–128 characters) for an exact retry; `--ttl SECONDS` is optional and ranges from 1–300. The command prints the action receipt. Use `actions watch` to follow status to a terminal result; `queued` is pending, and a successful receipt does not by itself verify physical hardware.
 
 ## Codex on your computer
 
@@ -38,11 +54,11 @@ For the local MCP bridge, start with [Get started](/setup). For the default inst
 codex mcp add openlaunch -- node ~/.local/share/openlaunch/scripts/local-mcp.mjs
 ```
 
-The adapter reads only its protected agent credential. It never forwards your owner session key. Restart Codex or refresh its MCP connections, then ask it to list the devices you granted.
+The adapter reads only its protected agent credential. It never forwards your owner session key or device setup token. Restart Codex or refresh its MCP connections, then ask it to list the devices you granted.
 
 ## MCP connections
 
-Hosted MCP uses OAuth. Other agents can use the SDK token directly. Keep the owner session key private; an agent must never use it. Token expiry, device grants and device credentials are separate controls; see [Pairing and permissions](/pairing).
+Hosted MCP uses OAuth. Other agents can use an `ol_agent_` API connection. Keep the owner session key and `ol_sdk_` device setup token private; an agent must never use either. Agent connection expiry, device grants and device credentials are separate controls; see [Pairing and permissions](/pairing).
 
 ## Device tools
 

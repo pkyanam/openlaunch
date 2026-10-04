@@ -10,17 +10,18 @@ Source: [pkyanam/openlaunch/packages/sdk](https://github.com/pkyanam/openlaunch/
 
 ## Agent quick start
 
-Create an SDK token in the openlaunch console and keep it in your secret store. The same token can authenticate an agent and attach devices when the owner enables a bounded device limit. Device access still requires separate owner-approved grants.
+Create a named agent API connection in the openlaunch console and keep its `ol_agent_` credential in your secret store. Agent API credentials can read or request actions but cannot attach devices. Device pairing uses a separate short-lived `ol_sdk_` setup token. Device access still requires owner-approved grants, which can expire or remain active until revoked.
 
 ```ts
 import { createClient } from "@openlaunch/sdk";
 
 const openlaunch = createClient({
   url: "https://www.openlaunch.dev",
-  token: process.env.OPENLAUNCH_TOKEN!,
+  token: process.env.OPENLAUNCH_AGENT_TOKEN!,
 });
 
 const devices = await openlaunch.listDevices();
+const functions = await openlaunch.listFunctions(); // Currently granted custom functions.
 const action = await openlaunch.requestAction(devices[0].id, {
   capability: "device.health",
   idempotencyKey: "health-check-2026-10-04T12:00:00Z",
@@ -38,9 +39,23 @@ console.log(current.status, current.result);
 
 Use a new idempotency key for each new action. Reuse the same key only when retrying the exact same request after a network failure. `cancelAction` can cancel an action only before a device receives it. `broadcast` returns a separate queued action or error for each target device.
 
+### Agent CLI
+
+The SDK archive also installs the `ol` agent CLI (`openlaunch-agent` is an alias). Load an `ol_agent_` credential from a secret store into `OPENLAUNCH_AGENT_TOKEN`; the CLI does not accept credentials as arguments. `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides.
+
+```sh
+ol devices list
+ol functions list [--device DEVICE_ID]
+ol call DEVICE_ID FUNCTION [ARGUMENTS_JSON] [--key KEY] [--ttl SECONDS]
+ol actions get ACTION_ID
+ol actions watch ACTION_ID [--interval-ms MS] [--timeout-seconds SECONDS]
+```
+
+`functions list` returns only currently granted built-in and custom functions with their advertised schemas and guide text. Use the schema as the argument contract; guide text does not expand authorization. Calls use JSON object arguments and generate an idempotency key, included in success or error output. Reuse it with `--key` when retrying the exact request. The optional TTL is 1–300 seconds (30 seconds by default). `actions watch` prints status changes until a terminal result or timeout.
+
 ## Bring a device online
 
-Use an owner-issued SDK token with device attachment enabled. It is used only to exchange the device manifest for a private device credential; the device polls with that child credential. The token's workspace is encoded in the token, so setup does not ask for a separate workspace ID.
+Use an owner-issued device setup token (`ol_sdk_`). It is used only to exchange the device manifest for a private device credential; it cannot authenticate an agent or call MCP tools. The device polls with that child credential, which remains valid after the setup token expires or is revoked. The token's workspace is encoded in the token, so setup does not ask for a separate workspace ID.
 
 ```ts
 import { createDevice } from "@openlaunch/sdk";
@@ -112,7 +127,7 @@ In the portal, open **Devices**, select **Add device**, then choose **Linux / de
 npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device setup
 ```
 
-The command prompts once for the SDK token (or reads `OPENLAUNCH_SDK_TOKEN`), creates `adapter.mjs`, saves the private device credential and starts outbound polling. It stores a non-secret request ID before attaching, so rerunning setup after a network failure safely retries the same request. It never saves the SDK token. The starter's health result describes the adapter process. Connect your own library, serial board or local service in `handlers`, then declare those implemented operations in `manifest.functions`.
+The command prompts once for the device setup token (or reads `OPENLAUNCH_SDK_TOKEN`), creates `adapter.mjs`, saves the private device credential and starts outbound polling. It stores a non-secret request ID before attaching, so rerunning setup after a network failure safely retries the same request. It never saves the setup token. The starter's health result describes the adapter process. Connect your own library, serial board or local service in `handlers`, then declare those implemented operations in `manifest.functions`.
 
 Publish your changed manifest with the same command ending in `publish`, approve its functions in the portal, and restart with `run`. Existing device grants are removed when a manifest changes. The runner keeps a private action journal to avoid rerunning handlers after result-upload failures or interrupted execution. A mismatched receipt retains the journal and stops new command intake. An interrupted execution is reported as `outcome_unknown` and stops intake across subsequent restarts. Inspect the device before recovery; revoke the old device identity and use `setup --directory ./recovered-adapter` for a replacement, preserving the original private journal. No operation is promised to execute exactly once across physical power loss.
 

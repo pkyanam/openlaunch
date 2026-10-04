@@ -2,11 +2,13 @@
 
 ## State of the implementation
 
-The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, SDK acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. On deployed commit `873f82900d99125782e7e9347753e6ee675ee90e`, the public, commit-selected `npx` installer paired a software adapter. The official Codex client discovered its approved custom function over Clerk OAuth, invoked it, and followed the action to completion. The adapter verified the matching server receipt before acknowledging its durable journal entry. Both acceptance fixtures, SDK tokens and device identities were revoked and removed afterward. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
+The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, the then-current legacy combined SDK-token acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. On deployed commit `873f82900d99125782e7e9347753e6ee675ee90e`, the public, commit-selected `npx` installer paired a software adapter. The official Codex client discovered its approved custom function over Clerk OAuth, invoked it, and followed the action to completion. The adapter verified the matching server receipt before acknowledging its durable journal entry. Both acceptance fixtures, SDK tokens and device identities were revoked and removed afterward. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
 
 The native SQLite migration deployed on commit `c4f34da7e4569864e8d8a8320c006eaf4d981554`; owner refresh and full-history download preserved all saved receipts. Commit `bf90990f6c29fd1a5da5eb10a65b141afded0206` added shared byte admission and result reservations, passed 111 tests and all deployment CI jobs, and retained the same owner history after deployment. These checks do not substitute for physical board acceptance.
 
-On release `0f61baf1db82d5008a9aa74f575f545df988dd76`, all required CI jobs and the new live deployment verifier passed. The verifier checks the exact website and bridge commit, configured hosted authentication, denied unauthenticated inventory access, apex redirect and all five hosted installer copies. Run `python3 scripts/verify-hosted.py` from the deployed checkout without credentials to repeat it. Pi, Uno, ESP32 and Node setup now reject legacy agent tokens before attachment; use an owner-issued `ol_sdk_` token. Existing legacy agent authentication remains supported.
+On release `0f61baf1db82d5008a9aa74f575f545df988dd76`, all required CI jobs and the new live deployment verifier passed. The verifier checks the exact website and bridge commit, configured hosted authentication, denied unauthenticated inventory access, apex redirect and all five hosted installer copies. Run `python3 scripts/verify-hosted.py` from the deployed checkout without credentials to repeat it. At that release, Pi, Uno, ESP32 and Node setup rejected legacy agent tokens before attachment; setup used an owner-issued `ol_sdk_` token. Existing legacy agent authentication remained supported.
+
+The current source contract separates device setup from agent access: `ol_sdk_` is a short-lived, attach-only setup token (10-minute and one-device defaults); `ol_agent_` is an agent API credential with read or action access and no attachment permission. Existing untyped combined records remain compatible, but new integrations must not create them. A setup token's expiry or revocation does not revoke a child credential already issued to a paired device. Agent access still needs a separate device grant, which can be time-limited or remain active until revoked. This documents the source contract; the deployment and physical-hardware verification claims above remain tied to their stated commits and evidence.
 
 ## Install/build
 
@@ -23,7 +25,7 @@ Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not sourc
     cd ../..
     node scripts/e2e.mjs
 
-The cloud storage check runs the built Worker in local workerd with disposable SQLite files, verifies SDK attachment, a runtime restart, idempotency, grants, outcomes, export and revocation, then removes its temporary directory. It uses test principals at the edge-to-object boundary; Clerk authentication has separate verification tests. It does not contact production or access hardware.
+The cloud storage check runs the built Worker in local workerd with disposable SQLite files, verifies device attachment, a runtime restart, idempotency, grants, outcomes, export and revocation, then removes its temporary directory. It uses test principals at the edge-to-object boundary; Clerk authentication has separate verification tests. It does not contact production or access hardware.
 
 The E2E command generates disposable local fixture tokens internally, starts only on 127.0.0.1, runs the Go client, checks persistence/revocation, and removes its temporary test directory. It does not access real devices or external accounts.
 
@@ -33,7 +35,7 @@ Set distinct random development-only OPENLAUNCH_OWNER_TOKEN and OPENLAUNCH_AGENT
 
     npm run dev:local
 
-Open http://127.0.0.1:8788. Enter the owner token in the development session field. Tokens remain only in page memory. Create an SDK token with device attachment enabled in Connections, then use Add device to choose an adapter. Agent tools cannot issue enrollments or elevate grants; approve capabilities from the owner console. Default local agent principal is `local-agent`.
+Open http://127.0.0.1:8788. Enter the owner token in the development session field. Tokens remain only in page memory. In Devices → Add device, create a device setup token (`ol_sdk_`) to pair one device. Agent API credentials (`ol_agent_`) are created separately and cannot attach devices. Agent tools cannot issue enrollments or elevate grants; approve capabilities from the owner console. Default local agent principal is `local-agent`.
 
 For a simulated Pi, pass its enrollment token through OPENLAUNCH_ENROLLMENT_TOKEN in the terminal environment, then run:
 
@@ -103,7 +105,7 @@ The proxy must target http://127.0.0.1:8788 and preserve either the configured p
 
 No tunnel is provisioned automatically. Configuring a public route is an explicit owner setup step. R4 needs a publicly trusted certificate on port 443; do not bypass certificate validation. An expired certificate, missing board CA support or unavailable clock is a blocker to fix, not an excuse to turn verification off.
 
-Primary setup uses an SDK token that includes its public workspace routing ID, so no separate workspace prompt is needed. The advanced legacy enrollment view still shows the bridge origin and workspace ID beside a one-time enrollment code. In local mode the workspace ID is 64 zeros; it is a development routing marker, not a credential. In hosted mode use the actual workspace ID returned by the server. Never copy the local marker to a hosted workspace.
+Primary device setup uses an `ol_sdk_` token that includes its public workspace routing ID, so no separate workspace prompt is needed. The advanced legacy enrollment view still shows the bridge origin and workspace ID beside a one-time enrollment code. In local mode the workspace ID is 64 zeros; it is a development routing marker, not a credential. In hosted mode use the actual workspace ID returned by the server. Never copy the local marker to a hosted workspace.
 
 ### Uno R4 WiFi from macOS
 
@@ -114,8 +116,8 @@ Primary setup uses an SDK token that includes its public workspace routing ID, s
 
    For the repaired board, explicitly build `console-mux` and use `build/firmware/console-mux/compiled` instead. The existing matching custom ESP bridge must remain installed. Upload is a separate owner action; build commands never flash.
 
-3. Open the HTTPS console, select Devices → Add device, and create or select an SDK token with an available attachment slot. Copy its secret once.
-4. Run the interactive helper. It prompts for Wi-Fi credentials and SDK token with sensitive entries hidden, asks before sending, and does not write them to a file:
+3. Open the HTTPS console, select Devices → Add device, and create a device setup token. It expires after 10 minutes by default and permits one attachment by default. Copy its secret once.
+4. Run the interactive helper. It prompts for Wi-Fi credentials and the device setup token with sensitive entries hidden, asks before sending, and does not write them to a file:
 
        npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE
 
@@ -131,7 +133,7 @@ Use Raspberry Pi OS with working networking. In the hosted console choose Add de
 curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
 ```
 
-The installer prompts for one SDK token and derives the workspace automatically. It verifies the native binary checksum, saves only the returned device credential in a private config file, and retains a private request record for uncertain pairing retries. It refuses to overwrite an existing identity. After an expired retry, inspect the portal inventory before starting another attachment.
+The installer prompts for one `ol_sdk_` device setup token and derives the workspace automatically. It verifies the native binary checksum, saves only the returned device credential in a private config file, and retains a private request record for uncertain pairing retries. The device credential survives setup-token expiry or revocation; removing the device revokes it. The installer refuses to overwrite an existing identity. After an expired retry, inspect the portal inventory before starting another attachment.
 
 The maintained runtime exposes process health. To control GPIO or peripherals, implement and advertise handlers through a custom adapter; a manifest alone cannot make hardware functions work. Do not pass `--simulate` during physical acceptance. An optional hardened systemd unit is provided at `devices/pi/openlaunch-device.service`; installation requires an unprivileged user and the actual binary/config paths.
 
@@ -148,8 +150,8 @@ The maintained runtime exposes process health. To control GPIO or peripherals, i
 
 Hosted owner sign-in, Codex OAuth approval and authenticated software pairing/action flows are verified; controls are enabled. The above path makes real-board testing possible; physical acceptance remains unverified.
 
-## SDK attachment credential keys
+## Device attachment credential keys
 
 Production `DEVICE_CREDENTIAL_KEYS` is a deployment secret containing a JSON version-to-key map. Each key is independently generated 32-byte random hex. `DEVICE_CREDENTIAL_KEY_VERSION` selects the current version (default `v1`). Rotation adds a new version and retains old versions for outstanding 10-minute retries; never replace a key under an existing version. Existing device credentials continue to authenticate against their stored hashes. A missing or changed retry key fails closed. Local setup creates a private ignored keyring under `.cache/local/credential-keys.json`; preserve it when restarting the local bridge.
 
-SDK token revocation and device revocation are separate: revoke a token to stop its agent requests and future attachments, then revoke a device explicitly when retiring it. A paired board keeps only its private child credential. Uno storage migration recognizes the exact older EEPROM layout and verifies CRC/readback; unknown storage is preserved and blocks setup until an explicit owner reset.
+Device setup-token revocation and device revocation are separate: revoking a setup token blocks its future use but leaves an already paired board's private child credential active. Remove/revoke the device explicitly when retiring it. Agent API connection revocation stops that agent's requests and removes its grants. Uno storage migration recognizes the exact older EEPROM layout and verifies CRC/readback; unknown storage is preserved and blocks setup until an explicit owner reset.
