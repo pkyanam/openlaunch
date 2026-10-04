@@ -268,14 +268,15 @@ export class Hub {
     );
     if (this.state.enrollments.length >= 10)
       throw new Fault("limit", 429, "Too many pending enrollments");
+    const expiresAt = this.now() + 600000;
     this.state.enrollments.push({
       hash: await hash(token),
-      expiresAt: this.now() + 600000,
+      expiresAt,
       used: false,
       kind,
     });
     this.audit("enrollment.created", kind, p.id);
-    return { token, expiresInSeconds: 600 };
+    return { token, expiresInSeconds: 600, expiresAt };
   }
   async enroll(token: string, input: unknown) {
     const m = manifestSchema.parse(input);
