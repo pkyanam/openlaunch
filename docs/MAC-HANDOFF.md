@@ -2,7 +2,7 @@
 
 ## State of the implementation
 
-The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, SDK acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
+The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, SDK acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. On deployed commit `873f82900d99125782e7e9347753e6ee675ee90e`, the public, commit-selected `npx` installer paired a software adapter. The official Codex client discovered its approved custom function over Clerk OAuth, invoked it, and followed the action to completion. The adapter verified the matching server receipt before acknowledging its durable journal entry. Both acceptance fixtures, SDK tokens and device identities were revoked and removed afterward. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
 
 ## Install/build
 
@@ -66,11 +66,11 @@ Upload only after identifying the actual connected board/port. Firmware requires
 ## Remaining acceptance work
 
 - Test OAuth refresh/revocation and reviewer access without inbox dependence
-- Add edge rate limits, robust account-level enrollment abuse protection, quota metering, retention/export and durable event subscriptions
+- Review account-level abuse protection, request-rate limits, quota metering and history retention/export; authenticated Node event hints already have a 10-second HTTPS polling fallback
 - Test actual Pi/R4 Wi-Fi, TLS, time sync, USB provisioning, power loss and reconnect
 - Review bounded streaming response parsing before expanding Uno beyond its built-in functions
-- Implement firmware signing/update/rollback and installer packaging before public distribution
-- Run browser accessibility/responsive/visual tests on the Mac; cloud UI only build-checked
+- Implement firmware signing/update/rollback; public installers and SDK archives already pass checksum and packaging checks
+- Expand accessibility and cross-browser coverage beyond the exercised owner sign-in, device setup, grants, revocation and responsive console flows
 
 Never weaken TLS, token validation or authorization to get a demo through. No physical action is represented as exactly-once.
 

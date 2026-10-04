@@ -24,4 +24,6 @@ Clerk handles hosted owner sign-in and agent OAuth. Google is the configured sig
 
 The owner login and agent OAuth consent flow have been exercised successfully. Approving OAuth scopes does not grant device access: the owner must separately approve device capabilities, and the service checks those grants on every action. Workspace isolation, pairing and action persistence are part of service acceptance. This hosted acceptance does not establish that physical Pi or Uno hardware has passed its own network, TLS, provisioning, power-loss or reconnect checks.
 
+The software acceptance on commit `873f82900d99125782e7e9347753e6ee675ee90e` exercised the public Node installer, SDK attachment, owner grants, official Codex OAuth custom-tool discovery, completed action tracking and matching durable result receipts. Test tokens and device identities were revoked afterward. Native download checksums and both apex/www HTTPS routes matched the deployed commit. The corresponding GitHub Actions run was `37224049998`, with all required jobs successful.
+
 For firmware and device acceptance, use [MAC-HANDOFF.md](MAC-HANDOFF.md) and [UNO-R4-PROFILES.md](UNO-R4-PROFILES.md). Private repair assets are isolated from the public site and should not be published.
