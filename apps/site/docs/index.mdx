@@ -1,22 +1,21 @@
 ---
 title: Introduction
-description: Learn the local setup, supported hardware and permission model for the openlaunch developer alpha before connecting an agent to your devices.
+description: Connect an agent to your board, approve a health check or LED change, and follow the result with clear setup and permission guides.
 ---
 
-openlaunch lets an owner pair a device and grant an agent specific capabilities for a bounded lifetime. Shared TypeScript protocol, authorization and command logic connect a local Node/SQLite bridge, React owner console and MCP tools to Go and Arduino clients.
+openlaunch connects agents to device capabilities you approve. Start with a health check, an LED, or a message on an Uno's matrix. The device stays independent of your AI provider.
 
-:::warning
-Developer alpha. Real hardware operation is not yet verified. Hosted login, OAuth consent and production device controls remain unfinished.
-:::
+A **device** is your board. An **agent** is the software asking it to do something. A **capability** is one specific operation, such as setting an LED. A **grant** is your permission for one agent to use capabilities on one device until an expiry time.
 
-## Start here
+## Your first connection
 
-- [Local setup](/setup): build the monorepo and run the simulated acceptance flow.
-- [Pairing and permissions](/pairing): enroll a device, then separately authorize an agent.
-- [Uno R4 WiFi](/uno-r4): stock and repaired console-mux profiles.
-- [Raspberry Pi 4](/pi): real process-health runtime.
-- [Architecture](/architecture): package boundaries and trust model.
-- [Downloads and resources](/resources): GitHub downloads, SDK sources, OS images and upstream docs.
-- [Project status](/status): what works and what still needs acceptance.
+1. [Start your console](/setup).
+2. Pair an [Uno R4 WiFi](/uno-r4) or [Pi 4](/pi).
+3. [Connect an agent](/agents) and approve health access.
+4. Ask for a health check, then inspect its completed result.
 
-Local Codex can use the developer MCP endpoint. Public ChatGPT onboarding requires complete hosted authentication first.
+## Explore
+
+[Permissions](/pairing) explains enrollment, grants and results. [API reference](/api) and [architecture](/architecture) cover the shared service for developers. [Resources](/resources) links source, firmware, SDKs and OS images. [Troubleshooting](/troubleshooting) helps with common connection problems.
+
+The [verification page](/status) records which software and hardware checks have passed. The docs offer search, Markdown downloads, PDF/EPUB export, browser narration, and a [read-only docs MCP server](/agents#documentation-for-agents).

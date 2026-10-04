@@ -1,50 +1,41 @@
 ---
-title: Local setup
-description: Build the openlaunch monorepo, run simulated pairing tests and start the local owner console before moving to trusted HTTPS hardware acceptance.
+title: Get started
+description: Install openlaunch with one command, start your device console, pair a board and connect Codex with a protected agent credential.
 ---
 
-## Run the local bridge
+## Start your console
 
-Install Node 24+ and Go matching `devices/pi/go.mod` (currently 1.27.1). [Downloads and upstream docs](/resources).
-
-```sh
-git clone https://github.com/pkyanam/openlaunch.git
-cd openlaunch
-npm ci
-npm run build --workspace @openlaunch/web
-npm run test:e2e
-```
-
-The test pairs a simulated device and checks command results, persistence and revocation. It doesn't touch hardware. If you already have a checkout, preserve local changes.
-
-Start the console with two random, temporary tokens. These commands generate them locally without printing them or putting their values in shell history:
+You need [Node 24+ and Git](/resources). On macOS or Linux, run:
 
 ```sh
-export OPENLAUNCH_OWNER_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
-export OPENLAUNCH_AGENT_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
-npm run dev:local
+curl -fsSL https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh | bash
 ```
 
-Open `http://127.0.0.1:8788`. Copy the owner token into the console's development session field using your local password/clipboard workflow; on macOS, `printf %s "$OPENLAUNCH_OWNER_TOKEN" | pbcopy` copies it without displaying it. Clear your clipboard afterward. The console keeps the token in page memory.
+The installer downloads the source, builds the console, and starts the bridge. It does not flash a board or change cloud resources. You can [read the script first](https://github.com/pkyanam/openlaunch/blob/main/scripts/install.sh).
 
-In the console:
+Open **http://127.0.0.1:8788**. On macOS, your owner session key is already on the clipboard: paste it into the session field and select **Connect**. On Linux, copy the `token` value from `.cache/local/owner.json` in the installed checkout. Keep that file private. Your session key is a password for your console; never give it to an agent.
 
-1. Create an enrollment for **Uno R4 WiFi** or **Pi**.
-2. Follow the [Uno guide](/uno-r4) or [Pi guide](/pi) to pair it within 10 minutes.
-3. Grant `local-agent` the device's health capability, request health, and inspect the completed result.
+The default installation is `~/.local/share/openlaunch`. An existing checkout is reused without resetting your files. To stop the bridge, press **Ctrl-C**. To start it again:
 
-Pairing registers the device; the grant lets the agent use it. Add LED or matrix grants only for the Uno. [Full pairing and permission rules](/pairing).
+```sh
+cd ~/.local/share/openlaunch
+npm run start:local
+```
 
-## Local MCP
+## Add your board
 
-The endpoint is `http://127.0.0.1:8788/mcp`. Configure your host's supported environment-variable bearer-token setting using `OPENLAUNCH_AGENT_TOKEN`. Tools are `list_devices`, `request_device_health`, `show_text`, `set_led`, `get_action` and `cancel_action`.
+In the console, select **Uno R4 WiFi** or **Pi** and create an enrollment. Follow the [Uno guide](/uno-r4) or [Pi guide](/pi) to connect it within 10 minutes.
 
-The agent needs a separate capability grant. It cannot enroll devices or approve itself. Queued and received actions are intermediate outcomes.
+For a real board, the bridge needs a trusted HTTPS address the board can reach. Your Mac's loopback address only works on that Mac. See [network setup](/troubleshooting#my-board-cannot-reach-the-bridge).
 
-## Real boards require HTTPS
+## Connect your agent
 
-A board cannot reach your Mac's loopback address. Use a trusted HTTPS reverse proxy you control, targeting `http://127.0.0.1:8788`, and set `OPENLAUNCH_PUBLIC_ORIGIN` to its exact bare HTTPS origin before starting the bridge. Open the console through that origin. This exposes the development API for your test window; close the proxy afterward.
+Follow [agent connections](/agents). Then grant that agent **health** for your device in the console. Ask it to check the board's health and inspect the result. Add LED or matrix access when you want the Uno to use those capabilities.
 
-Do not disable TLS verification. R4 requires port 443, a trusted hostname and a valid clock. This temporary developer setup does not implement public ChatGPT OAuth.
+A grant is a permission slip: it names the agent, device, allowed capability, and expiry. Pairing alone doesn't give an agent permission.
 
-Continue with [pairing](/pairing), [R4 setup](/uno-r4) or [Pi setup](/pi). Detailed platform instructions live in the repository's [Mac handoff](https://github.com/pkyanam/openlaunch/blob/main/docs/MAC-HANDOFF.md).
+## Work on the source
+
+Already cloned the repository? Run `npm run setup` from its root. The installer needs only Node and Git. Building or testing the Pi agent also needs [Go](/resources); flashing an Uno needs [Arduino CLI](/resources).
+
+Use `npm run check` for shared API, permissions and protocol tests. `npm run test:e2e` runs a simulated device through the local bridge; it requires Go and does not operate physical hardware. Platform details are in the [Mac handoff](https://github.com/pkyanam/openlaunch/blob/main/docs/MAC-HANDOFF.md).

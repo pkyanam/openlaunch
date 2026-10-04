@@ -1,0 +1,55 @@
+---
+title: API reference
+description: Explore the shared device API for enrollment, agent grants, action requests and results, used by the openlaunch console and MCP.
+---
+
+The web console and MCP use the same command service and permission checks. A future CLI can use this API without creating a second authorization system.
+
+## Authentication
+
+Owner management uses an authenticated owner session. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant.
+
+Device requests use their own enrollment-issued bearer credential. On the hosted bridge they also include `x-openlaunch-workspace`, returned during pairing. Keep credentials out of logs and source control.
+
+## Routes
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/healthz` | Service health; not a device result |
+| GET | `/v1/devices` | Devices visible to the current principal |
+| POST | `/v1/enrollments` | Owner creates a 10-minute, single-use enrollment |
+| POST | `/v1/device/enroll` | Device exchanges an enrollment for its credential |
+| POST | `/v1/grants` | Owner approves agent/device/capability access |
+| POST | `/v1/grants/revoke` | Owner revokes that agent's access to a device |
+| POST | `/v1/devices/{id}/revoke` | Owner revokes the device credential |
+| POST | `/v1/devices/{id}/actions` | Request a supported capability |
+| GET | `/v1/actions/{id}` | Inspect the command result |
+| POST | `/v1/actions/{id}/cancel` | Cancel an undispatched command |
+| POST | `/v1/device/{id}/next` | Device polls for its next command |
+| POST | `/v1/device/{id}/result` | Device reports success or failure |
+| POST | `/mcp` | Stateless device MCP requests |
+
+## Request an action
+
+```json
+{
+  "capability": "led.set",
+  "arguments": { "on": true },
+  "idempotencyKey": "your-unique-request-id",
+  "ttlSeconds": 60
+}
+```
+
+Capabilities are `device.health` with `{}`, `led.set` with `{ "on": true }`, and `display.text` with `{ "text": "hello" }`. A device must advertise and implement the requested capability. Pi currently implements health; Uno implements all three.
+
+TTL is 1–300 seconds. Reuse an idempotency key only for an identical request. A conflicting duplicate is rejected. Devices poll every 10 seconds, so allow enough time for delivery.
+
+## Responses and errors
+
+REST success responses use `{ "data": ... }`. Errors use `{ "error": { "code": "...", "message": "..." } }`; validation errors also identify invalid fields. HTTP 202 means accepted into the queue, not physically completed.
+
+Inspect the returned action ID. `queued` and `received` are intermediate states. Terminal states distinguish success, failure, cancellation and expiry; an uncertain delivered outcome must not be reported as success. See [pairing and permissions](/pairing) for the lifecycle.
+
+## Source and SDKs
+
+[Protocol schemas](https://github.com/pkyanam/openlaunch/tree/main/packages/protocol), [command service](https://github.com/pkyanam/openlaunch/tree/main/packages/core), [HTTP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/http) and [MCP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/mcp) live in the same repository. Package publishing and language SDKs can build on those schemas; see [resources](/resources) for current source downloads and upstream tools.

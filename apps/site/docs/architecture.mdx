@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: Explore the shared protocol, permission engine, transports and device adapters behind the local bridge and unfinished hosted openlaunch scaffold.
+description: Explore the shared protocol, permissions and device adapters behind openlaunch, from Clerk identities to Go and Arduino runtimes.
 ---
 
 ## Monorepo boundaries
@@ -9,16 +9,16 @@ description: Explore the shared protocol, permission engine, transports and devi
 | ---------------------------------- | ------------------------------------------------------------------ |
 | TypeScript protocol/auth/core      | Typed capabilities, enrollment, grants, TTLs and command lifecycle |
 | HTTP and MCP packages              | Transport-neutral API and official-SDK agent tools                 |
-| React web console                  | Local owner enrollment, permissions and action inspection          |
+| React web console                  | Owner enrollment, permissions and action inspection          |
 | Node/SQLite local bridge           | Loopback developer runtime and persistent state                    |
-| Cloudflare Worker + Durable Object | Hosted scaffold; onboarding remains unfinished                     |
+| Cloudflare Worker + Durable Object | Clerk verification and isolated workspace persistence                     |
 | Go Pi agent                        | Outbound polling and real process health                           |
 | Arduino firmware                   | R4 health, built-in LED and matrix text                            |
-| Blume website                      | Static product story and searchable setup docs; no device controls |
+| Blume website                      | Product website, searchable docs and read-only documentation MCP |
 
 ## Trust boundaries
 
-Model output cannot authorize itself. The bridge checks API scopes and per-device grants. Device credentials are independent of provider credentials. Cloudflare would be a trusted relay: TLS protects each hop rather than encrypting actions end-to-end from the model host to hardware.
+Model output cannot authorize itself. The bridge checks API scopes and per-device grants. Device credentials are independent of provider credentials. Cloudflare is a trusted relay: TLS protects each hop rather than encrypting actions end-to-end from the model host to hardware.
 
 R4 credentials are plaintext in EEPROM; Pi credentials live in a restricted local file. Physical compromise can expose them. Commands are typed and bounded; unrestricted shell and arbitrary LAN proxying are not default capabilities.
 

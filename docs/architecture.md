@@ -2,10 +2,10 @@
 
 ## Monorepo boundaries
 
-- `apps/cloud`: hosted Cloudflare Worker, OAuth JWT verifier and per-workspace Durable Object storage adapter
+- `apps/cloud`: hosted Cloudflare Worker, Clerk session and OAuth verification and per-workspace Durable Object storage adapter
 - `apps/local`: persistent local developer bridge; loopback only, optional explicitly configured HTTPS reverse proxy
-- `apps/site`: static Blume product website and searchable guides; no device controls or authentication endpoints
-- `apps/web`: React owner console, shared by local development and future hosted onboarding
+- `apps/site`: Blume product website, searchable guides, Markdown and read-only docs MCP
+- `apps/web`: React owner console, shared by local development and hosted onboarding
 - `packages/protocol`: capability and manifest contracts
 - `packages/core`: enrollment, device identities, capability grants, command lifecycle, expiry and revocation
 - `packages/authorization`: shared authorization helpers
@@ -28,7 +28,7 @@ Cloudflare is a trusted relay. TLS protects each network hop, not end-to-end enc
 
 ## Implemented vs planned
 
-Implemented: local SQLite persistence, shared command/permission engine, stateless Streamable HTTP MCP, React developer console, Go simulated/health runtime, compiled R4 LED/matrix/health firmware, Cloudflare build scaffold and JWT verification.
+Implemented: local SQLite persistence, shared command/permission engine, stateless Streamable HTTP MCP, React developer console, Go simulated/health runtime, compiled R4 LED/matrix/health firmware, Cloudflare build, Clerk owner/agent verification and website deployment workflow.
 
 Not yet implemented: hosted login/consent/refresh, dashboard secure sessions, public deployment/domain routing, WebSocket delivery, OTA signing/rollback, unattended account lifecycle and broad-scale quotas. Current devices poll every 10 seconds. D1 metadata and R2 artifacts are design options, not deployed dependencies.
 

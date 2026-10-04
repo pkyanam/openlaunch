@@ -1,6 +1,6 @@
 ---
-title: Project status
-description: See what works in the openlaunch developer alpha, which hardware checks remain pending and what must be completed before hosted device controls.
+title: Verification
+description: Review checked software behavior, supported board capabilities, authentication acceptance and the remaining real hardware tests.
 ---
 
 ## Implemented locally
@@ -10,11 +10,11 @@ description: See what works in the openlaunch developer alpha, which hardware ch
 - React developer console and six official-SDK MCP tools.
 - Go client with real process health and explicitly labeled simulation.
 - Compiled Arduino R4 health, LED and matrix firmware with isolated transports.
-- Cloudflare Worker, JWT verifier and SQLite-backed Durable Object scaffold.
+- Cloudflare Worker, Clerk session/OAuth verification and SQLite-backed Durable Object.
 
 ## Pending before hosted device controls
 
-Hosted login, OAuth authorization/consent/refresh, secure dashboard sessions and production routing are unfinished. A JWT verifier alone is not hosted OAuth. Do not connect public ChatGPT clients until complete authentication and owner consent have been tested.
+Clerk production DNS and HTTPS are verified. OAuth discovery advertises the required scopes and PKCE. Owner sessions and agent scope boundaries pass automated tests. Hosted sign-in, agent consent and tenant persistence still require end-to-end acceptance on the deployed service before device linking is enabled.
 
 Tenant isolation and Durable Object persistence need acceptance on a real deployment. Rate limits, abuse protection, quotas, retention and account lifecycle also need work before broad access.
 

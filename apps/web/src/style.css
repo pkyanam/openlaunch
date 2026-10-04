@@ -259,3 +259,5 @@ footer {
     letter-spacing: -1px;
   }
 }
+
+html { filter: grayscale(1); }

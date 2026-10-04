@@ -1,0 +1,43 @@
+---
+title: Connect an agent
+description: Connect Codex and other MCP clients, approve specific device capabilities, and use the separate read-only documentation server.
+---
+
+openlaunch uses MCP, a shared way for agents to call tools. The same permission checks apply to every provider.
+
+## Codex on your computer
+
+Start the bridge using [Get started](/setup). The launcher prints a command tailored to your installation. For the default installation:
+
+```sh
+codex mcp add openlaunch -- node ~/.local/share/openlaunch/scripts/local-mcp.mjs
+```
+
+The adapter reads only your protected **agent** credential. It never forwards your owner session key. Restart Codex or refresh its MCP connections, then ask it to list your openlaunch devices.
+
+In your console, grant `local-agent` a capability for the board you paired. Start with `device.health`. Without a grant, the agent will see no accessible devices and cannot act on them.
+
+## Hosted connections
+
+Hosted linking uses Clerk sign-in and OAuth consent. Request `openlaunch:read` to list granted devices and inspect results, and `openlaunch:act` to request changes. The owner still approves each device capability separately.
+
+Use the exact MCP URL and client identity shown by your deployed console. Do not substitute the documentation MCP address or give your owner session to ChatGPT. Hosted device linking is enabled only after the deployment passes its authentication checks; [verification](/status) records the checked endpoints.
+
+## Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `list_devices` | List granted devices and their last-seen status |
+| `request_device_health` | Ask the device for a fresh health result |
+| `set_led` | Set the Uno's built-in LED |
+| `show_text` | Display up to 96 ASCII characters on the Uno matrix |
+| `get_action` | Read the actual action outcome |
+| `cancel_action` | Cancel an action that has not been delivered |
+
+An action ID is a receipt number, not proof that the board acted. Ask the agent to check `get_action` until it reaches a terminal result.
+
+## Documentation for agents
+
+The website has a separate, read-only MCP endpoint at `/docs-mcp`, built with Blume. It supports searching docs, reading pages, listing pages, and inspecting navigation. It needs no device credentials and cannot operate boards.
+
+Each page is also available as Markdown: append `.md` to its URL. The website publishes `/llms.txt`, `/llms-full.txt`, `/skill.md` and `/.well-known/mcp.json` for discovery. The docs menu offers PDF and EPUB export; **Listen to this page** uses your browser's voices.

@@ -50,6 +50,11 @@ jobs:
       - run: npm run build:pi
       - uses: actions/upload-artifact@v4
         with:
+          name: openlaunch-website
+          path: apps/site/dist/client
+          include-hidden-files: true
+      - uses: actions/upload-artifact@v4
+        with:
           name: openlaunch-pi-binaries
           path: dist/openlaunch-device-linux-*
   firmware:
@@ -68,3 +73,26 @@ jobs:
       - run: arduino-cli --config-file build/firmware/stock/arduino-cli.json lib update-index
       - run: arduino-cli --config-file build/firmware/stock/arduino-cli.json lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
       - run: npm run build:firmware
+
+  deploy-site:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [mac-smoke, software, firmware]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: openlaunch-site-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: openlaunch-website
+          path: apps/site/dist/client
+      - run: npx wrangler pages deploy apps/site/dist/client --project-name openlaunch-site --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false --no-bundle
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

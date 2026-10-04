@@ -9,7 +9,7 @@
     "preview": "blume preview --port ${PORT:-4321}",
     "validate": "blume validate",
     "audit": "blume audit",
-    "postbuild": "node scripts/postbuild.mjs"
+    "postbuild": "node --import tsx scripts/postbuild.mjs"
   },
   "dependencies": {
     "blume": "2.1.1"

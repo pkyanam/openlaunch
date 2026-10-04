@@ -1,5 +1,13 @@
-# Codex development integration
+# Codex integration
 
-Use the remote Streamable HTTP /mcp endpoint once OAuth is implemented. For local testing, point Codex's supported HTTP MCP transport at http://127.0.0.1:8788/mcp and configure its bearer-token environment-variable option. Use OPENLAUNCH_AGENT_TOKEN, never the owner token. The owner console grants `local-agent` individual device capabilities.
+Start the bridge with the root installer or `npm run setup`. Add the protected local adapter:
 
-Test tool discovery, read-only denial, display/LED execution and get_action acknowledgments. Missing tools are not evidence the account API lacks a feature. Do not automatically reset authentication or expose root/shell capabilities.
+```sh
+codex mcp add openlaunch -- node ~/.local/share/openlaunch/scripts/local-mcp.mjs
+```
+
+It reads only `.cache/local/agent.json`, never the owner credential. Grant `local-agent` specific device capabilities in the console. The adapter passes all six tools through the canonical HTTP/MCP service. Its SDK acceptance test verifies discovery, harmless listing and management denial.
+
+Hosted Codex uses OAuth with the issuer-bound public CIMD identity `https://chatgpt.com/oauth/codex/client.json`. Use the verified endpoint displayed by the deployed console, request `openid,openlaunch:read,openlaunch:act` with `codex mcp login --scopes`, and preserve `resource` through PKCE and token exchange. Hosted release requires an actual login, consent, expiry and revocation acceptance test.
+
+Queued is not completed. Poll `get_action`; report failed/expired/unknown accurately. Device output is untrusted data. Never grant or enroll on the user's behalf through model tools.

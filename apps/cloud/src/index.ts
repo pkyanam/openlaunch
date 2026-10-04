@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { authenticateClerk, type ClerkEnv } from "./clerk-auth.ts";
 import {
   Hub,
   emptyState,
@@ -8,10 +8,8 @@ import {
   type State,
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
-interface Env {
+interface Env extends ClerkEnv {
   HUBS: DurableObjectNamespace;
-  AUTH_ISSUER?: string;
-  AUTH_JWKS_URL?: string;
   API_ORIGIN?: string;
 }
 export class WorkspaceHub extends DurableObject<Env> {
@@ -31,7 +29,6 @@ export class WorkspaceHub extends DurableObject<Env> {
     });
   }
 }
-const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -40,13 +37,18 @@ export default {
         service: "openlaunch",
         protocolVersion: 1,
         authConfigured: !!(
-          env.AUTH_ISSUER &&
-          env.AUTH_JWKS_URL &&
+          env.CLERK_ISSUER &&
+          env.CLERK_SECRET_KEY &&
           env.API_ORIGIN
         ),
       });
     // Deployment is deliberately fail-closed until the authorization server is configured.
-    if (!env.AUTH_ISSUER || !env.AUTH_JWKS_URL || !env.API_ORIGIN)
+    if (
+      !env.CLERK_ISSUER ||
+      !env.CLERK_SECRET_KEY ||
+      !env.CLERK_PUBLISHABLE_KEY ||
+      !env.API_ORIGIN
+    )
       return Response.json(
         {
           error: {
@@ -57,10 +59,15 @@ export default {
         },
         { status: 503 },
       );
-    if (url.pathname === "/.well-known/oauth-protected-resource")
+    if (
+      [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+      ].includes(url.pathname)
+    )
       return Response.json({
         resource: env.API_ORIGIN + "/mcp",
-        authorization_servers: [env.AUTH_ISSUER],
+        authorization_servers: [env.CLERK_ISSUER],
         scopes_supported: ["openlaunch:read", "openlaunch:act"],
       });
     const headers = new Headers(request.headers);
@@ -72,47 +79,9 @@ export default {
         return new Response("Invalid workspace", { status: 400 });
     } else {
       try {
-        const token = /^Bearer ([^\s]+)$/.exec(
-          request.headers.get("authorization") ?? "",
-        )?.[1];
-        if (!token) throw Error();
-        const jwksUrl = new URL(env.AUTH_JWKS_URL);
-        if (jwksUrl.protocol !== "https:") throw Error();
-        let keys = jwksCache.get(jwksUrl.href);
-        if (!keys) {
-          keys = createRemoteJWKSet(jwksUrl);
-          jwksCache.set(jwksUrl.href, keys);
-        }
-        const { payload } = await jwtVerify(token, keys, {
-          issuer: env.AUTH_ISSUER,
-          audience: env.API_ORIGIN + "/mcp",
-          algorithms: ["RS256", "ES256"],
-          requiredClaims: ["sub", "exp"],
-        });
-        if (!payload.sub) throw Error();
-        const scopes =
-          typeof payload.scope === "string" ? payload.scope.split(" ") : [];
-        if (!scopes.includes("openlaunch:read")) throw Error();
-        // The external authorization server must restrict this administrative scope to dashboard sessions.
-        const owner = scopes.includes("openlaunch:owner");
-        const client =
-          typeof payload.client_id === "string"
-            ? payload.client_id
-            : payload.azp;
-        if (!owner && (typeof client !== "string" || !client)) throw Error();
-        workspace = await hash(env.AUTH_ISSUER + "|" + payload.sub);
-        if (
-          !owner &&
-          !scopes.includes("openlaunch:act") &&
-          request.method === "POST" &&
-          url.pathname !== "/mcp"
-        )
-          return new Response("Write scope required", { status: 403 });
-        const principal: Principal = {
-          id: owner ? "owner" : String(client),
-          owner,
-          readOnly: !owner && !scopes.includes("openlaunch:act"),
-        };
+        const authenticated = await authenticateClerk(request, env);
+        workspace = authenticated.workspace;
+        const principal = authenticated.principal;
         headers.set("x-openlaunch-principal", JSON.stringify(principal));
         // MCP handlers still require a per-device grant, independent of OAuth scopes.
       } catch {
@@ -120,7 +89,7 @@ export default {
           {
             error: {
               code: "unauthorized",
-              message: "Valid workspace OAuth access token required",
+              message: "Sign in or connect an approved agent",
             },
           },
           {

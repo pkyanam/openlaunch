@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { ClerkProvider, SignIn, UserButton, useAuth } from "@clerk/react";
 type Device = {
   id: string;
   name: string;
@@ -9,12 +10,10 @@ type Device = {
   online: boolean;
   lastSeen: number;
 };
-function App() {
+function App({ session }: { session?: () => Promise<string | null> }) {
   const [token, setToken] = useState(""),
     [devices, setDevices] = useState<Device[]>([]),
-    [notice, setNotice] = useState(
-      "Connect a development owner session to inspect your devices.",
-    ),
+    [notice, setNotice] = useState("Connect to see your devices."),
     [busy, setBusy] = useState(false),
     [enrollment, setEnrollment] = useState<any>(null),
     [action, setAction] = useState<any>(null),
@@ -24,7 +23,7 @@ function App() {
     const r = await fetch(path, {
       method,
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${session ? await session() : token}`,
         "Content-Type": "application/json",
       },
       ...(data ? { body: JSON.stringify(data) } : {}),
@@ -50,6 +49,9 @@ function App() {
       setBusy(false);
     }
   }
+  useEffect(() => {
+    if (session) refresh();
+  }, []);
   const refresh = () =>
     run(async () => {
       setDevices(await api("/v1/devices"));
@@ -81,56 +83,52 @@ function App() {
         <a className="brand" href="/">
           openlaunch<span> / device console</span>
         </a>
-        <span className="badge">development preview</span>
+        {session ? (
+          <UserButton />
+        ) : (
+          <span className="badge">local console</span>
+        )}
       </header>
       <main>
         <section className="hero">
-          <p className="eyebrow">YOUR HARDWARE. YOUR AGENT.</p>
-          <h1>
-            A connection to
-            <br />
-            the physical world.
-          </h1>
+          <h1>Your devices</h1>
           <p>
             Pair a device, grant a capability, and see what actually happened.
           </p>
         </section>
-        <aside className="warning">
-          Local developer build. Browser sign-in, public onboarding and
-          real-device acceptance testing are not complete. Never use a
-          production credential over plain HTTP beyond localhost.
-        </aside>
-        <section className="session panel">
-          <div>
-            <h2>Owner session</h2>
-            <p>Token stays in page memory and clears on reload.</p>
-          </div>
-          <input
-            aria-label="Development owner bearer token"
-            type="password"
-            autoComplete="off"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Development owner bearer token"
-          />
-          <button disabled={busy || !token} onClick={refresh}>
-            Connect / refresh
-          </button>
-          <button
-            className="secondary"
-            onClick={() => {
-              setToken("");
-              setDevices([]);
-              setEnrollment(null);
-              setAction(null);
-              setNotice(
-                "Disconnected locally. Server grants remain unchanged.",
-              );
-            }}
-          >
-            Disconnect
-          </button>
-        </section>
+        {!session && (
+          <section className="session panel">
+            <div>
+              <h2>Owner session</h2>
+              <p>Token stays in page memory and clears on reload.</p>
+            </div>
+            <input
+              aria-label="Development owner bearer token"
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Development owner bearer token"
+            />
+            <button disabled={busy || !token} onClick={refresh}>
+              Connect / refresh
+            </button>
+            <button
+              className="secondary"
+              onClick={() => {
+                setToken("");
+                setDevices([]);
+                setEnrollment(null);
+                setAction(null);
+                setNotice(
+                  "Disconnected locally. Server grants remain unchanged.",
+                );
+              }}
+            >
+              Disconnect
+            </button>
+          </section>
+        )}
         <div role="status" className="notice">
           {notice}
         </div>
@@ -143,7 +141,7 @@ function App() {
               <button
                 key={kind}
                 className="secondary"
-                disabled={!token || busy}
+                disabled={(!token && !session) || busy}
                 onClick={() =>
                   run(async () => {
                     setEnrollment(
@@ -359,10 +357,35 @@ function App() {
           </section>
         )}
         <footer>
-          Typed capabilities · explicit grants · honest acknowledgments
+          openlaunch ·{" "}
+          <a href="https://www.openlaunch.dev/docs">Documentation</a>
         </footer>
       </main>
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+function HostedApp() {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  if (!isLoaded) return <main>Loading your account…</main>;
+  if (!isSignedIn)
+    return (
+      <main>
+        <h1>Sign in to openlaunch</h1>
+        <SignIn routing="hash" />
+      </main>
+    );
+  return <App session={getToken} />;
+}
+const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+createRoot(document.getElementById("root")!).render(
+  publishableKey ? (
+    <ClerkProvider
+      publishableKey={publishableKey}
+      appearance={{ variables: { colorPrimary: "#111111" } }}
+    >
+      <HostedApp />
+    </ClerkProvider>
+  ) : (
+    <App />
+  ),
+);

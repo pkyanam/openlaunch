@@ -1,8 +1,9 @@
 import { defineConfig } from "blume";
+import { node } from "blume/deploy";
 export default defineConfig({
   title: "openlaunch",
   description:
-    "Connect your agents to explicitly approved device capabilities with openlaunch, a modular provider-neutral bridge. Explore the local developer alpha.",
+    "Connect your agents to explicitly approved device capabilities with openlaunch, a modular provider-neutral bridge.",
   logo: { image: "/icon.png", text: "openlaunch", href: "/" },
   basePath: "/docs",
   theme: {
@@ -11,10 +12,16 @@ export default defineConfig({
     mode: "system",
   },
   github: { owner: "pkyanam", repo: "openlaunch", dir: "apps/site" },
-  deployment: {
+  deployment: node({
     site: process.env.OPENLAUNCH_SITE_ORIGIN || "https://www.openlaunch.dev",
+  }),
+  agents: {
+    llmsTxt: true,
+    skillMd: true,
+    mcp: { enabled: true, route: "/docs-mcp", name: "openlaunch docs" },
   },
-  agents: { llmsTxt: true, mcp: { enabled: false } },
+  export: { pdf: true, epub: true },
+  narration: true,
   footer: {
     links: [
       { label: "Setup", href: "/docs/setup" },

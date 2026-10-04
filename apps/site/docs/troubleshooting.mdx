@@ -1,0 +1,36 @@
+---
+title: Troubleshooting
+description: Fix common openlaunch connection, enrollment, permission and action problems, with guidance for trusted HTTPS and repaired boards.
+---
+
+## My board cannot reach the bridge
+
+`127.0.0.1` means the computer making the request. On a board, it does not mean your Mac.
+
+Use a trusted HTTPS reverse proxy you control, pointing to your local bridge at `http://127.0.0.1:8788`. Set `OPENLAUNCH_PUBLIC_ORIGIN` to its exact HTTPS origin before starting the bridge. Open the console using that address too. Close the proxy when your test ends.
+
+Uno firmware requires HTTPS on port 443, a trusted hostname, and a valid clock. Keep TLS certificate checks enabled. A plain LAN IP or a self-signed certificate won't meet those requirements.
+
+## Pairing expired
+
+Create a new enrollment and retry. Enrollments expire after 10 minutes and can be used once. Choose the board type that matches your device.
+
+## The agent cannot see my board
+
+Pairing and agent access are separate. Grant the correct agent a capability for that board. Check that the grant has not expired or been revoked. For the local adapter, the agent is `local-agent`.
+
+## My action stays queued
+
+Devices poll every 10 seconds. Check power, Wi-Fi, the bridge address and the board's last-seen time. An expired queued action did not execute. A delivered action without a result can have an uncertain outcome: inspect the board before repeating it.
+
+## Codex says the bridge is unavailable
+
+Start `npm run start:local` in your installed checkout. A restart replaces local credentials, so reconnect the MCP adapter as well. Never change the adapter to use your owner credential.
+
+## I have a repaired Uno
+
+Use the separate console-mux profile and its integrity checks. It reroutes through the console UART, not USB D+/D−. Follow the [profile guide](https://github.com/pkyanam/openlaunch/blob/main/docs/UNO-R4-PROFILES.md). Keep repair assets private and preserve the custom ESP firmware.
+
+## Report a problem
+
+[Open a GitHub issue](https://github.com/pkyanam/openlaunch/issues) with your OS, board profile, software commit and error message. Remove tokens, Wi-Fi passwords, enrollment codes and private repair files before sharing logs.
