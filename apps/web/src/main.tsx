@@ -1964,18 +1964,24 @@ function FunctionForm({
   disabled: boolean;
   onRequest: (args: Record<string, unknown>) => void;
 }) {
+  const required = definition.inputSchema.required;
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     Object.fromEntries(
       Object.entries(definition.inputSchema.properties)
         .filter(
           ([name, schema]) =>
-            schema.type === "boolean" &&
-            definition.inputSchema.required.includes(name),
+            required.includes(name) &&
+            (schema.type === "boolean" ||
+              (schema.type === "string" &&
+                !schema.enum &&
+                (schema.minLength ?? 0) === 0)),
         )
-        .map(([name]) => [name, false]),
+        .map(([name, schema]) => [
+          name,
+          schema.type === "boolean" ? false : "",
+        ]),
     ),
   );
-  const required = definition.inputSchema.required;
   return (
     <form
       className="function-form"
@@ -2034,24 +2040,34 @@ function FunctionForm({
             ) : schema.type === "string" && schema.enum ? (
               <select
                 required={required.includes(name)}
-                value={String(values[name] ?? "")}
+                value={
+                  Object.hasOwn(values, name)
+                    ? (JSON.stringify(values[name]) ?? "")
+                    : ""
+                }
                 onChange={(event) =>
                   setValues((current) => {
                     const next = { ...current };
                     if (event.target.value === "") delete next[name];
-                    else next[name] = event.target.value;
+                    else next[name] = JSON.parse(event.target.value) as string;
                     return next;
                   })
                 }
               >
                 <option value="">Choose a value</option>
                 {schema.enum.map((value) => (
-                  <option key={value}>{value}</option>
+                  <option key={value} value={JSON.stringify(value)}>
+                    {value === "" ? "Empty" : value}
+                  </option>
                 ))}
               </select>
             ) : (
               <input
-                required={required.includes(name)}
+                required={
+                  schema.type === "string"
+                    ? required.includes(name) && (schema.minLength ?? 0) > 0
+                    : required.includes(name)
+                }
                 type={schema.type === "string" ? "text" : "number"}
                 min={schema.type !== "string" ? schema.minimum : undefined}
                 max={schema.type !== "string" ? schema.maximum : undefined}
@@ -2066,8 +2082,15 @@ function FunctionForm({
                 onChange={(event) =>
                   setValues((current) => {
                     const next = { ...current };
-                    if (event.target.value === "") delete next[name];
-                    else
+                    if (event.target.value === "") {
+                      if (
+                        schema.type === "string" &&
+                        required.includes(name) &&
+                        (schema.minLength ?? 0) === 0
+                      )
+                        next[name] = "";
+                      else delete next[name];
+                    } else
                       next[name] =
                         schema.type === "string"
                           ? event.target.value
