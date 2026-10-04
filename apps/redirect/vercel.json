@@ -4,6 +4,7 @@
   "buildCommand": "",
   "installCommand": "",
   "redirects": [
+    { "source": "/", "destination": "https://www.openlaunch.dev/", "permanent": true },
     { "source": "/:path*", "destination": "https://www.openlaunch.dev/:path*", "permanent": true }
   ]
 }
