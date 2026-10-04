@@ -99,7 +99,11 @@ test("SDK setup resumes an uncertain attach with its saved request ID and never 
     const directory = join(root, "my-device");
     const calls = [];
     let outputText = "";
-    const output = { write(value) { outputText += value; } };
+    const output = {
+      write(value) {
+        outputText += value;
+      },
+    };
     const fetch = async (url, init) => {
       calls.push({ url: String(url), init });
       const pending = JSON.parse(
@@ -132,20 +136,29 @@ test("SDK setup resumes an uncertain attach with its saved request ID and never 
       await readFile(join(directory, ".setup-pending.json"), "utf8"),
     );
     assert.match(pending.requestId, /^[0-9a-f-]{36}$/i);
-    await assert.rejects(readFile(join(directory, "identity.json")), { code: "ENOENT" });
+    await assert.rejects(readFile(join(directory, "identity.json")), {
+      code: "ENOENT",
+    });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, "https://devices.example/v1/sdk/devices");
     assert.equal(calls[0].init.headers.authorization, `Bearer ${sdkToken}`);
 
     await setupDevice({ ...setupArgs, name: undefined });
     assert.equal(calls.length, 2);
-    assert.deepEqual(JSON.parse(calls[0].init.body), JSON.parse(calls[1].init.body));
+    assert.deepEqual(
+      JSON.parse(calls[0].init.body),
+      JSON.parse(calls[1].init.body),
+    );
     assert.equal(JSON.parse(calls[1].init.body).requestId, pending.requestId);
-    const identity = JSON.parse(await readFile(join(directory, "identity.json"), "utf8"));
+    const identity = JSON.parse(
+      await readFile(join(directory, "identity.json"), "utf8"),
+    );
     assert.equal(identity.credential, "private-device-credential");
     assert.equal(identity.workspace, workspace);
     assert.equal(JSON.stringify(identity).includes(sdkToken), false);
-    await assert.rejects(readFile(join(directory, ".setup-pending.json")), { code: "ENOENT" });
+    await assert.rejects(readFile(join(directory, ".setup-pending.json")), {
+      code: "ENOENT",
+    });
     assert.equal(outputText.includes(sdkToken), false);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -165,7 +178,9 @@ test("SDK setup preserves pending state when owner attachment quota rejects the 
         output: { write() {} },
         fetch: async () =>
           Response.json(
-            { error: { code: "device_limit", message: "private server detail" } },
+            {
+              error: { code: "device_limit", message: "private server detail" },
+            },
             { status: 429 },
           ),
       }),
@@ -176,9 +191,13 @@ test("SDK setup preserves pending state when owner attachment quota rejects the 
         return true;
       },
     );
-    const pending = JSON.parse(await readFile(join(directory, ".setup-pending.json"), "utf8"));
+    const pending = JSON.parse(
+      await readFile(join(directory, ".setup-pending.json"), "utf8"),
+    );
     assert.match(pending.requestId, /^[0-9a-f-]{36}$/i);
-    await assert.rejects(readFile(join(directory, "identity.json")), { code: "ENOENT" });
+    await assert.rejects(readFile(join(directory, "identity.json")), {
+      code: "ENOENT",
+    });
     assert.equal(JSON.stringify(pending).includes(sdkToken), false);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -294,7 +313,14 @@ test("runner invokes only a manifest-advertised handler and reports its result",
       if (String(url).endsWith("/result")) {
         reports.push(JSON.parse(init.body));
         if (reports.length === 2) queueMicrotask(() => process.emit("SIGINT"));
-        return Response.json({ data: { ...action, status: "succeeded" } });
+        return Response.json({
+          data: {
+            ...action,
+            id: reports.at(-1).actionId,
+            status: reports.at(-1).status,
+            result: reports.at(-1).result,
+          },
+        });
       }
       throw new Error("Unexpected request");
     };

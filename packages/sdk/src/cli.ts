@@ -14,6 +14,7 @@ import { stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { join, resolve } from "node:path";
 import {
   access,
@@ -42,6 +43,7 @@ type JournalEntry = {
   state: "pending" | "completed";
   expiresAt: number;
   acknowledged: boolean;
+  recoveryRequired?: boolean;
   outcome?: StoredOutcome;
   terminal?: "expired" | `http_${number}`;
 };
@@ -168,7 +170,9 @@ async function createScaffold(
       try {
         const existing = await readFile(join(directory, name), "utf8");
         if (existing !== files[name])
-          throw new Error(`Refusing to replace changed setup file ${join(directory, name)}`);
+          throw new Error(
+            `Refusing to replace changed setup file ${join(directory, name)}`,
+          );
         continue;
       } catch (error) {
         if (
@@ -218,7 +222,10 @@ async function createScaffold(
 
 async function writePendingSetup(path: string, pending: PendingSetup) {
   const directory = resolve(path, "..");
-  const tempPath = join(directory, `.setup-pending.${process.pid}.${randomUUID()}.tmp`);
+  const tempPath = join(
+    directory,
+    `.setup-pending.${process.pid}.${randomUUID()}.tmp`,
+  );
   try {
     const file = await open(tempPath, "wx", 0o600);
     try {
@@ -274,14 +281,17 @@ export async function setupDevice(options: SetupOptions = {}) {
     options.url ?? process.env.OPENLAUNCH_URL ?? DEFAULT_URL,
   );
   const sdkToken =
-    options.sdkToken ?? process.env.OPENLAUNCH_SDK_TOKEN ??
+    options.sdkToken ??
+    process.env.OPENLAUNCH_SDK_TOKEN ??
     (options.enrollmentToken || process.env.OPENLAUNCH_ENROLLMENT_TOKEN
       ? undefined
       : await askSecret("SDK token (hidden): ", input, output));
   const enrollmentToken =
     options.enrollmentToken ?? process.env.OPENLAUNCH_ENROLLMENT_TOKEN;
   if (sdkToken && enrollmentToken)
-    throw new Error("Choose either OPENLAUNCH_SDK_TOKEN or the legacy enrollment token");
+    throw new Error(
+      "Choose either OPENLAUNCH_SDK_TOKEN or the legacy enrollment token",
+    );
 
   let workspace: string;
   let manifest: DeviceManifest;
@@ -297,12 +307,20 @@ export async function setupDevice(options: SetupOptions = {}) {
     const pending = await readPendingSetup(pendingPath);
     if (pending) {
       if (pending.url !== url || pending.workspace !== workspace)
-        throw new Error("Pending setup belongs to a different URL or workspace");
+        throw new Error(
+          "Pending setup belongs to a different URL or workspace",
+        );
       if (options.name?.trim() && options.name.trim() !== pending.manifest.name)
-        throw new Error("Pending setup has a different device name; finish or remove that setup first");
+        throw new Error(
+          "Pending setup has a different device name; finish or remove that setup first",
+        );
       manifest = pending.manifest;
       await createScaffold(directory, manifest, true);
-      const device = createDevice({ url, token: sdkToken, fetch: options.fetch });
+      const device = createDevice({
+        url,
+        token: sdkToken,
+        fetch: options.fetch,
+      });
       enrolled = await device.attach(manifest, pending.requestId);
     } else {
       manifest = {
@@ -319,12 +337,22 @@ export async function setupDevice(options: SetupOptions = {}) {
         manifest,
       };
       await writePendingSetup(pendingPath, nextPending);
-      const device = createDevice({ url, token: sdkToken, fetch: options.fetch });
+      const device = createDevice({
+        url,
+        token: sdkToken,
+        fetch: options.fetch,
+      });
       enrolled = await device.attach(manifest, nextPending.requestId);
     }
   } else {
-    const token = enrollmentToken ??
-      (await askSecret("One-use enrollment token (hidden): ", input, output, "OPENLAUNCH_ENROLLMENT_TOKEN"));
+    const token =
+      enrollmentToken ??
+      (await askSecret(
+        "One-use enrollment token (hidden): ",
+        input,
+        output,
+        "OPENLAUNCH_ENROLLMENT_TOKEN",
+      ));
     if (!/^[a-f0-9]{64}$/.test(token))
       throw new Error("Enrollment token must be 64 hexadecimal characters");
     workspace =
@@ -441,11 +469,21 @@ async function loadJournal(path: string): Promise<ActionJournal> {
         (entry.state !== "pending" && entry.state !== "completed") ||
         !Number.isFinite(entry.expiresAt) ||
         typeof entry.acknowledged !== "boolean" ||
+        (entry.recoveryRequired !== undefined &&
+          typeof entry.recoveryRequired !== "boolean") ||
         (entry.state === "completed" &&
           (!entry.outcome ||
             !["succeeded", "failed"].includes(entry.outcome.status)))
       )
         throw new Error("invalid action journal");
+      // Earlier runners recorded this recovery outcome without a stop flag.
+      if (
+        entry.outcome?.result &&
+        typeof entry.outcome.result === "object" &&
+        "code" in entry.outcome.result &&
+        entry.outcome.result.code === "outcome_unknown"
+      )
+        entry.recoveryRequired = true;
     }
     return journal;
   } catch (error) {
@@ -463,6 +501,7 @@ async function flushJournal(
   for (const [actionId, entry] of Object.entries(journal)) {
     if (entry.state === "pending") {
       entry.state = "completed";
+      entry.recoveryRequired = true;
       entry.outcome = {
         status: "failed",
         result: { code: "outcome_unknown" },
@@ -479,7 +518,19 @@ async function flushJournal(
       continue;
     }
     try {
-      await device.submitResult(actionId, entry.outcome!);
+      const receipt = await device.submitResult(actionId, entry.outcome!);
+      const expectedResult = JSON.stringify(entry.outcome!.result);
+      if (
+        !receipt ||
+        receipt.id !== actionId ||
+        receipt.status !== entry.outcome!.status ||
+        !Object.hasOwn(receipt, "result") ||
+        expectedResult === undefined ||
+        !isDeepStrictEqual(receipt.result, JSON.parse(expectedResult))
+      )
+        throw new Error(
+          "Result receipt does not match the saved outcome; journal retained",
+        );
       entry.acknowledged = true;
       await saveJournal(path, journal);
     } catch (error) {
@@ -506,6 +557,10 @@ async function flushJournal(
       throw error;
     }
   }
+  if (Object.values(journal).some((entry) => entry.recoveryRequired))
+    throw new Error(
+      "Interrupted action outcome is unknown; inspect the device and recover before accepting new commands",
+    );
   return true;
 }
 
@@ -600,7 +655,11 @@ export async function runDevice(
       } catch (error) {
         if (
           error instanceof Error &&
-          error.message.startsWith("Device access is no longer valid")
+          [
+            "Device access is no longer valid",
+            "Result receipt does not match",
+            "Interrupted action outcome is unknown",
+          ].some((message) => error.message.startsWith(message))
         )
           throw error;
         throw new Error(
@@ -612,7 +671,10 @@ export async function runDevice(
         output.write(
           "Connection interrupted; retrying result delivery shortly.\n",
         );
-        await waitFor(Math.min(options.pollMs ?? POLL_MS, 10_000), flushGeneration);
+        await waitFor(
+          Math.min(options.pollMs ?? POLL_MS, 10_000),
+          flushGeneration,
+        );
         continue;
       }
       const pollGeneration = wakeGeneration;
@@ -666,7 +728,10 @@ export async function runDevice(
         )
           throw error;
         output.write("Connection interrupted; retrying shortly.\n");
-        await waitFor(Math.min(options.pollMs ?? POLL_MS, 10_000), pollGeneration);
+        await waitFor(
+          Math.min(options.pollMs ?? POLL_MS, 10_000),
+          pollGeneration,
+        );
         continue;
       }
       await waitFor(options.pollMs ?? POLL_MS, pollGeneration);

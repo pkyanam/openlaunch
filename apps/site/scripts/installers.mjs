@@ -29,7 +29,7 @@ export function installerManifest(downloadDirectory, origin) {
       source: `https://github.com/pkyanam/openlaunch/tree/${commit}/packages/embedded-sdk`,
     },
     sdk: {
-      url: `${origin}/downloads/openlaunch-sdk.tgz`,
+      url: `${origin}/downloads/openlaunch-sdk.tgz?commit=${commit}`,
       sha256: digest(join(downloadDirectory, "openlaunch-sdk.tgz")),
       source: `https://github.com/pkyanam/openlaunch/tree/${commit}/packages/sdk`,
     },

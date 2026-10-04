@@ -114,7 +114,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [setupConnection, setSetupConnection] = useState<Connection | null>(
     null,
   );
-  const adapterSetupCommand = `npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(window.location.origin)}`;
+  const sdkArchiveUrl = `https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz${import.meta.env.VITE_OPENLAUNCH_BUILD_COMMIT ? `?commit=${import.meta.env.VITE_OPENLAUNCH_BUILD_COMMIT}` : ""}`;
+  const adapterSetupCommand = `npx --yes --package=${quoteShellValue(sdkArchiveUrl)} openlaunch-device setup --url ${quoteShellValue(window.location.origin)}`;
   const codexConnectCommand =
     "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
   const usbSetupCommand = (filename: string) =>

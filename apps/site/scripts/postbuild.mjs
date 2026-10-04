@@ -4,6 +4,9 @@ import { readdirSync } from "node:fs";
 import { cpSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+  encoding: "utf8",
+}).trim();
 // Publish installers from this exact checkout alongside the website.
 // GitHub remains a source/backup link, never the primary installer redirect.
 for (const [source, destination] of [
@@ -58,6 +61,7 @@ if (process.env.CLERK_PUBLISHABLE_KEY) {
       env: {
         ...process.env,
         VITE_CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY,
+        VITE_OPENLAUNCH_BUILD_COMMIT: commit,
       },
     },
   );
@@ -74,9 +78,6 @@ writeFileSync(indexPath, index);
 const homeMarkdown = readFileSync("pages/index.md", "utf8");
 writeFileSync("dist/client/index.md", homeMarkdown);
 writeFileSync("dist/client/index.mdx", homeMarkdown);
-const commit = execFileSync("git", ["rev-parse", "HEAD"], {
-  encoding: "utf8",
-}).trim();
 // Pin GitHub backup links to the deployed commit, never the moving main branch.
 const pinInstallerBackup = (text) => {
   for (const filename of [
@@ -89,7 +90,11 @@ const pinInstallerBackup = (text) => {
       `https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/${filename}`,
       `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/${filename}`,
     );
-  return text;
+  // A distinct package URL prevents npm exec from reusing an older cached CLI.
+  return text.replaceAll(
+    /https:\/\/www\.openlaunch\.dev\/downloads\/openlaunch-sdk\.tgz(?!\?commit=)/g,
+    `https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz?commit=${commit}`,
+  );
 };
 function pinGeneratedLinks(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {

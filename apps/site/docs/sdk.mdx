@@ -16,7 +16,7 @@ Revoke a token in **Connections** to stop agent requests and future device attac
 Install the SDK from the hosted archive:
 
 ```sh
-npm install https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
+npm install 'https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz'
 ```
 
 Read the token from a private environment variable and create a client:
@@ -55,7 +55,7 @@ Use `cancelAction(id)` before a device receives an action. `broadcast({ deviceId
 For a Linux machine, gateway or Node adapter, open **Devices → Add device** and choose **Create a new one-device token**. Give it a name and expiry, then select **Create token and continue**. The console shows the one-time token and a setup command. Copy the command and run it on the machine beside your hardware:
 
 ```sh
-npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url https://www.openlaunch.dev
+npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device setup --url https://www.openlaunch.dev
 ```
 
 The command asks only for the SDK token, with the input hidden. It gets the workspace from the token, creates a starter adapter, saves a private per-device credential, and starts the Node runner. It never saves the SDK token. If setup loses its connection, rerun the same command with the same token within 10 minutes to resume the saved request.
@@ -65,16 +65,28 @@ After the device appears, the console opens its **Access** view. Choose which fu
 Change and publish the function list with:
 
 ```sh
-npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device publish
+npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device publish
 ```
 
 Then approve the published functions in the console and restart the adapter:
 
 ```sh
-npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device run
+npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device run
 ```
 
 Publishing a changed manifest clears earlier grants and cancels queued actions. It cannot undo a command already delivered to a device.
+
+## Recover an interrupted action
+
+The adapter keeps a private result journal. It retries a saved result without running its handler again, and verifies the server receipt before acknowledging it. If a restart leaves an action's outcome unknown, it reports that uncertainty and stops accepting new commands, including on later restarts.
+
+Inspect the physical device first. If you retire the interrupted adapter, revoke its device identity in the console and start a replacement in a new directory with an SDK token that has an available attachment slot:
+
+```sh
+npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' openlaunch-device setup --directory ./recovered-adapter
+```
+
+The old private identity and journal remain available for inspection. Do not clear a journal merely to bypass an unknown outcome.
 
 ## Use the SDK directly
 

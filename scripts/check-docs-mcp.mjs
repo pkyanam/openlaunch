@@ -24,6 +24,11 @@ const deployment = JSON.parse(
   await readFile(new URL("deployment.json", root), "utf8"),
 );
 assert.equal(installerManifest.commit, deployment.commit);
+assert.equal(
+  new URL(installerManifest.sdk.url).searchParams.get("commit"),
+  deployment.commit,
+  "SDK setup URL must distinguish this deployment from npm's cached CLI",
+);
 for (const filename of [
   "install.sh",
   "install-pi.sh",

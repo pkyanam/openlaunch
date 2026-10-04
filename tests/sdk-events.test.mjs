@@ -157,7 +157,13 @@ test("runner catches up over HTTP on socket open and closes the channel on stop"
         if (String(url).endsWith("/result")) {
           resultCalls++;
           queueMicrotask(() => process.emit("SIGINT"));
-          return Response.json({ data: { ...action, status: "succeeded" } });
+          return Response.json({
+            data: {
+              ...action,
+              status: "succeeded",
+              result: JSON.parse(init.body).result,
+            },
+          });
         }
         throw new Error(`Unexpected request ${url} ${init?.method ?? ""}`);
       },
@@ -205,7 +211,7 @@ test("work hints interrupt the poll wait without starting parallel handlers", as
       pollMs: 60_000,
       input: { isTTY: false },
       output: { write() {} },
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         if (String(url).endsWith("/events-ticket"))
           return Response.json({
             data: { ticket: "3".repeat(64), expiresAt: Date.now() + 10_000 },
@@ -218,7 +224,13 @@ test("work hints interrupt the poll wait without starting parallel handlers", as
           resolveResultStarted();
           await resultGate;
           queueMicrotask(() => process.emit("SIGINT"));
-          return Response.json({ data: { ...action, status: "succeeded" } });
+          return Response.json({
+            data: {
+              ...action,
+              status: "succeeded",
+              result: JSON.parse(init.body).result,
+            },
+          });
         }
         throw new Error(`Unexpected request ${url}`);
       },
@@ -304,7 +316,7 @@ test("socket reconnect obtains a fresh ticket; a failed event channel leaves pol
       pollMs: 10,
       input: { isTTY: false },
       output: { write() {} },
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         if (String(url).endsWith("/events-ticket"))
           throw new Error("offline notifications");
         if (String(url).endsWith("/next"))
@@ -312,7 +324,13 @@ test("socket reconnect obtains a fresh ticket; a failed event channel leaves pol
         if (String(url).endsWith("/result")) {
           resultCalls++;
           queueMicrotask(() => process.emit("SIGINT"));
-          return Response.json({ data: { ...action, status: "succeeded" } });
+          return Response.json({
+            data: {
+              ...action,
+              status: "succeeded",
+              result: JSON.parse(init.body).result,
+            },
+          });
         }
         throw new Error(`Unexpected request ${url}`);
       },

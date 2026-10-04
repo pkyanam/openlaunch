@@ -11,7 +11,7 @@ Owner management uses an authenticated Clerk owner session. Google is the enable
 
 Agents and device adapters use an owner-created SDK token (`ol_sdk_…`). Choose read or action access, an expiry, and whether it can attach devices with a limit of 1–20. The same token can authenticate an SDK agent and attach devices. Each attached device gets a separate credential, and function grants remain separate. Legacy `ol_agent_` tokens can still authenticate agents but cannot attach devices. See the [SDK guide](/sdk) for the short setup path.
 
-Device polling and result reports use a private per-device bearer credential. Never put the owner SDK token in firmware, device identity files, prompts or logs. Legacy enrollment-issued credentials remain supported. Keep every credential out of source control.
+Device polling and result reports use a private per-device bearer credential. Never compile an SDK token into a firmware image or put it in prompts or logs. USB provisioning may temporarily retain the bootstrap token while attachment is pending; the maintained adapters clear it after saving and verifying the child identity. Device identity files contain only the child credential. Legacy enrollment-issued credentials remain supported. Keep every credential out of source control.
 
 ## Routes
 
