@@ -617,14 +617,14 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   </div>
                   <div
                     className="detail-tabs"
-                    role="tablist"
-                    aria-label={`${selectedDevice.name} details`}
+                    role="group"
+                    aria-label={`${selectedDevice.name} detail views`}
                   >
                     {(["Functions", "Access", "Details"] as const).map(
                       (tab) => (
                         <button
-                          role="tab"
-                          aria-selected={detailTab === tab}
+                          type="button"
+                          aria-pressed={detailTab === tab}
                           className={detailTab === tab ? "active" : ""}
                           key={tab}
                           onClick={() => setDetailTab(tab)}
@@ -647,7 +647,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                           ) ?? builtInFunctions.find((fn) => fn.name === name);
                         return definition ? (
                           <FunctionForm
-                            key={name}
+                            key={`${selectedDevice.id}:${name}:${JSON.stringify(definition.inputSchema)}`}
                             definition={definition}
                             disabled={busy || !selectedDevice.online}
                             onRequest={(args) =>
@@ -1967,7 +1967,11 @@ function FunctionForm({
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     Object.fromEntries(
       Object.entries(definition.inputSchema.properties)
-        .filter(([, schema]) => schema.type === "boolean")
+        .filter(
+          ([name, schema]) =>
+            schema.type === "boolean" &&
+            definition.inputSchema.required.includes(name),
+        )
         .map(([name]) => [name, false]),
     ),
   );
@@ -1977,7 +1981,14 @@ function FunctionForm({
       className="function-form"
       onSubmit={(event) => {
         event.preventDefault();
-        onRequest(values);
+        const properties = definition.inputSchema.properties;
+        onRequest(
+          Object.fromEntries(
+            Object.entries(values).filter(([name]) =>
+              Object.hasOwn(properties, name),
+            ),
+          ),
+        );
       }}
     >
       <h4>{definition.title}</h4>
@@ -1986,7 +1997,7 @@ function FunctionForm({
         ([name, schema]) => (
           <label key={name}>
             {schema.description ?? name}
-            {schema.type === "boolean" ? (
+            {schema.type === "boolean" && required.includes(name) ? (
               <input
                 type="checkbox"
                 checked={values[name] === true}
@@ -1997,15 +2008,40 @@ function FunctionForm({
                   }))
                 }
               />
+            ) : schema.type === "boolean" ? (
+              <select
+                aria-label={schema.description ?? name}
+                value={
+                  typeof values[name] === "boolean"
+                    ? values[name]
+                      ? "true"
+                      : "false"
+                    : ""
+                }
+                onChange={(event) =>
+                  setValues((current) => {
+                    const next = { ...current };
+                    if (event.target.value === "") delete next[name];
+                    else next[name] = event.target.value === "true";
+                    return next;
+                  })
+                }
+              >
+                <option value="">Default</option>
+                <option value="true">On</option>
+                <option value="false">Off</option>
+              </select>
             ) : schema.type === "string" && schema.enum ? (
               <select
                 required={required.includes(name)}
                 value={String(values[name] ?? "")}
                 onChange={(event) =>
-                  setValues((current) => ({
-                    ...current,
-                    [name]: event.target.value,
-                  }))
+                  setValues((current) => {
+                    const next = { ...current };
+                    if (event.target.value === "") delete next[name];
+                    else next[name] = event.target.value;
+                    return next;
+                  })
                 }
               >
                 <option value="">Choose a value</option>
