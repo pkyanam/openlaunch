@@ -265,6 +265,17 @@ export class Hub {
       .slice(0, 100)
       .map(({ clientKey, ...action }) => action);
   }
+  exportHistory(p: Principal) {
+    this.owner(p);
+    this.expire();
+    return {
+      format: "openlaunch.actions.v1",
+      exportedAt: this.now(),
+      actions: [...this.state.actions]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map(({ clientKey, fingerprint, ...action }) => action),
+    };
+  }
   grants(p: Principal) {
     this.owner(p);
     return this.state.grants
@@ -757,7 +768,7 @@ export class Hub {
       throw new Fault(
         "limit",
         429,
-        "Action retention limit reached; export/archive before continuing",
+        "Workspace limit reached: 5,000 retained actions. New actions are paused; downloading history does not free capacity.",
       );
     const a: Action = {
       id: crypto.randomUUID(),

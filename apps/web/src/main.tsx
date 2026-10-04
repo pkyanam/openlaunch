@@ -151,6 +151,19 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       };
     return b.data;
   }
+  async function downloadHistory() {
+    const history = await api("/v1/actions/export");
+    const file = new Blob([JSON.stringify(history, null, 2) + "\n"], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `openlaunch-activity-${new Date(history.exportedAt).toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setNotice(`Downloaded ${history.actions.length} action receipts.`);
+  }
   async function run(fn: () => Promise<void>) {
     setBusy(true);
     try {
@@ -1160,13 +1173,27 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     accepted for delivery, not completed.
                   </p>
                 </div>
-                <button
-                  className="secondary"
-                  disabled={busy || (!session && !token)}
-                  onClick={refresh}
-                >
-                  Refresh activity
-                </button>
+                <div className="button-row">
+                  <button
+                    className="secondary"
+                    disabled={busy || (!session && !token)}
+                    onClick={() =>
+                      run(async () => {
+                        setReceipts(await api("/v1/actions"));
+                        setNotice("Activity refreshed.");
+                      })
+                    }
+                  >
+                    Refresh activity
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={busy || (!session && !token)}
+                    onClick={() => run(downloadHistory)}
+                  >
+                    Download full history
+                  </button>
+                </div>
               </div>
               {devices.length > 1 && (
                 <section className="panel">
@@ -1244,6 +1271,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               )}
               <section className="panel">
                 <h2>Action receipts</h2>
+                <p>
+                  Showing the latest 100 actions. Download full history for all
+                  saved receipts, including function arguments and results.
+                </p>
                 {receipts.length ? (
                   <ul className="activity-list">
                     {receipts.map((receipt) => (

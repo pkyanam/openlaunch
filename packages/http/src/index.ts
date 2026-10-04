@@ -160,6 +160,8 @@ export async function handle(
     }
     if (path === "/v1/devices" && method === "GET") return json(hub.list(p));
     if (path === "/v1/actions" && method === "GET") return json(hub.history(p));
+    if (path === "/v1/actions/export" && method === "GET")
+      return json(hub.exportHistory(p));
     if (path === "/v1/grants" && method === "GET") return json(hub.grants(p));
     if (path === "/v1/enrollments" && method === "POST") {
       const b = z

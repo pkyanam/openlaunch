@@ -33,6 +33,7 @@ Device polling and result reports use a private per-device bearer credential. Ne
 | POST   | `/v1/devices/{id}/actions`      | Request a supported capability                                          |
 | POST   | `/v1/broadcasts`                | Request an action for up to 20 devices, with a result for each          |
 | GET    | `/v1/actions`                   | Owner lists the latest 100 action receipts                              |
+| GET    | `/v1/actions/export`            | Owner downloads all retained action receipts                            |
 | GET    | `/v1/actions/{id}`              | Inspect the command result                                              |
 | POST   | `/v1/actions/{id}/cancel`       | Cancel an undispatched command                                          |
 | POST   | `/v1/device/{id}/next`          | Device polls for its next command                                       |
@@ -80,6 +81,22 @@ The response contains `deviceId` and a private child credential `token`. Keep th
 ## Publish device functions
 
 A device authenticates with its own credential and sends `{ "manifest": ... }` to `POST /v1/device/{id}/manifest`. Its kind must match attachment. Publishing an identical manifest keeps grants intact. A changed manifest removes previous device grants, cancels queued actions and marks outstanding received actions uncertain. The owner approves the functions again. Use the SDK's `publishManifest()` or adapter CLI `publish` command rather than copying credentials into commands.
+
+## Download activity
+
+In the console, open Activity → Download full history. The JSON file includes
+all retained receipts, function arguments and results; keep it in private storage.
+The normal Activity list shows the latest 100 actions.
+
+`GET /v1/actions/export` requires an owner session and returns
+`{ "data": { "format": "openlaunch.actions.v1", "exportedAt": 0, "actions": [] } }`.
+`exportedAt` is a Unix timestamp in milliseconds. Internal idempotency metadata
+and device credentials are excluded. Agents cannot export owner history.
+
+A workspace retains up to 5,000 actions. At that limit, new actions are rejected
+with HTTP 429. Downloading is a copy and does not remove actions or free capacity;
+saved requests continue to prevent accidental duplicate execution. History
+archiving is not currently available.
 
 ## Request an action
 

@@ -312,6 +312,11 @@ small,
 .page-header > :first-child {
   min-width: 0;
 }
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
 .page-header p {
   max-width: 700px;
@@ -591,10 +596,9 @@ code {
 
 .grant-list li {
   display: grid;
-  grid-template-columns: minmax(90px, 0.75fr) minmax(140px, 1.25fr) minmax(
-      150px,
-      1.15fr
-    ) minmax(72px, auto) minmax(82px, auto);
+  grid-template-columns:
+    minmax(90px, 0.75fr) minmax(140px, 1.25fr) minmax(150px, 1.15fr)
+    minmax(72px, auto) minmax(82px, auto);
   align-items: center;
   gap: 8px 14px;
   min-width: 0;
