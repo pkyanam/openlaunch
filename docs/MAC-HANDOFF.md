@@ -6,6 +6,8 @@ The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, devic
 
 The native SQLite migration deployed on commit `c4f34da7e4569864e8d8a8320c006eaf4d981554`; owner refresh and full-history download preserved all saved receipts. Commit `bf90990f6c29fd1a5da5eb10a65b141afded0206` added shared byte admission and result reservations, passed 111 tests and all deployment CI jobs, and retained the same owner history after deployment. These checks do not substitute for physical board acceptance.
 
+On release `0f61baf1db82d5008a9aa74f575f545df988dd76`, all required CI jobs and the new live deployment verifier passed. The verifier checks the exact website and bridge commit, configured hosted authentication, denied unauthenticated inventory access, apex redirect and all five hosted installer copies. Run `python3 scripts/verify-hosted.py` from the deployed checkout without credentials to repeat it. Pi, Uno, ESP32 and Node setup now reject legacy agent tokens before attachment; use an owner-issued `ol_sdk_` token. Existing legacy agent authentication remains supported.
+
 ## Install/build
 
 Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not source scripts/env.sh on your Mac: it is the cloud staging wrapper.

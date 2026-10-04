@@ -17,6 +17,12 @@ description: See the hosted software and device behaviors that have been checked
 - Hosted revocation acceptance confirmed that revoking an SDK token denies its agent requests while leaving the paired device identity intact. Explicit device revocation then denies polling and reuse of an event ticket issued before revocation. Temporary acceptance devices and tokens were retired.
 - Broadcast requests support up to 20 devices and return an independent result for each device.
 
+## Latest deployment checks
+
+Release `0f61baf1db82d5008a9aa74f575f545df988dd76` passed Linux, macOS, firmware compilation and production deployment checks in [GitHub Actions](https://github.com/pkyanam/openlaunch/actions/runs/37232983142). The live website and bridge reported the same commit. HTTPS, the apex redirect, configured authentication and the unauthenticated inventory challenge passed. All five hosted installer URLs matched their committed source bytes. These public checks now run after every production deployment.
+
+The public Node installer and official Codex OAuth client were exercised together on `873f829`: a software adapter paired, its owner-granted custom function appeared in Codex, and its action completed with a matching durable result receipt. The fixture and its credentials were retired afterward. This verifies the installer-to-agent software path; it does not prove board execution.
+
 ## Software and firmware behavior
 
 - SDK attachment, scoped grants, action expiry, revocation and queued/received/terminal command outcomes are implemented. The Go Pi and Uno runtimes have durable result journals; tested software behavior does not establish physical hardware operation.
