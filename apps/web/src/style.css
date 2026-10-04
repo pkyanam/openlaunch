@@ -382,3 +382,23 @@ a:focus-visible {
 .connection-secret button {
   margin: 0 12px 12px 0;
 }
+
+.confirmation-dialog {
+  max-width: min(520px, calc(100vw - 32px));
+  color: #111;
+  background: #fff;
+  border: 1px solid #888;
+  border-radius: 12px;
+  padding: 28px;
+}
+.confirmation-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+.confirmation-dialog p {
+  overflow-wrap: anywhere;
+  margin: 20px 0;
+}
+.confirmation-dialog .row {
+  justify-content: end;
+  gap: 12px;
+}

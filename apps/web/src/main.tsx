@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import {
@@ -19,6 +19,8 @@ type Device = {
   lastSeen: number;
   functions?: FunctionDefinition[];
 };
+const quoteShellValue = (value: string) =>
+  "'" + value.replaceAll("'", "'\"'\"'") + "'";
 type Connection = {
   id: string;
   principal: string;
@@ -44,6 +46,21 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [broadcastDevices, setBroadcastDevices] = useState<string[]>([]),
     [broadcastFunction, setBroadcastFunction] = useState("device.health"),
     [broadcastResults, setBroadcastResults] = useState<any[]>([]);
+  const [confirmation, setConfirmation] = useState<{
+    message: string;
+    resolve: (approved: boolean) => void;
+  } | null>(null);
+  const confirmationDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (confirmation) confirmationDialog.current?.showModal();
+    else confirmationDialog.current?.close();
+  }, [confirmation]);
+  const confirmAction = (message: string) =>
+    new Promise<boolean>((resolve) => setConfirmation({ message, resolve }));
+  const finishConfirmation = (approved: boolean) => {
+    confirmation?.resolve(approved);
+    setConfirmation(null);
+  };
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionName, setConnectionName] = useState("My agent");
   const [connectionLifetime, setConnectionLifetime] = useState(86400);
@@ -51,6 +68,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     "act",
   );
   const [connectionSecret, setConnectionSecret] = useState<string | null>(null);
+  const adapterSetupCommand =
+    enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
+      ? `OPENLAUNCH_WORKSPACE=${enrollment.workspace} npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(enrollment.origin)}`
+      : null;
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -129,7 +150,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     run(async () => {
       if (
         capability !== "device.health" &&
-        !confirm(`Apply ${capability} to ${d.name}?`)
+        !(await confirmAction(`Apply ${capability} to ${d.name}?`))
       )
         return;
       const a = await api(`/v1/devices/${d.id}/actions`, "POST", {
@@ -154,6 +175,28 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     builtInFunctions.find((fn) => fn.name === broadcastFunction);
   return (
     <>
+      <dialog
+        ref={confirmationDialog}
+        className="confirmation-dialog"
+        aria-labelledby="confirmation-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          finishConfirmation(false);
+        }}
+      >
+        <h2 id="confirmation-title">Review request</h2>
+        <p>{confirmation?.message}</p>
+        <div className="row">
+          <button
+            className="secondary"
+            autoFocus
+            onClick={() => finishConfirmation(false)}
+          >
+            Cancel
+          </button>
+          <button onClick={() => finishConfirmation(true)}>Confirm</button>
+        </div>
+      </dialog>
       <header>
         <a className="brand" href="/">
           openlaunch<span> / device console</span>
@@ -277,12 +320,27 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </p>
             )}
             <p>Bridge: {enrollment.origin}</p>
-            {enrollment.kind === "custom.device" && (
-              <pre>
-                npx --yes
-                --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
-                openlaunch-device setup
-              </pre>
+            {enrollment.kind === "custom.device" && adapterSetupCommand && (
+              <>
+                <p>
+                  Paste this command on the machine running your adapter. Enter
+                  only the one-time code when prompted.
+                </p>
+                <pre>{adapterSetupCommand}</pre>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    run(async () => {
+                      await navigator.clipboard.writeText(adapterSetupCommand);
+                      setNotice(
+                        "Setup command copied. Enter the one-time code in your terminal when prompted.",
+                      );
+                    })
+                  }
+                >
+                  Copy setup command
+                </button>
+              </>
             )}
             <p>
               Workspace:{" "}
@@ -320,8 +378,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             <section className="empty panel">
               <h3>No connected devices to show</h3>
               <p>
-                Start with a Pi 4 or Uno R4 WiFi. Pairing and permission grants
-                are separate steps.
+                Pair a Pi, Uno or your own device above, then choose which
+                functions your agents can use.
               </p>
             </section>
           ) : (
@@ -466,9 +524,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     onClick={() =>
                       run(async () => {
                         if (
-                          !confirm(
+                          !(await confirmAction(
                             `Allow ${principal} to use ${(grantCapabilities[d.id] ?? []).join(", ")} for ${grantLifetime / 60} minutes?`,
-                          )
+                          ))
                         )
                           return;
                         await api("/v1/grants", "POST", {
@@ -507,9 +565,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   onClick={() =>
                     run(async () => {
                       if (
-                        !confirm(
+                        !(await confirmAction(
                           `Revoke ${d.name}? Its credential will stop working and it must pair again.`,
-                        )
+                        ))
                       )
                         return;
                       await api(`/v1/devices/${d.id}/revoke`, "POST", {});
@@ -694,9 +752,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   onRequest={(args) =>
                     run(async () => {
                       if (
-                        !confirm(
+                        !(await confirmAction(
                           `Send ${broadcastDefinition.title} to ${chosenDevices.length} devices?`,
-                        )
+                        ))
                       )
                         return;
                       setBroadcastResults(
