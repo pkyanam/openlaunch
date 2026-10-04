@@ -1,0 +1,35 @@
+---
+title: Raspberry Pi 4
+description: Set up the Go agent on a Raspberry Pi 4 Model B, pair over trusted HTTPS and verify real process health with scoped permissions and revocation.
+---
+
+## Current capability
+
+The real Pi runtime advertises process health only. GPIO and display adapters are not implemented. `--simulate` explicitly advertises simulated capabilities; never use it for physical acceptance.
+
+## Build and transfer
+
+Use Raspberry Pi OS and your normal secure SSH/network setup. The project does not flash an SD card or enable SSH automatically.
+
+```sh
+npm run build:pi
+```
+
+Copy `dist/openlaunch-device-linux-arm64` for a 64-bit OS, or `dist/openlaunch-device-linux-arm` for a 32-bit OS, to your Pi as `openlaunch-device`.
+
+## Pair over trusted HTTPS
+
+Create a Pi enrollment in the owner console. On the Pi, provide the single-use token through `OPENLAUNCH_ENROLLMENT_TOKEN` in the process environment and use the actual workspace ID from the console:
+
+```sh
+./openlaunch-device --enroll --url https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE --config "$HOME/.config/openlaunch/device.json"
+./openlaunch-device --config "$HOME/.config/openlaunch/device.json"
+```
+
+Keep the restricted credential file outside your checkout. Never put tokens in prompts or Git. Do not use `--simulate` here.
+
+## Confirm acceptance
+
+Request health, inspect the real runtime result, then test grant boundaries, expiry, reconnect and revocation using the [pairing checklist](/pairing). Real hardware operation remains pending acceptance.
+
+An optional hardened systemd service is in `devices/pi/openlaunch-device.service`. Prepare its unprivileged user, binary and credential path before installing; installation is not automatic.

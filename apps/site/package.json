@@ -1,0 +1,17 @@
+{
+  "name": "@openlaunch/site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "blume dev",
+    "build": "blume build",
+    "doctor": "blume doctor",
+    "preview": "blume preview --port ${PORT:-4321}",
+    "validate": "blume validate",
+    "audit": "blume audit",
+    "postbuild": "node scripts/postbuild.mjs"
+  },
+  "dependencies": {
+    "blume": "2.1.1"
+  }
+}

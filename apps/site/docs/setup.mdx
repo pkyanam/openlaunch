@@ -1,0 +1,49 @@
+---
+title: Local setup
+description: Build the openlaunch monorepo, run simulated pairing tests and start the local owner console before moving to trusted HTTPS hardware acceptance.
+---
+
+## Prerequisites
+
+Use Node 24+, Go matching `devices/pi/go.mod` (currently 1.27.1), Python 3 and Arduino CLI 1.5.1 for firmware. No Docker is needed. Do not source `scripts/env.sh` on your Mac; it is a cloud staging wrapper.
+
+## Build and check
+
+```sh
+git clone https://github.com/pkyanam/openlaunch.git
+cd openlaunch
+npm ci
+npm run doctor
+npm run check
+npm run build
+npm run test:device
+npm run test:e2e
+```
+
+If you already have a checkout, inspect its status and preserve local changes instead of cloning over it. The build includes the website, React console, Cloudflare scaffold and Go host/ARM binaries. It never flashes a board.
+
+`test:e2e` creates disposable fixture tokens internally, binds to loopback, exercises a Go simulated device, checks persistence and revocation, and cleans up its temporary directory. Simulated LED/display results are not physical acceptance.
+
+## Start the console
+
+Set distinct random development-only `OPENLAUNCH_OWNER_TOKEN` and `OPENLAUNCH_AGENT_TOKEN` in your terminal environment. The bridge rejects missing, short or equal values. Keep these tokens out of prompts, source files and shell history; do not reuse production credentials.
+
+```sh
+npm run dev:local
+```
+
+Open `http://127.0.0.1:8788`. Enter the owner token in the development session field; it stays in page memory. Create an enrollment for your board kind. The default agent principal is `local-agent`.
+
+## Local MCP
+
+The endpoint is `http://127.0.0.1:8788/mcp`. Configure your host's supported environment-variable bearer-token setting using `OPENLAUNCH_AGENT_TOKEN`. Tools are `list_devices`, `request_device_health`, `show_text`, `set_led`, `get_action` and `cancel_action`.
+
+The agent needs a separate capability grant. It cannot enroll devices or approve itself. Queued and received actions are intermediate outcomes.
+
+## Real boards require HTTPS
+
+A board cannot reach your Mac's loopback address. Use a trusted HTTPS reverse proxy you control, targeting `http://127.0.0.1:8788`, and set `OPENLAUNCH_PUBLIC_ORIGIN` to its exact bare HTTPS origin before starting the bridge. Open the console through that origin. This exposes the development API for your test window; close the proxy afterward.
+
+Do not disable TLS verification. R4 requires port 443, a trusted hostname and a valid clock. This temporary developer setup does not implement public ChatGPT OAuth.
+
+Continue with [pairing](/pairing), [R4 setup](/uno-r4) or [Pi setup](/pi). Detailed platform instructions live in the repository's [Mac handoff](https://github.com/pkyanam/openlaunch/blob/main/docs/MAC-HANDOFF.md).

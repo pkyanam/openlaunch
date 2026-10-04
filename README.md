@@ -33,3 +33,9 @@ The cloud workspace's scripts/env.sh uses staged local toolchains and should not
 protocol / core / authorization / http / mcp packages; cloud / local / web applications; Go Pi runtime; Arduino firmware; independent host integrations.
 
 Keep real credentials outside Git. The cloud bridge does not run an LLM; clients bring an authorized agent. API scope, device grant and physical execution are separate trust boundaries.
+
+## Website
+
+The static Blume website lives in `apps/site`, within the npm workspace. Run `npm run build:site` and `npm run check:site`; `npm run build` includes it. It contains a custom product homepage and searchable setup, pairing, architecture, status and hardware guides. It exposes no device-control or login endpoints.
+
+See [website deployment](docs/WEBSITE-DEPLOYMENT.md) for the cf CLI workflow, verified infrastructure state and remaining deployment gates.

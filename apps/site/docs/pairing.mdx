@@ -1,0 +1,32 @@
+---
+title: Pairing and permissions
+description: Learn how single-use device enrollment, separate capability grants, command expiry and revocation keep openlaunch agent access under owner control.
+---
+
+## Enroll once
+
+An owner creates an enrollment bound to the selected board kind. It is single-use and expires after 10 minutes. The device exchanges it for its own credential; the bridge stores only a credential hash. Copy the bridge origin and workspace ID from the authenticated console response.
+
+In local development the workspace ID is 64 zeros, a routing marker rather than a secret. Never use that marker for a hosted workspace.
+
+## Approve separately
+
+Pairing does not authorize any agent. The owner separately chooses an agent principal, device, capabilities and bounded grant lifetime. Both API scopes and device grants are checked. Revoke a grant to block later agent commands, or revoke a device identity to block its polling.
+
+## Observe the lifecycle
+
+Commands carry TTLs. Delivery polls every 10 seconds today. Track the action ID through queued, received and terminal outcomes. Completed actions can succeed or fail; cancellation and expiry are separate outcomes. A queued response is not execution confirmation.
+
+Disconnects, power loss or lost acknowledgments can leave the physical outcome unknown. There is no exactly-once execution guarantee.
+
+## Acceptance checklist
+
+1. Pair Pi and R4 separately; inspect identities and advertised capabilities.
+2. Confirm the agent sees no device without a grant.
+3. Grant only intended capabilities and inspect a real result.
+4. Revoke the grant and confirm subsequent commands are rejected.
+5. Queue while offline, wait beyond TTL, reconnect and confirm no execution.
+6. Restart bridge and board and inspect persistence and uncertain outcomes.
+7. Revoke the device and confirm polling is rejected.
+
+Never count simulated, queued or uncertain receipts as physical success.

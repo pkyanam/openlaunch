@@ -17,6 +17,8 @@ jobs:
           cache: false
       - run: npm ci
       - run: npm run check
+      - run: npm run build:site
+      - run: npm run check:site
       - run: python3 tests/provision-uno.test.py
       - run: npm run test:device
       - run: npm run build --workspace @openlaunch/web
@@ -35,6 +37,8 @@ jobs:
           cache: false
       - run: npm ci
       - run: npm run check
+      - run: npm run build:site
+      - run: npm run check:site
       - run: python3 tests/provision-uno.test.py
       - run: npm run typecheck --workspace @openlaunch/cloud
       - run: npm run build --workspace @openlaunch/cloud

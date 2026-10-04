@@ -37,7 +37,11 @@ Local endpoint: http://127.0.0.1:8788/mcp with Authorization: Bearer supplied fr
 
 Six tools: list_devices, request_device_health, show_text, set_led, get_action, cancel_action. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Real ChatGPT connection requires a public HTTPS endpoint and complete OAuth first; localhost is for local Codex/Inspector testing only.
 
-## Cloudflare: blocked in cloud workspace, finish locally
+## Cloudflare: original handoff and current website work
+
+October 4 update: the Mac cf login now verifies the intended account. The owner authorized removal of the old Worker/Vercel website and obsolete Clerk DNS entries. New static website deployment is prepared, but Cloudflare Pages Git authorization needs repair. Credit eligibility remains unverified (billing API 403); owner approved up to $10/month and Vercel DNS with www first. See [current website deployment](WEBSITE-DEPLOYMENT.md) before acting on the historical instructions below. Hosted device authentication and real hardware acceptance are still unfinished.
+
+### Original cloud workspace handoff
 The cloud cf device-code exchange was blocked by network policy. Do not reuse old codes.
 
     npx cf auth login

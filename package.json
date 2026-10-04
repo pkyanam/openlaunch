@@ -25,7 +25,9 @@
     "test:device": "node scripts/tasks.mjs device-test",
     "test:e2e": "node scripts/tasks.mjs e2e",
     "verify": "node scripts/tasks.mjs verify",
-    "provision:uno": "python3 scripts/provision-uno.py"
+    "provision:uno": "python3 scripts/provision-uno.py",
+    "build:site": "npm run build --workspace @openlaunch/site",
+    "check:site": "npm run validate --workspace @openlaunch/site && npm run audit --workspace @openlaunch/site"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261003.1",
@@ -41,5 +43,10 @@
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "zod": "4.6.5"
+  },
+  "overrides": {
+    "@vercel/routing-utils": {
+      "path-to-regexp": "6.3.0"
+    }
   }
 }

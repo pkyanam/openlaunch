@@ -1,0 +1,48 @@
+---
+title: Uno R4 WiFi
+description: Build isolated stock or console-mux Uno R4 WiFi firmware, provision over USB and verify health, LED and matrix text on your actual board.
+---
+
+## Implemented capabilities
+
+Health, built-in LED and ASCII matrix text. Firmware compiles; real board operation remains unverified. No arbitrary pin control or OTA update is implemented.
+
+## Prepare stock firmware
+
+```sh
+arduino-cli core update-index
+arduino-cli core install arduino:renesas_uno@1.6.0
+npm run prepare:firmware
+arduino-cli --config-file build/firmware/stock/arduino-cli.json lib update-index
+arduino-cli --config-file build/firmware/stock/arduino-cli.json lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
+npm run build:firmware
+```
+
+These commands stage isolated dependencies and compile without flashing. Use the root build wrapper; a raw compile can accidentally resolve a globally patched WiFiS3 library.
+
+## Repaired console-mux profile
+
+The repaired board requires its existing matching custom ESP mux firmware and patched WiFiS3 pair. The console-mux transport reroutes requests through the console UART, not USB D+/D−. Keep Serial at 115200 and avoid concurrent frame traffic or modem calls from an ISR.
+
+The owner must establish that the matching mux image is installed, then explicitly select `console-mux` through the root firmware command with the local repair directory and acknowledgment flag. Stock and console-mux artifacts remain isolated under `build/firmware/PROFILE/compiled`.
+
+:::warning
+Never overwrite the repaired board's custom ESP firmware or run the standard connectivity updater. Repair assets stay local and must not be published. A successful compile does not identify flashed firmware or verify the hardware.
+:::
+
+Follow the complete [transport profile guide](https://github.com/pkyanam/openlaunch/blob/main/docs/UNO-R4-PROFILES.md) before building the repaired board.
+
+## Flash and provision deliberately
+
+1. Connect USB and run `arduino-cli board list`. Identify the exact board and port; close serial monitors.
+2. Upload only the matching profile's compiled sketch to the confirmed port. The RA sketch upload is separate from ESP connectivity firmware.
+3. Start the trusted HTTPS test bridge, open its owner console and choose Pair Uno R4.
+4. Run the interactive provisioner with the confirmed port, HTTPS origin and workspace ID:
+
+```sh
+npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE
+```
+
+The helper hides sensitive entries and asks before sending. It does not write credentials to a file. If pairing confirmation times out, inspect inventory before enrolling again.
+
+Credentials are plaintext in EEPROM. Use an appropriate test network. TLS verification and a valid clock are mandatory. Confirm real health/RSSI, physically observe the LED and matrix, then run the [permission acceptance checks](/pairing).

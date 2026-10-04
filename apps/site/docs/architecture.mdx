@@ -1,0 +1,31 @@
+---
+title: Architecture
+description: Explore the shared protocol, permission engine, transports and device adapters behind the local bridge and unfinished hosted openlaunch scaffold.
+---
+
+## Monorepo boundaries
+
+| Component | Responsibility |
+| --- | --- |
+| TypeScript protocol/auth/core | Typed capabilities, enrollment, grants, TTLs and command lifecycle |
+| HTTP and MCP packages | Transport-neutral API and official-SDK agent tools |
+| React web console | Local owner enrollment, permissions and action inspection |
+| Node/SQLite local bridge | Loopback developer runtime and persistent state |
+| Cloudflare Worker + Durable Object | Hosted scaffold; onboarding remains unfinished |
+| Go Pi agent | Outbound polling and real process health |
+| Arduino firmware | R4 health, built-in LED and matrix text |
+| Blume website | Static product story and searchable setup docs; no device controls |
+
+## Trust boundaries
+
+Model output cannot authorize itself. The bridge checks API scopes and per-device grants. Device credentials are independent of provider credentials. Cloudflare would be a trusted relay: TLS protects each hop rather than encrypting actions end-to-end from the model host to hardware.
+
+R4 credentials are plaintext in EEPROM; Pi credentials live in a restricted local file. Physical compromise can expose them. Commands are typed and bounded; unrestricted shell and arbitrary LAN proxying are not default capabilities.
+
+## Delivery
+
+Current devices initiate outbound HTTPS polls every 10 seconds and report correlated results. Command TTLs prevent stale execution. Received and completed outcomes remain distinct, and acknowledgment loss can leave uncertainty.
+
+WebSocket delivery, OTA signing and rollback, broad-scale quotas and durable event subscriptions are future work. D1 and R2 are design options rather than deployed dependencies.
+
+Read the canonical [architecture document](https://github.com/pkyanam/openlaunch/blob/main/docs/architecture.md) for implementation boundaries.

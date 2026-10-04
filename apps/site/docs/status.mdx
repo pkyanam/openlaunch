@@ -1,0 +1,29 @@
+---
+title: Project status
+description: See what works in the openlaunch developer alpha, which hardware checks remain pending and what must be completed before hosted device controls.
+---
+
+## Implemented locally
+
+- SQLite persistence, enrollment and separate scoped capability grants.
+- Command expiry, revocation and queued/received/terminal outcomes.
+- React developer console and six official-SDK MCP tools.
+- Go client with real process health and explicitly labeled simulation.
+- Compiled Arduino R4 health, LED and matrix firmware with isolated transports.
+- Cloudflare Worker, JWT verifier and SQLite-backed Durable Object scaffold.
+
+## Pending before hosted device controls
+
+Hosted login, OAuth authorization/consent/refresh, secure dashboard sessions and production routing are unfinished. A JWT verifier alone is not hosted OAuth. Do not connect public ChatGPT clients until complete authentication and owner consent have been tested.
+
+Tenant isolation and Durable Object persistence need acceptance on a real deployment. Rate limits, abuse protection, quotas, retention and account lifecycle also need work before broad access.
+
+## Pending on hardware
+
+Actual Pi/R4 network, TLS, time sync, provisioning, power loss and reconnect tests remain unverified. Only R4 LED and matrix operations are implemented beyond health. Pi GPIO/display and OTA updates are future work.
+
+R4 needs a persistent executed-command journal and bounded streaming response parsing before expanding capabilities. Pi needs result-retry reconciliation. Neither runtime promises exactly-once physical execution.
+
+## What you can do now
+
+Follow [local setup](/setup), run the simulated E2E tests, then use the trusted HTTPS developer test path for deliberate [R4](/uno-r4) or [Pi](/pi) acceptance. Public website hosting is independent of device-control deployment.

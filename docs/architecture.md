@@ -4,6 +4,7 @@
 
 - `apps/cloud`: hosted Cloudflare Worker, OAuth JWT verifier and per-workspace Durable Object storage adapter
 - `apps/local`: persistent local developer bridge; loopback only, optional explicitly configured HTTPS reverse proxy
+- `apps/site`: static Blume product website and searchable guides; no device controls or authentication endpoints
 - `apps/web`: React owner console, shared by local development and future hosted onboarding
 - `packages/protocol`: capability and manifest contracts
 - `packages/core`: enrollment, device identities, capability grants, command lifecycle, expiry and revocation

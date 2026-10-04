@@ -18,3 +18,5 @@ __pycache__/
 **/device.json.*
 **/secrets.h
 **/provisioning.json
+
+.blume/

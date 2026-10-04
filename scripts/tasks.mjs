@@ -47,6 +47,7 @@ function pi() {
     );
 }
 function build() {
+  npm("build", "--workspace", "@openlaunch/site");
   npm("build", "--workspace", "@openlaunch/web");
   npm("build", "--workspace", "@openlaunch/cloud");
   host();
