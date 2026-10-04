@@ -232,7 +232,7 @@ test("device SDK attaches with the same SDK token and retries using one request 
 });
 
 test("device SDK reports owner quota errors without falling back to device credentials", async () => {
-  const sdkToken = `ol_agent_${workspace}_${"c".repeat(64)}`;
+  const sdkToken = `ol_sdk_${workspace}_${"c".repeat(64)}`;
   const device = createDevice({
     url: "https://api.example.test",
     token: sdkToken,
@@ -300,4 +300,16 @@ test("SDK rejects unsafe origins, missing retry keys, and hides server response 
     assert.equal(error.message.includes("secret"), false);
     return true;
   });
+});
+
+test("direct device SDK rejects legacy agent credentials without a network request", () => {
+  let calls = 0;
+  assert.throws(() => createDevice({
+    url: "https://api.example.test",
+    token: `ol_agent_${workspace}_${"c".repeat(64)}`,
+    fetch: async () => { calls++; throw new Error("unexpected request"); },
+  }), /legacy agent tokens cannot pair devices/);
+  assert.equal(calls, 0);
+  // Routing extraction stays compatible for agent clients using legacy tokens.
+  assert.equal(sdkTokenWorkspace(`ol_agent_${workspace}_${"c".repeat(64)}`), workspace);
 });

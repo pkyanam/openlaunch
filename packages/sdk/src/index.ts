@@ -268,8 +268,8 @@ export function createClient(options: ClientOptions) {
  */
 export function createDevice(options: DeviceOptions) {
   const tokenWorkspace = options.token ? sdkTokenWorkspace(options.token) : undefined;
-  if (options.token && !tokenWorkspace)
-    throw new TypeError("token must be an owner-issued openlaunch SDK token");
+  if (options.token && (!tokenWorkspace || !options.token.startsWith("ol_sdk_")))
+    throw new TypeError("Use an owner-issued SDK token (ol_sdk_); legacy agent tokens cannot pair devices");
   const workspace = tokenWorkspace ?? options.workspace;
   if (!workspace || !/^[a-f0-9]{64}$/.test(workspace))
     throw new TypeError(
