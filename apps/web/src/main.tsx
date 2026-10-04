@@ -28,6 +28,13 @@ type Connection = {
   expiresAt: number;
   access: "read" | "act";
 };
+type Grant = {
+  id?: string;
+  principal: string;
+  deviceId: string;
+  capabilities: string[];
+  expiresAt: number;
+};
 function App({ session }: { session?: () => Promise<string | null> }) {
   const [token, setToken] = useState(""),
     [devices, setDevices] = useState<Device[]>([]),
@@ -46,11 +53,29 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [broadcastDevices, setBroadcastDevices] = useState<string[]>([]),
     [broadcastFunction, setBroadcastFunction] = useState("device.health"),
     [broadcastResults, setBroadcastResults] = useState<any[]>([]);
+  const [page, setPage] = useState<"Devices" | "Agents" | "Activity" | "Build">(
+    "Devices",
+  );
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<
+    "Functions" | "Access" | "Details"
+  >("Functions");
+  const [addOpen, setAddOpen] = useState(false);
+  const [receipts, setReceipts] = useState<any[]>([]);
+  const [grants, setGrants] = useState<Grant[]>([]);
+  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
+  const [pairingBaseline, setPairingBaseline] = useState<string[] | null>(null);
+  const [enrollmentRevealed, setEnrollmentRevealed] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     message: string;
     resolve: (approved: boolean) => void;
   } | null>(null);
   const confirmationDialog = useRef<HTMLDialogElement>(null);
+  const connectDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (addOpen) connectDialog.current?.showModal();
+    else connectDialog.current?.close();
+  }, [addOpen]);
   useEffect(() => {
     if (confirmation) confirmationDialog.current?.showModal();
     else confirmationDialog.current?.close();
@@ -72,6 +97,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
       ? `OPENLAUNCH_WORKSPACE=${enrollment.workspace} npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(enrollment.origin)}`
       : null;
+  const piSetupCommand =
+    enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
+      ? `curl -fsSL https://www.openlaunch.dev/install-pi.sh | OPENLAUNCH_WORKSPACE_ID=${enrollment.workspace} bash`
+      : "curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash";
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -112,7 +141,27 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     const timer = setInterval(async () => {
       try {
         const inventory = await api("/v1/devices");
-        if (!cancelled) setDevices(inventory);
+        if (!cancelled) {
+          setDevices(inventory);
+          const paired =
+            pairingBaseline !== null
+              ? (inventory as Device[]).find(
+                  (device) => !pairingBaseline.includes(device.id),
+                )
+              : undefined;
+          if (paired) {
+            setSelectedDeviceId(paired.id);
+            setPage("Devices");
+            setDetailTab("Access");
+            setEnrollment(null);
+            setEnrollmentRevealed(false);
+            setPairingBaseline(null);
+            setAddOpen(false);
+            setNotice(
+              `${paired.name} is paired. Review its saved access before connecting an agent.`,
+            );
+          }
+        }
       } catch {
         /* Explicit operations show errors; background refresh stays quiet. */
       }
@@ -121,14 +170,25 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [!!session, token]);
+  }, [!!session, token, pairingBaseline]);
   useEffect(() => {
     if (!action || !["queued", "received"].includes(action.status)) return;
     let cancelled = false;
     const timer = setInterval(async () => {
       try {
         const current = await api(`/v1/actions/${action.id}`);
-        if (!cancelled) setAction(current);
+        if (!cancelled) {
+          setAction(current);
+          setReceipts((items) =>
+            [current, ...items.filter((item) => item.id !== current.id)].slice(
+              0,
+              100,
+            ),
+          );
+          setSelectedReceipt((receipt: any) =>
+            receipt?.id === current.id ? current : receipt,
+          );
+        }
       } catch {
         /* Keep the last known receipt rather than inventing an outcome. */
       }
@@ -140,8 +200,39 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   }, [action?.id, action?.status]);
   const refresh = () =>
     run(async () => {
-      setDevices(await api("/v1/devices"));
-      setConnections(await api("/v1/agent-connections"));
+      const [inventory, agentConnections, activity, savedGrants] =
+        await Promise.all([
+          api("/v1/devices"),
+          api("/v1/agent-connections"),
+          api("/v1/actions"),
+          api("/v1/grants"),
+        ]);
+      setDevices(inventory);
+      setConnections(agentConnections);
+      setReceipts(activity);
+      setGrants(savedGrants);
+      if (pairingBaseline !== null) {
+        const paired = (inventory as Device[]).find(
+          (device) => !pairingBaseline.includes(device.id),
+        );
+        if (paired) {
+          setSelectedDeviceId(paired.id);
+          setPage("Devices");
+          setDetailTab("Access");
+          setEnrollment(null);
+          setEnrollmentRevealed(false);
+          setPairingBaseline(null);
+          setAddOpen(false);
+          setNotice(
+            `${paired.name} is paired. Review its saved access before connecting an agent.`,
+          );
+        } else {
+          setNotice(
+            "Inventory refreshed. Your device has not appeared yet; keep its adapter running and refresh again.",
+          );
+        }
+        return;
+      }
       setNotice(
         "Device inventory refreshed. Online means seen within 45 seconds.",
       );
@@ -160,11 +251,24 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         ttlSeconds: 60,
       });
       setAction(a);
+      setReceipts((items) =>
+        [a, ...items.filter((item) => item.id !== a.id)].slice(0, 100),
+      );
       setNotice("Queued. Waiting for the device result…");
     });
   const chosenDevices = devices.filter((device) =>
     broadcastDevices.includes(device.id),
   );
+  const selectedDevice =
+    devices.find((device) => device.id === selectedDeviceId) ?? null;
+  const principalLabel = (value: string) =>
+    value === "https://chatgpt.com/oauth/codex/client.json"
+      ? "Codex"
+      : value === "https://chatgpt.com/oauth/client.json"
+        ? "ChatGPT"
+        : (connections.find((connection) => connection.principal === value)
+            ?.name ?? "Custom agent");
+  const grantPrincipalLabel = principalLabel(principal);
   const commonFunctions = chosenDevices.length
     ? chosenDevices[0]!.capabilities.filter((name) =>
         chosenDevices.every((device) => device.capabilities.includes(name)),
@@ -174,7 +278,1083 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     chosenDevices[0]?.functions?.find((fn) => fn.name === broadcastFunction) ??
     builtInFunctions.find((fn) => fn.name === broadcastFunction);
   return (
-    <>
+    <div className="console-shell">
+      <header className="console-header">
+        <a className="brand" href="/" aria-label="openlaunch home">
+          <img src="/icon.svg" width="30" height="27" alt="" />
+          <span>openlaunch</span>
+        </a>
+        <div className="console-header-tools">
+          <nav className="console-nav mobile-nav" aria-label="Console sections">
+            {(["Devices", "Agents", "Activity", "Build"] as const).map(
+              (item) => (
+                <button
+                  key={item}
+                  className={page === item ? "active" : ""}
+                  aria-current={page === item ? "page" : undefined}
+                  onClick={() => setPage(item)}
+                >
+                  {item}
+                </button>
+              ),
+            )}
+          </nav>
+          {!session && <span className="badge">Local owner session</span>}
+          {session ? <UserButton /> : null}
+        </div>
+      </header>
+      <div className="console-layout">
+        <aside className="console-sidebar" aria-label="Console sections">
+          <nav className="console-nav">
+            {(["Devices", "Agents", "Activity", "Build"] as const).map(
+              (item) => (
+                <button
+                  key={item}
+                  className={page === item ? "active" : ""}
+                  aria-current={page === item ? "page" : undefined}
+                  onClick={() => setPage(item)}
+                >
+                  {item}
+                </button>
+              ),
+            )}
+          </nav>
+          <div className="sidebar-bottom">
+            <a href="/docs">Documentation</a>
+            {session && <UserButton />}
+          </div>
+        </aside>
+        <main className="console-main">
+          {!session && (
+            <section className="panel session">
+              <div>
+                <h2>Owner session</h2>
+                <p>
+                  Your development token stays in this page and clears on
+                  reload.
+                </p>
+              </div>
+              <input
+                aria-label="Development owner bearer token"
+                type="password"
+                autoComplete="off"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Owner bearer token"
+              />
+              <button disabled={busy || !token} onClick={refresh}>
+                Connect
+              </button>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setToken("");
+                  setDevices([]);
+                  setEnrollment(null);
+                  setAction(null);
+                  setNotice(
+                    "Disconnected locally. Saved server grants are unchanged.",
+                  );
+                }}
+              >
+                Disconnect
+              </button>
+            </section>
+          )}
+          <div role="status" className="notice">
+            {notice}
+          </div>
+
+          {page === "Devices" && (
+            <>
+              <div className="page-header">
+                <div>
+                  <h1>Devices</h1>
+                  <p>
+                    Connect hardware, inspect its functions, and control saved
+                    access.
+                  </p>
+                </div>
+                <div className="row">
+                  <button
+                    className="secondary"
+                    disabled={busy || (!session && !token)}
+                    onClick={refresh}
+                  >
+                    Refresh
+                  </button>
+                  <button
+                    disabled={busy || (!session && !token)}
+                    onClick={() => {
+                      setEnrollment(null);
+                      setEnrollmentRevealed(false);
+                      setAddOpen(true);
+                    }}
+                  >
+                    Add device
+                  </button>
+                </div>
+              </div>
+              {devices.length === 0 ? (
+                <section className="empty-state panel">
+                  <h2>Connect your first device</h2>
+                  <p>
+                    Choose a device type to get its setup instructions. Pairing
+                    does not give an agent permission to control it.
+                  </p>
+                  <button
+                    disabled={busy || (!session && !token)}
+                    onClick={() => setAddOpen(true)}
+                  >
+                    Add a device
+                  </button>
+                </section>
+              ) : (
+                <div className="device-grid">
+                  {devices.map((d) => (
+                    <article
+                      className={`device-card ${selectedDeviceId === d.id ? "selected" : ""}`}
+                      key={d.id}
+                    >
+                      <div className="device-card-top">
+                        <span>
+                          {d.online
+                            ? "Online · seen recently"
+                            : "Offline · last seen may be stale"}
+                        </span>
+                        <span>{d.kind}</span>
+                      </div>
+                      <h2>{d.name}</h2>
+                      <p>
+                        {d.capabilities.length}{" "}
+                        {d.capabilities.length === 1 ? "function" : "functions"}
+                      </p>
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setSelectedDeviceId(d.id);
+                          setDetailTab("Functions");
+                        }}
+                      >
+                        Open device
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+              {selectedDevice && (
+                <section
+                  className="device-detail panel"
+                  aria-labelledby="device-detail-title"
+                >
+                  <div className="page-header">
+                    <div>
+                      <p>
+                        {selectedDevice.kind} ·{" "}
+                        {selectedDevice.online ? "Online" : "Offline"}
+                      </p>
+                      <h2 id="device-detail-title">{selectedDevice.name}</h2>
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() => setSelectedDeviceId(null)}
+                    >
+                      Close details
+                    </button>
+                  </div>
+                  <div
+                    className="detail-tabs"
+                    role="tablist"
+                    aria-label={`${selectedDevice.name} details`}
+                  >
+                    {(["Functions", "Access", "Details"] as const).map(
+                      (tab) => (
+                        <button
+                          role="tab"
+                          aria-selected={detailTab === tab}
+                          className={detailTab === tab ? "active" : ""}
+                          key={tab}
+                          onClick={() => setDetailTab(tab)}
+                        >
+                          {tab}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  {detailTab === "Functions" && (
+                    <div className="function-list">
+                      <p>
+                        Functions this device currently advertises. Write
+                        actions ask you to confirm before they are sent.
+                      </p>
+                      {selectedDevice.capabilities.map((name) => {
+                        const definition =
+                          selectedDevice.functions?.find(
+                            (fn) => fn.name === name,
+                          ) ?? builtInFunctions.find((fn) => fn.name === name);
+                        return definition ? (
+                          <FunctionForm
+                            key={name}
+                            definition={definition}
+                            disabled={busy || !selectedDevice.online}
+                            onRequest={(args) =>
+                              request(selectedDevice, name, args)
+                            }
+                          />
+                        ) : (
+                          <p key={name}>
+                            {name} · no input form is available for this
+                            function.
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {detailTab === "Access" && (
+                    <div className="access-panel">
+                      <h3>Saved agent access</h3>
+                      <p>
+                        Only saved, unexpired grants authorize an agent. Unsaved
+                        selections below have no effect.
+                      </p>
+                      {grants.filter(
+                        (grant) => grant.deviceId === selectedDevice.id,
+                      ).length ? (
+                        <ul className="grant-list">
+                          {grants
+                            .filter(
+                              (grant) => grant.deviceId === selectedDevice.id,
+                            )
+                            .map((grant, i) => (
+                              <li key={grant.id ?? `${grant.principal}-${i}`}>
+                                <strong>
+                                  {principalLabel(grant.principal)}
+                                </strong>
+                                <span>
+                                  {grant.capabilities
+                                    .map(
+                                      (capability) =>
+                                        selectedDevice.functions?.find(
+                                          (fn) => fn.name === capability,
+                                        )?.title ??
+                                        builtInFunctions.find(
+                                          (fn) => fn.name === capability,
+                                        )?.title ??
+                                        capability,
+                                    )
+                                    .join(", ")}
+                                </span>
+                                <span>
+                                  Expires{" "}
+                                  {new Date(grant.expiresAt).toLocaleString()}
+                                </span>
+                                <details>
+                                  <summary>Agent ID</summary>
+                                  <code>{grant.principal}</code>
+                                </details>
+                                <button
+                                  className="secondary"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    run(async () => {
+                                      await api("/v1/grants/revoke", "POST", {
+                                        principal: grant.principal,
+                                        deviceId: grant.deviceId,
+                                      });
+                                      setGrants(await api("/v1/grants"));
+                                      setNotice(
+                                        "Saved grant revoked; queued actions are cancelled.",
+                                      );
+                                    })
+                                  }
+                                >
+                                  Revoke
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p>No saved grants for this device.</p>
+                      )}
+                      <details className="grant-editor">
+                        <summary>Grant an agent access</summary>
+                        <p>
+                          Select only the functions this agent needs and set
+                          when access expires.
+                        </p>
+                        {session ? (
+                          <label>
+                            Agent
+                            <select
+                              value={principal}
+                              onChange={(e) => setPrincipal(e.target.value)}
+                            >
+                              <option value="https://chatgpt.com/oauth/codex/client.json">
+                                Codex
+                              </option>
+                              <option value="https://chatgpt.com/oauth/client.json">
+                                ChatGPT
+                              </option>
+                              {connections.map((c) => (
+                                <option key={c.id} value={c.principal}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : (
+                          <label>
+                            Agent principal
+                            <input
+                              value={principal}
+                              onChange={(e) => setPrincipal(e.target.value)}
+                            />
+                          </label>
+                        )}
+                        <fieldset>
+                          <legend>Functions to allow</legend>
+                          {selectedDevice.capabilities.map((capability) => (
+                            <label className="permission" key={capability}>
+                              <input
+                                type="checkbox"
+                                checked={(
+                                  grantCapabilities[selectedDevice.id] ?? []
+                                ).includes(capability)}
+                                onChange={(e) =>
+                                  setGrantCapabilities((current) => ({
+                                    ...current,
+                                    [selectedDevice.id]: e.target.checked
+                                      ? [
+                                          ...(current[selectedDevice.id] ?? []),
+                                          capability,
+                                        ]
+                                      : (
+                                          current[selectedDevice.id] ?? []
+                                        ).filter((c) => c !== capability),
+                                  }))
+                                }
+                              />
+                              {selectedDevice.functions?.find(
+                                (fn) => fn.name === capability,
+                              )?.title ?? capability}
+                            </label>
+                          ))}
+                        </fieldset>
+                        <label>
+                          Access expires
+                          <select
+                            value={grantLifetime}
+                            onChange={(e) =>
+                              setGrantLifetime(Number(e.target.value))
+                            }
+                          >
+                            <option value={900}>In 15 minutes</option>
+                            <option value={3600}>In one hour</option>
+                            <option value={86400}>In 24 hours</option>
+                          </select>
+                        </label>
+                        <button
+                          disabled={
+                            busy ||
+                            !(grantCapabilities[selectedDevice.id] ?? []).length
+                          }
+                          onClick={() =>
+                            run(async () => {
+                              const selectedCapabilities =
+                                grantCapabilities[selectedDevice.id] ?? [];
+                              const capabilityNames = selectedCapabilities.map(
+                                (capability) =>
+                                  selectedDevice.functions?.find(
+                                    (fn) => fn.name === capability,
+                                  )?.title ??
+                                  builtInFunctions.find(
+                                    (fn) => fn.name === capability,
+                                  )?.title ??
+                                  capability,
+                              );
+                              if (
+                                !(await confirmAction(
+                                  `Allow ${grantPrincipalLabel} to use ${capabilityNames.join(", ")} on ${selectedDevice.name} for ${grantLifetime / 60} minutes?`,
+                                ))
+                              )
+                                return;
+                              await api("/v1/grants", "POST", {
+                                principal,
+                                deviceId: selectedDevice.id,
+                                capabilities: selectedCapabilities,
+                                ttlSeconds: grantLifetime,
+                              });
+                              setGrants(await api("/v1/grants"));
+                              setNotice("Agent grant saved.");
+                            })
+                          }
+                        >
+                          Save grant
+                        </button>
+                      </details>
+                    </div>
+                  )}
+                  {detailTab === "Details" && (
+                    <div className="device-metadata">
+                      <p>
+                        <strong>Device ID</strong>
+                        <code>{selectedDevice.id}</code>
+                      </p>
+                      <p>
+                        <strong>Last seen</strong>
+                        {selectedDevice.lastSeen
+                          ? new Date(selectedDevice.lastSeen).toLocaleString()
+                          : "Not reported"}
+                      </p>
+                      <p>
+                        <strong>Advertised functions</strong>
+                        {selectedDevice.capabilities.join(", ") || "None"}
+                      </p>
+                      <button
+                        className="danger"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            if (
+                              !(await confirmAction(
+                                `Revoke ${selectedDevice.name}? Its credential will stop working and it must pair again.`,
+                              ))
+                            )
+                              return;
+                            await api(
+                              `/v1/devices/${selectedDevice.id}/revoke`,
+                              "POST",
+                              {},
+                            );
+                            setDevices(await api("/v1/devices"));
+                            setGrants(await api("/v1/grants"));
+                            setSelectedDeviceId(null);
+                            setNotice("Device revoked.");
+                          })
+                        }
+                      >
+                        Revoke device
+                      </button>
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+
+          {page === "Agents" && (
+            <>
+              <div className="page-header">
+                <div>
+                  <h1>Agents</h1>
+                  <p>
+                    Connect through OAuth or create a short-lived SDK
+                    connection, then grant specific device functions.
+                  </p>
+                </div>
+              </div>
+              <section className="panel help-panel">
+                <h2>ChatGPT and Codex</h2>
+                <p>
+                  Sign in with Google here, then connect ChatGPT or Codex
+                  through their openlaunch OAuth flow. Their access is
+                  controlled by the saved device grants shown on each device.
+                </p>
+                <a href="/docs">Read agent setup documentation</a>
+              </section>
+              <section className="panel">
+                <h2>Create an SDK connection</h2>
+                <p>
+                  For another agent or application, create a token. The token
+                  appears once; copy it into your app's secret settings.
+                </p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    run(async () => {
+                      const connection = await api(
+                        "/v1/agent-connections",
+                        "POST",
+                        {
+                          name: connectionName,
+                          ttlSeconds: connectionLifetime,
+                          access: connectionAccess,
+                        },
+                      );
+                      setConnectionSecret(connection.token);
+                      setPrincipal(connection.principal);
+                      setConnections(await api("/v1/agent-connections"));
+                      setNotice(
+                        "Connection created. Choose its device functions under Devices → Access.",
+                      );
+                    });
+                  }}
+                >
+                  <label>
+                    Connection name
+                    <input
+                      value={connectionName}
+                      maxLength={64}
+                      required
+                      onChange={(e) => setConnectionName(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Token expires
+                    <select
+                      value={connectionLifetime}
+                      onChange={(e) =>
+                        setConnectionLifetime(Number(e.target.value))
+                      }
+                    >
+                      <option value={3600}>In one hour</option>
+                      <option value={86400}>In 24 hours</option>
+                      <option value={604800}>In 7 days</option>
+                      <option value={2592000}>In 30 days</option>
+                    </select>
+                  </label>
+                  <label>
+                    Access
+                    <select
+                      value={connectionAccess}
+                      onChange={(e) =>
+                        setConnectionAccess(e.target.value as "read" | "act")
+                      }
+                    >
+                      <option value="act">Request granted functions</option>
+                      <option value="read">
+                        Read granted health and results
+                      </option>
+                    </select>
+                  </label>
+                  <button disabled={busy || !connectionName.trim()}>
+                    Create SDK token
+                  </button>
+                </form>
+                {connectionSecret && (
+                  <div className="connection-secret">
+                    <label>
+                      SDK token (shown once)
+                      <textarea readOnly value={connectionSecret} />
+                    </label>
+                    <p>
+                      Save this token in your app now. It clears when you hide
+                      it or reload.
+                    </p>
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        run(async () => {
+                          await navigator.clipboard.writeText(connectionSecret);
+                          setNotice("SDK token copied.");
+                        })
+                      }
+                    >
+                      Copy SDK token
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setConnectionSecret(null)}
+                    >
+                      Hide token
+                    </button>
+                  </div>
+                )}
+              </section>
+              <section className="panel">
+                <h2>Active SDK connections</h2>
+                {connections.length ? (
+                  <ul className="connection-list">
+                    {connections.map((c) => (
+                      <li key={c.id}>
+                        <div>
+                          <strong>{c.name}</strong>
+                          <span>
+                            Expires {new Date(c.expiresAt).toLocaleString()}
+                          </span>
+                          <details>
+                            <summary>Connection details</summary>
+                            <span>{c.principal}</span>
+                            <code>{c.id}</code>
+                          </details>
+                        </div>
+                        <button
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            run(async () => {
+                              await api(
+                                `/v1/agent-connections/${c.id}/revoke`,
+                                "POST",
+                                {},
+                              );
+                              setConnectionSecret(null);
+                              setConnections(
+                                await api("/v1/agent-connections"),
+                              );
+                              setGrants(await api("/v1/grants"));
+                              setNotice(
+                                "Connection revoked. Its grants and queued actions are cancelled.",
+                              );
+                            })
+                          }
+                        >
+                          Revoke
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No active SDK connections.</p>
+                )}
+              </section>
+            </>
+          )}
+
+          {page === "Activity" && (
+            <>
+              <div className="page-header">
+                <div>
+                  <h1>Activity</h1>
+                  <p>
+                    Inspect action receipts from the owner API. “Queued” means
+                    accepted for delivery, not completed.
+                  </p>
+                </div>
+                <button
+                  className="secondary"
+                  disabled={busy || (!session && !token)}
+                  onClick={refresh}
+                >
+                  Refresh activity
+                </button>
+              </div>
+              {devices.length > 1 && (
+                <section className="panel">
+                  <h2>Send a function to several devices</h2>
+                  <p>Each device receives its own action and receipt.</p>
+                  <fieldset>
+                    <legend>Devices</legend>
+                    {devices.map((device) => (
+                      <label className="permission" key={device.id}>
+                        <input
+                          type="checkbox"
+                          checked={broadcastDevices.includes(device.id)}
+                          onChange={(e) =>
+                            setBroadcastDevices((current) =>
+                              e.target.checked
+                                ? [...current, device.id]
+                                : current.filter((id) => id !== device.id),
+                            )
+                          }
+                        />
+                        {device.name}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <label>
+                    Function
+                    <select
+                      value={broadcastFunction}
+                      onChange={(e) => setBroadcastFunction(e.target.value)}
+                    >
+                      <option value="">Choose a shared function</option>
+                      {commonFunctions.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {broadcastDefinition &&
+                    commonFunctions.includes(broadcastFunction) && (
+                      <FunctionForm
+                        key={broadcastFunction}
+                        definition={broadcastDefinition}
+                        disabled={busy || !chosenDevices.length}
+                        onRequest={(args) =>
+                          run(async () => {
+                            if (
+                              !(await confirmAction(
+                                `Send ${broadcastDefinition.title} to ${chosenDevices.length} devices?`,
+                              ))
+                            )
+                              return;
+                            setBroadcastResults(
+                              await api("/v1/broadcasts", "POST", {
+                                deviceIds: broadcastDevices,
+                                capability: broadcastFunction,
+                                arguments: args,
+                                idempotencyKey: crypto.randomUUID(),
+                                ttlSeconds: 60,
+                              }),
+                            );
+                            setReceipts(await api("/v1/actions"));
+                          })
+                        }
+                      />
+                    )}
+                  {broadcastResults.map((result) => (
+                    <p key={result.deviceId}>
+                      {devices.find((device) => device.id === result.deviceId)
+                        ?.name ?? result.deviceId}
+                      : {result.error?.message ?? result.action.status}
+                    </p>
+                  ))}
+                </section>
+              )}
+              <section className="panel">
+                <h2>Action receipts</h2>
+                {receipts.length ? (
+                  <ul className="activity-list">
+                    {receipts.map((receipt) => (
+                      <li className="action-row" key={receipt.id}>
+                        <button
+                          className="receipt-open"
+                          onClick={() => setSelectedReceipt(receipt)}
+                        >
+                          <strong>
+                            {receipt.capability ?? "Device action"}
+                          </strong>
+                          <span>
+                            {devices.find((d) => d.id === receipt.deviceId)
+                              ?.name ?? receipt.deviceId}
+                          </span>
+                          <span>
+                            {receipt.status === "queued"
+                              ? "Queued · waiting for device"
+                              : receipt.status === "received"
+                                ? "Received · device is processing"
+                                : `Finished · ${receipt.status}`}
+                          </span>
+                          <time>
+                            {receipt.createdAt
+                              ? new Date(receipt.createdAt).toLocaleString()
+                              : receipt.updatedAt
+                                ? new Date(receipt.updatedAt).toLocaleString()
+                                : "Time unavailable"}
+                          </time>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No actions recorded yet.</p>
+                )}
+              </section>
+              {selectedReceipt && (
+                <section className="panel receipt-detail">
+                  <div className="page-header">
+                    <div>
+                      <h2>Action receipt</h2>
+                      <p>
+                        {selectedReceipt.status === "queued"
+                          ? "The server accepted this action. The device has not confirmed receipt yet."
+                          : selectedReceipt.status === "received"
+                            ? "The device confirmed receipt. Its final result is not available yet."
+                            : `The action reached a terminal state: ${selectedReceipt.status}.`}
+                      </p>
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() => setSelectedReceipt(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <details>
+                    <summary>Raw receipt data</summary>
+                    <pre>{JSON.stringify(selectedReceipt, null, 2)}</pre>
+                  </details>
+                  {selectedReceipt.status === "queued" && (
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        run(async () => {
+                          const updated = await api(
+                            `/v1/actions/${selectedReceipt.id}/cancel`,
+                            "POST",
+                            {},
+                          );
+                          setSelectedReceipt(updated);
+                          setReceipts(await api("/v1/actions"));
+                        })
+                      }
+                    >
+                      Cancel queued action
+                    </button>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+
+          {page === "Build" && (
+            <>
+              <div className="page-header">
+                <div>
+                  <h1>Build</h1>
+                  <p>
+                    Extend the device SDK with a function your adapter actually
+                    implements.
+                  </p>
+                </div>
+              </div>
+              <section className="panel help-panel">
+                <h2>Custom device functions</h2>
+                <p>
+                  Define a function name, title, description, JSON input schema,
+                  and handler in your adapter. The handler must enforce
+                  device-local limits and report what the hardware actually did.
+                  Publishing a changed function manifest revokes existing
+                  grants, so review access again afterward.
+                </p>
+                <a href="/docs/sdk">Read the SDK guide</a>
+              </section>
+              <section className="panel">
+                <h2>Start a custom adapter</h2>
+                <p>
+                  Run the SDK setup command on the machine connected to your
+                  hardware. It creates a starter adapter and asks for the
+                  one-time enrollment code.
+                </p>
+                <button
+                  disabled={busy || (!session && !token)}
+                  onClick={() => {
+                    setEnrollment(null);
+                    setEnrollmentRevealed(false);
+                    setAddOpen(true);
+                  }}
+                >
+                  Get an enrollment command
+                </button>
+              </section>
+              <section className="panel">
+                <h2>SDK command</h2>
+                <pre>
+                  npx --yes
+                  --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
+                  openlaunch-device setup
+                </pre>
+                <p>
+                  Pair an adapter with an enrollment code, edit its function
+                  manifest and handlers, then publish and run it.
+                </p>
+              </section>
+            </>
+          )}
+          <footer>
+            openlaunch ·{" "}
+            <a href="https://www.openlaunch.dev/docs">Documentation</a>
+          </footer>
+        </main>
+      </div>
+
+      <dialog
+        ref={connectDialog}
+        className="connect-dialog"
+        aria-labelledby="connect-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          setAddOpen(false);
+          setEnrollment(null);
+        }}
+      >
+        <div className="page-header">
+          <div>
+            <h2 id="connect-title">
+              {enrollment ? "Finish device setup" : "Add a device"}
+            </h2>
+            <p>
+              {enrollment
+                ? "Follow the setup steps, then refresh inventory to find the paired device."
+                : "Choose what you want to connect."}
+            </p>
+          </div>
+          <button
+            className="secondary"
+            onClick={() => {
+              setAddOpen(false);
+              setEnrollment(null);
+            }}
+          >
+            Close
+          </button>
+        </div>
+        {!enrollment ? (
+          <div className="connect-options">
+            {(
+              [
+                [
+                  "raspberry-pi-4",
+                  "Raspberry Pi 4",
+                  "Run the adapter on your Pi.",
+                ],
+                [
+                  "uno-r4-wifi",
+                  "Arduino Uno R4 WiFi",
+                  "Use the supported board setup guide.",
+                ],
+                [
+                  "custom.device",
+                  "Custom device",
+                  "Connect an adapter using the openlaunch SDK.",
+                ],
+              ] as const
+            ).map(([kind, title, description]) => (
+              <button
+                key={kind}
+                className="connect-option"
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    setPairingBaseline(devices.map((d) => d.id));
+                    setEnrollment(
+                      await api("/v1/enrollments", "POST", { kind }),
+                    );
+                    setEnrollmentRevealed(false);
+                  })
+                }
+              >
+                <strong>{title}</strong>
+                <span>{description}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="enrollment-steps">
+            <h3>
+              {enrollment.kind === "raspberry-pi-4"
+                ? "On your Raspberry Pi"
+                : enrollment.kind === "uno-r4-wifi"
+                  ? "On your Uno R4 WiFi"
+                  : "On the machine connected to your device"}
+            </h3>
+            {enrollment.kind === "raspberry-pi-4" ? (
+              <>
+                <p>
+                  Run the installer in a terminal on the Pi, then follow its
+                  prompts.
+                </p>
+                <div className="setup-command">
+                  <code>{piSetupCommand}</code>
+                </div>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    run(async () => {
+                      await navigator.clipboard.writeText(piSetupCommand);
+                      setNotice("Installer command copied.");
+                    })
+                  }
+                >
+                  Copy installer command
+                </button>
+              </>
+            ) : enrollment.kind === "custom.device" ? (
+              <>
+                <p>
+                  Run the setup command on the machine hosting your adapter.
+                  Enter the one-time code when prompted.
+                </p>
+                {adapterSetupCommand ? (
+                  <>
+                    <div className="setup-command">
+                      <code>{adapterSetupCommand}</code>
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        run(async () => {
+                          await navigator.clipboard.writeText(
+                            adapterSetupCommand,
+                          );
+                          setNotice("Setup command copied.");
+                        })
+                      }
+                    >
+                      Copy setup command
+                    </button>
+                  </>
+                ) : (
+                  <p>
+                    Setup command is unavailable. Do not run a partial command.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p>
+                  Connect the board by USB, then follow the provisioning guide
+                  for your stock or repaired board profile.
+                </p>
+                <a href="/docs/uno-r4">Open Uno R4 setup guide</a>
+              </>
+            )}
+            {enrollment.kind !== "custom.device" && enrollment.workspace && (
+              <label>
+                Workspace ID
+                <input readOnly value={enrollment.workspace} />
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    run(async () => {
+                      await navigator.clipboard.writeText(
+                        enrollment.workspace!,
+                      );
+                      setNotice("Workspace ID copied.");
+                    })
+                  }
+                >
+                  Copy workspace ID
+                </button>
+              </label>
+            )}
+            <p>
+              Enrollment code expires in 10 minutes and works once. It does not
+              grant agent access.
+            </p>
+            {enrollmentRevealed ? (
+              <>
+                <label>
+                  One-time enrollment code
+                  <textarea readOnly value={enrollment.token} />
+                </label>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    run(async () => {
+                      await navigator.clipboard.writeText(enrollment.token);
+                      setNotice(
+                        "Enrollment code copied. Keep it private; it works once.",
+                      );
+                    })
+                  }
+                >
+                  Copy enrollment code
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => setEnrollmentRevealed(false)}
+                >
+                  Hide code
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEnrollmentRevealed(true)}>
+                Show one-time enrollment code
+              </button>
+            )}
+            <div className="row">
+              <button className="secondary" disabled={busy} onClick={refresh}>
+                Refresh inventory
+              </button>
+              <a href="/docs/sdk">Setup help</a>
+            </div>
+          </div>
+        )}
+      </dialog>
       <dialog
         ref={confirmationDialog}
         className="confirmation-dialog"
@@ -197,643 +1377,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           <button onClick={() => finishConfirmation(true)}>Confirm</button>
         </div>
       </dialog>
-      <header>
-        <a className="brand" href="/">
-          openlaunch<span> / device console</span>
-        </a>
-        {session ? (
-          <UserButton />
-        ) : (
-          <span className="badge">local console</span>
-        )}
-      </header>
-      <main>
-        <section className="hero">
-          <h1>Your devices</h1>
-          <p>
-            Pair a device, grant a capability, and see what actually happened.
-          </p>
-        </section>
-        {!session && (
-          <section className="session panel">
-            <div>
-              <h2>Owner session</h2>
-              <p>Token stays in page memory and clears on reload.</p>
-            </div>
-            <input
-              aria-label="Development owner bearer token"
-              type="password"
-              autoComplete="off"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Development owner bearer token"
-            />
-            <button disabled={busy || !token} onClick={refresh}>
-              Connect / refresh
-            </button>
-            <button
-              className="secondary"
-              onClick={() => {
-                setToken("");
-                setDevices([]);
-                setEnrollment(null);
-                setAction(null);
-                setNotice(
-                  "Disconnected locally. Server grants remain unchanged.",
-                );
-              }}
-            >
-              Disconnect
-            </button>
-          </section>
-        )}
-        <div role="status" className="notice">
-          {notice}
-        </div>
-        <section className="section-head">
-          <h2>
-            Devices <span>{devices.length}</span>
-          </h2>
-          <div className="row">
-            <button className="secondary" disabled={busy} onClick={refresh}>
-              Refresh devices
-            </button>
-            {(["raspberry-pi-4", "uno-r4-wifi", "custom.device"] as const).map(
-              (kind) => (
-                <button
-                  key={kind}
-                  className="secondary"
-                  disabled={(!token && !session) || busy}
-                  onClick={() =>
-                    run(async () => {
-                      setEnrollment(
-                        await api("/v1/enrollments", "POST", { kind }),
-                      );
-                      setNotice(
-                        "Enrollment is single-use and expires in 10 minutes. Keep it private.",
-                      );
-                    })
-                  }
-                >
-                  {kind === "custom.device"
-                    ? "Pair another device"
-                    : `Pair ${kind === "raspberry-pi-4" ? "Pi 4" : "Uno R4"}`}
-                </button>
-              ),
-            )}
-          </div>
-        </section>
-        {enrollment && (
-          <section className="panel enrollment">
-            <h3>
-              Connect{" "}
-              {enrollment.kind === "raspberry-pi-4"
-                ? "your Pi"
-                : enrollment.kind === "uno-r4-wifi"
-                  ? "your Uno"
-                  : "your device"}
-            </h3>
-            {enrollment.kind === "raspberry-pi-4" ? (
-              <>
-                <p>
-                  Paste this command in your Pi terminal, then enter the
-                  workspace and code below when prompted.
-                </p>
-                <pre>
-                  curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
-                </pre>
-              </>
-            ) : (
-              <p>
-                {enrollment.kind === "uno-r4-wifi"
-                  ? "Use the USB setup helper to connect your board."
-                  : "Use the SDK to enroll your adapter with kind custom.device, then publish the functions it implements."}{" "}
-                <a
-                  href={
-                    enrollment.kind === "uno-r4-wifi"
-                      ? "/docs/uno-r4"
-                      : "/docs/sdk"
-                  }
-                >
-                  Setup guide
-                </a>
-              </p>
-            )}
-            <p>Bridge: {enrollment.origin}</p>
-            {enrollment.kind === "custom.device" && adapterSetupCommand && (
-              <>
-                <p>
-                  Paste this command on the machine running your adapter. Enter
-                  only the one-time code when prompted.
-                </p>
-                <pre>{adapterSetupCommand}</pre>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    run(async () => {
-                      await navigator.clipboard.writeText(adapterSetupCommand);
-                      setNotice(
-                        "Setup command copied. Enter the one-time code in your terminal when prompted.",
-                      );
-                    })
-                  }
-                >
-                  Copy setup command
-                </button>
-              </>
-            )}
-            <p>
-              Workspace:{" "}
-              <code>
-                {enrollment.workspace ?? "Unavailable: do not provision yet"}
-              </code>
-            </p>
-            <p>
-              Use the device CLI or USB provisioning flow. It does not grant an
-              agent access.
-            </p>
-            <textarea
-              readOnly
-              aria-label="Enrollment token"
-              value={enrollment.token}
-            />
-            <button
-              className="secondary"
-              onClick={() =>
-                run(async () => {
-                  await navigator.clipboard.writeText(enrollment.token);
-                  setNotice("Enrollment code copied.");
-                })
-              }
-            >
-              Copy enrollment code
-            </button>
-            <button className="secondary" onClick={() => setEnrollment(null)}>
-              Hide token
-            </button>
-          </section>
-        )}
-        <div className="grid">
-          {devices.length === 0 ? (
-            <section className="empty panel">
-              <h3>No connected devices to show</h3>
-              <p>
-                Pair a Pi, Uno or your own device above, then choose which
-                functions your agents can use.
-              </p>
-            </section>
-          ) : (
-            devices.map((d) => (
-              <article className="panel device" key={d.id}>
-                <div className="row">
-                  <span className={"dot " + (d.online ? "online" : "")} />
-                  <span>{d.online ? "Recently seen" : "Offline / stale"}</span>
-                </div>
-                <h3>{d.name}</h3>
-                <p>{d.kind}</p>
-                <code>{d.id}</code>
-                <div className="tags">
-                  {d.capabilities.map((c) => (
-                    <span key={c}>{c}</span>
-                  ))}
-                </div>
-                <div className="row">
-                  <button
-                    disabled={busy || !d.online}
-                    onClick={() => request(d, "device.health", {})}
-                  >
-                    Read health
-                  </button>
-                  {d.capabilities.includes("led.set") && (
-                    <>
-                      <button
-                        className="secondary"
-                        disabled={busy || !d.online}
-                        onClick={() => request(d, "led.set", { on: true })}
-                      >
-                        LED on
-                      </button>
-                      <button
-                        className="secondary"
-                        disabled={busy || !d.online}
-                        onClick={() => request(d, "led.set", { on: false })}
-                      >
-                        LED off
-                      </button>
-                    </>
-                  )}
-                </div>
-                {d.capabilities.includes("display.text") && (
-                  <div className="row">
-                    <input
-                      aria-label={"Display text for " + d.name}
-                      maxLength={96}
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                    />
-                    <button
-                      disabled={busy || !d.online}
-                      onClick={() => request(d, "display.text", { text })}
-                    >
-                      Show text
-                    </button>
-                  </div>
-                )}
-                {d.functions?.map((fn) => (
-                  <FunctionForm
-                    key={fn.name}
-                    definition={fn}
-                    disabled={busy || !d.online}
-                    onRequest={(args) => request(d, fn.name, args)}
-                  />
-                ))}
-                <details>
-                  <summary>Agent permission</summary>
-                  <p>
-                    Choose the functions this agent can use and when access
-                    expires.
-                  </p>
-                  {session ? (
-                    <label>
-                      Agent
-                      <select
-                        value={principal}
-                        onChange={(e) => setPrincipal(e.target.value)}
-                      >
-                        <option value="https://chatgpt.com/oauth/codex/client.json">
-                          Codex
-                        </option>
-                        <option value="https://chatgpt.com/oauth/client.json">
-                          ChatGPT
-                        </option>
-                        {connections.map((connection) => (
-                          <option
-                            key={connection.id}
-                            value={connection.principal}
-                          >
-                            {connection.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : (
-                    <input
-                      aria-label="Agent principal"
-                      value={principal}
-                      onChange={(e) => setPrincipal(e.target.value)}
-                    />
-                  )}
-                  <fieldset>
-                    <legend>Allowed functions</legend>
-                    {d.capabilities.map((capability) => (
-                      <label key={capability} className="permission">
-                        <input
-                          type="checkbox"
-                          checked={(grantCapabilities[d.id] ?? []).includes(
-                            capability,
-                          )}
-                          onChange={(e) =>
-                            setGrantCapabilities((current) => ({
-                              ...current,
-                              [d.id]: e.target.checked
-                                ? [...(current[d.id] ?? []), capability]
-                                : (current[d.id] ?? []).filter(
-                                    (c) => c !== capability,
-                                  ),
-                            }))
-                          }
-                        />
-                        {d.functions?.find((fn) => fn.name === capability)
-                          ?.title ?? capability}
-                      </label>
-                    ))}
-                  </fieldset>
-                  <label>
-                    Access expires
-                    <select
-                      value={grantLifetime}
-                      onChange={(e) => setGrantLifetime(Number(e.target.value))}
-                    >
-                      <option value={900}>In 15 minutes</option>
-                      <option value={3600}>In one hour</option>
-                      <option value={86400}>In 24 hours</option>
-                    </select>
-                  </label>
-                  <button
-                    disabled={busy || !(grantCapabilities[d.id] ?? []).length}
-                    onClick={() =>
-                      run(async () => {
-                        if (
-                          !(await confirmAction(
-                            `Allow ${principal} to use ${(grantCapabilities[d.id] ?? []).join(", ")} for ${grantLifetime / 60} minutes?`,
-                          ))
-                        )
-                          return;
-                        await api("/v1/grants", "POST", {
-                          principal,
-                          deviceId: d.id,
-                          capabilities: grantCapabilities[d.id] ?? [],
-                          ttlSeconds: grantLifetime,
-                        });
-                        setNotice("Agent permission saved.");
-                      })
-                    }
-                  >
-                    Save permission
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () => {
-                        await api("/v1/grants/revoke", "POST", {
-                          principal,
-                          deviceId: d.id,
-                        });
-                        setNotice(
-                          "Agent grant revoked; queued actions cancelled.",
-                        );
-                      })
-                    }
-                  >
-                    Revoke grant
-                  </button>
-                </details>
-                <button
-                  className="danger"
-                  disabled={busy}
-                  onClick={() =>
-                    run(async () => {
-                      if (
-                        !(await confirmAction(
-                          `Revoke ${d.name}? Its credential will stop working and it must pair again.`,
-                        ))
-                      )
-                        return;
-                      await api(`/v1/devices/${d.id}/revoke`, "POST", {});
-                      setDevices(await api("/v1/devices"));
-                      setNotice("Device revoked.");
-                    })
-                  }
-                >
-                  Revoke device
-                </button>
-              </article>
-            ))
-          )}
-        </div>
-        <section className="panel connections">
-          <h2>Agent connections</h2>
-          <p>
-            ChatGPT and Codex connect with OAuth. For another agent or app,
-            create a bridge SDK token and grant it device functions above.
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(async () => {
-                const connection = await api("/v1/agent-connections", "POST", {
-                  name: connectionName,
-                  ttlSeconds: connectionLifetime,
-                  access: connectionAccess,
-                });
-                setConnectionSecret(connection.token);
-                setPrincipal(connection.principal);
-                setConnections(await api("/v1/agent-connections"));
-                setNotice(
-                  "Connection created. Choose its device functions above.",
-                );
-              });
-            }}
-          >
-            <label>
-              Connection name
-              <input
-                value={connectionName}
-                maxLength={64}
-                required
-                onChange={(e) => setConnectionName(e.target.value)}
-              />
-            </label>
-            <label>
-              Token expires
-              <select
-                value={connectionLifetime}
-                onChange={(e) => setConnectionLifetime(Number(e.target.value))}
-              >
-                <option value={3600}>In one hour</option>
-                <option value={86400}>In 24 hours</option>
-                <option value={604800}>In 7 days</option>
-                <option value={2592000}>In 30 days</option>
-              </select>
-            </label>
-            <label>
-              Access
-              <select
-                value={connectionAccess}
-                onChange={(e) =>
-                  setConnectionAccess(e.target.value as "read" | "act")
-                }
-              >
-                <option value="act">Request granted functions</option>
-                <option value="read">Read granted health and results</option>
-              </select>
-            </label>
-            <button disabled={busy || !connectionName.trim()}>
-              Create SDK token
-            </button>
-          </form>
-          {connectionSecret && (
-            <div className="connection-secret">
-              <label>
-                Bridge SDK token
-                <textarea readOnly value={connectionSecret} />
-              </label>
-              <p>
-                Save this in your app's secret settings. It is shown once and
-                clears when you reload.
-              </p>
-              <button
-                className="secondary"
-                onClick={() =>
-                  run(async () => {
-                    await navigator.clipboard.writeText(connectionSecret);
-                    setNotice("SDK token copied.");
-                  })
-                }
-              >
-                Copy SDK token
-              </button>
-              <button
-                className="secondary"
-                onClick={() => setConnectionSecret(null)}
-              >
-                Hide SDK token
-              </button>
-              <a href="/docs/sdk">Use the SDK</a>
-            </div>
-          )}
-          {connections.map((connection) => (
-            <div className="row" key={connection.id}>
-              <span>
-                {connection.name} · expires{" "}
-                {new Date(connection.expiresAt).toLocaleString()}
-              </span>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() =>
-                  run(async () => {
-                    await api(
-                      `/v1/agent-connections/${connection.id}/revoke`,
-                      "POST",
-                      {},
-                    );
-                    setConnectionSecret(null);
-                    setConnections(await api("/v1/agent-connections"));
-                    setNotice(
-                      "Connection revoked. Its queued actions are cancelled.",
-                    );
-                  })
-                }
-              >
-                Revoke {connection.name}
-              </button>
-            </div>
-          ))}
-        </section>
-        {devices.length > 1 && (
-          <section className="panel result">
-            <h2>Broadcast a function</h2>
-            <p>
-              Choose devices and send the same request to each. Every device has
-              its own action and result.
-            </p>
-            <fieldset>
-              <legend>Devices</legend>
-              {devices.map((device) => (
-                <label className="permission" key={device.id}>
-                  <input
-                    type="checkbox"
-                    checked={broadcastDevices.includes(device.id)}
-                    onChange={(event) =>
-                      setBroadcastDevices((current) =>
-                        event.target.checked
-                          ? [...current, device.id]
-                          : current.filter((id) => id !== device.id),
-                      )
-                    }
-                  />
-                  {device.name}
-                </label>
-              ))}
-            </fieldset>
-            <label>
-              Function
-              <select
-                value={broadcastFunction}
-                onChange={(event) => setBroadcastFunction(event.target.value)}
-              >
-                <option value="">Choose a function</option>
-                {commonFunctions.map((name) => (
-                  <option key={name} value={name}>
-                    {chosenDevices[0]?.functions?.find((fn) => fn.name === name)
-                      ?.title ?? name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {broadcastDefinition &&
-              commonFunctions.includes(broadcastFunction) && (
-                <FunctionForm
-                  key={broadcastFunction}
-                  definition={broadcastDefinition}
-                  disabled={busy || !chosenDevices.length}
-                  onRequest={(args) =>
-                    run(async () => {
-                      if (
-                        !(await confirmAction(
-                          `Send ${broadcastDefinition.title} to ${chosenDevices.length} devices?`,
-                        ))
-                      )
-                        return;
-                      setBroadcastResults(
-                        await api("/v1/broadcasts", "POST", {
-                          deviceIds: broadcastDevices,
-                          capability: broadcastFunction,
-                          arguments: args,
-                          idempotencyKey: crypto.randomUUID(),
-                          ttlSeconds: 60,
-                        }),
-                      );
-                    })
-                  }
-                />
-              )}
-            {broadcastResults.map((result) => (
-              <div className="row" key={result.deviceId}>
-                <span>
-                  {devices.find((device) => device.id === result.deviceId)
-                    ?.name ?? result.deviceId}
-                  : {result.error?.message ?? result.action.status}
-                </span>
-                {result.action && (
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () =>
-                        setAction(await api(`/v1/actions/${result.action.id}`)),
-                      )
-                    }
-                  >
-                    Inspect result
-                  </button>
-                )}
-              </div>
-            ))}
-          </section>
-        )}
-        {action && (
-          <section className="panel result">
-            <div className="section-head">
-              <h2>Action receipt</h2>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  run(async () =>
-                    setAction(await api(`/v1/actions/${action.id}`)),
-                  )
-                }
-              >
-                Refresh result
-              </button>
-            </div>
-            <p className="badge">{action.status}</p>
-            <pre>{JSON.stringify(action, null, 2)}</pre>
-            {action.status === "queued" && (
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() =>
-                  run(async () =>
-                    setAction(
-                      await api(`/v1/actions/${action.id}/cancel`, "POST", {}),
-                    ),
-                  )
-                }
-              >
-                Cancel queued action
-              </button>
-            )}
-          </section>
-        )}
-        <footer>
-          openlaunch ·{" "}
-          <a href="https://www.openlaunch.dev/docs">Documentation</a>
-        </footer>
-      </main>
-    </>
+    </div>
   );
 }
 const builtInFunctions: FunctionDefinition[] = [

@@ -239,6 +239,26 @@ export class Hub {
         online: this.now() - d.lastSeen < 45000,
       }));
   }
+  history(p: Principal) {
+    this.owner(p);
+    this.expire();
+    return [...this.state.actions]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 100)
+      .map(({ clientKey, ...action }) => action);
+  }
+  grants(p: Principal) {
+    this.owner(p);
+    return this.state.grants
+      .filter(
+        (grant) =>
+          grant.expiresAt > this.now() &&
+          this.state.devices.some(
+            (device) => device.id === grant.deviceId && !device.revoked,
+          ),
+      )
+      .map((grant) => ({ ...grant, capabilities: [...grant.capabilities] }));
+  }
   async enrollment(p: Principal, kind: Manifest["kind"]) {
     this.owner(p);
     deviceKind.parse(kind);

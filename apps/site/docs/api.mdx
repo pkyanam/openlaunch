@@ -25,11 +25,13 @@ Device requests use their own enrollment-issued bearer credential. On the hosted
 | POST   | `/v1/agent-connections/{id}/revoke` | Owner revokes the connection and its grants                             |
 | POST   | `/v1/device/{id}/manifest`          | Device publishes implemented functions; changed manifests revoke grants |
 | POST   | `/v1/device/enroll`                 | Device exchanges an enrollment for its credential                       |
+| GET    | `/v1/grants`                        | Owner lists active saved grants                                         |
 | POST   | `/v1/grants`                        | Owner approves agent/device/capability access                           |
 | POST   | `/v1/grants/revoke`                 | Owner revokes that agent's access to a device                           |
 | POST   | `/v1/devices/{id}/revoke`           | Owner revokes the device credential                                     |
 | POST   | `/v1/devices/{id}/actions`          | Request a supported capability                                          |
 | POST   | `/v1/broadcasts`                    | Request an action for up to 20 devices, with a result for each          |
+| GET    | `/v1/actions`                       | Owner lists the latest 100 action receipts                              |
 | GET    | `/v1/actions/{id}`                  | Inspect the command result                                              |
 | POST   | `/v1/actions/{id}/cancel`           | Cancel an undispatched command                                          |
 | POST   | `/v1/device/{id}/next`              | Device polls for its next command                                       |

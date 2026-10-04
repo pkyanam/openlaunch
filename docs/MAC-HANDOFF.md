@@ -1,7 +1,7 @@
 # openlaunch Mac handoff
 
 ## State of the implementation
-This is a developer alpha, not a public service ready for launch. The local bridge, typed protocol, capability grants, action lifecycle, SQLite persistence and official-SDK MCP interface work with an actual Go client in simulated-hardware mode. Uno R4 firmware compiles. The live `www.openlaunch.dev` Pages site, apex redirect to `www`, Google Clerk owner sign-in and real Codex OAuth approval have been verified. Device-control acceptance remains gated: `OPENLAUNCH_CONTROLS_ENABLED` stays false pending final authenticated device-flow tests. Physical Pi and Uno R4 testing has not been verified.
+The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. Authenticated controls are enabled after software acceptance of generic device enrollment, single-use codes, separate agent grants, custom MCP discovery, queued/received/completed results and revocation boundaries. The Node adapter has a durable result journal. Maintained Uno R4 firmware and the standalone ESP32 adapter compile; physical Pi, Uno and Roomba operation remains unverified.
 
 ## Install/build
 Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not source scripts/env.sh on your Mac: it is the cloud staging wrapper.
@@ -35,13 +35,13 @@ Without --simulate the Pi advertises real process-health only. It does not prete
 ## MCP
 Local endpoint: http://127.0.0.1:8788/mcp with Authorization: Bearer supplied from OPENLAUNCH_AGENT_TOKEN. Configure the host's supported environment-variable bearer-token setting; do not paste credentials into prompts or commit them to a plugin.
 
-Six tools: list_devices, request_device_health, show_text, set_led, get_action, cancel_action. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Real ChatGPT connection requires a public HTTPS endpoint and complete OAuth first; localhost is for local Codex/Inspector testing only.
+Built-in tools include list_devices, request_device_health, show_text, set_led, get_action and cancel_action. Granted custom functions also become device-specific MCP tools. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Hosted ChatGPT and Codex connections use https://www.openlaunch.dev/mcp with Clerk OAuth. Localhost remains available for local developer testing.
 
 ## Hosted deployment
 
-The live website, DNS routing, hosted device service, authentication status, deployment checks and approved budget are documented in [current website deployment](WEBSITE-DEPLOYMENT.md). The apex `openlaunch.dev` redirects to `www.openlaunch.dev`. The site is live; the native `/install-pi.sh` installer is staged and its CI deployment is pending, so do not treat that installer route as live until the workflow completes. The approved Cloudflare spending ceiling is $10/month. Cloud credits remain unverified.
+The live website, DNS routing, hosted device service, authentication status, deployment checks and approved budget are documented in [current website deployment](WEBSITE-DEPLOYMENT.md). The apex `openlaunch.dev` redirects to `www.openlaunch.dev`. The native `/install-pi.sh` installer, ARM64/ARMv7 binaries, SDK and plugin downloads are live and tied to the deployment commit. The approved Cloudflare spending ceiling is $10/month. Cloud credits remain unverified.
 
-Google Clerk owner sign-in and real Codex OAuth approval have been exercised. Keep `OPENLAUNCH_CONTROLS_ENABLED` false until the final authenticated device-flow tests pass. OAuth approval does not grant device capabilities; the owner must separately grant capabilities. No physical Pi or Uno R4 acceptance has been verified.
+Google Clerk owner sign-in and real Codex OAuth approval have been exercised. `OPENLAUNCH_CONTROLS_ENABLED` is true after authenticated software device-flow tests passed. OAuth approval does not grant device capabilities; the owner must separately grant capabilities. No physical Pi or Uno R4 acceptance has been verified.
 
 ## Uno R4 WiFi
 
@@ -60,11 +60,9 @@ The default `stock` profile stages stock WiFiS3 from the pinned core. It exclude
 Upload only after identifying the actual connected board/port. Firmware requires an HTTPS bridge, verified TLS and a valid clock before acting. Provision through USB serial JSON at 115200 using the documented fields in the sketch. Do not commit Wi-Fi passwords, enrollment tokens or device credentials. EEPROM storage is plaintext; physical access can expose credentials. Only built-in LED, ASCII text matrix and health are implemented. No arbitrary pin control. No OTA updates are implemented.
 
 ## Remaining acceptance work
-- Complete final authenticated device-flow tests before enabling controls; test OAuth refresh/revocation and reviewer access without inbox dependence
+- Test OAuth refresh/revocation and reviewer access without inbox dependence
 - Replace prototype 10-second polling with tested hibernating WebSockets before broad scale; current polling can be costly and has latency
 - Add edge rate limits, robust account-level enrollment abuse protection, quota metering, retention/export and durable event subscriptions
-- Verify Cloudflare Durable Object persistence and tenant isolation on a real deployment
-- Serve web dashboard on the deployment and replace manual token input with a secure user session
 - Test actual Pi/R4 Wi-Fi, TLS, time sync, USB provisioning, power loss and reconnect
 - Add R4 persistent executed-command journal and bounded streaming response parsing before expanding beyond idempotent built-in LED/display operations
 - Add Pi result-retry journal reconciliation; current uncertain acknowledgments are reported but not silently replayed
@@ -106,7 +104,7 @@ The pairing console now shows the bridge origin and workspace ID beside the one-
 
    For the repaired board, explicitly build `console-mux` and use `build/firmware/console-mux/compiled` instead. The existing matching custom ESP bridge must remain installed. Upload is a separate owner action; build commands never flash.
 
-3. Open the HTTPS console and select Pair Uno R4. Copy the workspace ID.
+3. Open the HTTPS console and select Devices → Add device → Arduino Uno R4 WiFi. Copy the workspace ID.
 4. Run the interactive helper. It prompts for Wi-Fi credentials and enrollment token with sensitive entries hidden, asks before sending, and does not write them to a file:
 
        npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE
@@ -137,4 +135,4 @@ Do not pass `--simulate` on real hardware acceptance. This implementation advert
 - Revoke device identity and confirm it can no longer poll or execute
 - Never count queued, simulated, or uncertain receipts as real hardware success
 
-Hosted owner sign-in and Codex OAuth approval are verified, while controls remain disabled pending final authenticated device-flow tests. The above path makes real-board testing possible; physical acceptance remains unverified.
+Hosted owner sign-in, Codex OAuth approval and authenticated software pairing/action flows are verified; controls are enabled. The above path makes real-board testing possible; physical acceptance remains unverified.

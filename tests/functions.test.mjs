@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Hub, manifestSchema } from "../packages/core/src/index.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createMcp } from "../packages/mcp/src/index.ts";
+import { createMcp, functionToolName } from "../packages/mcp/src/index.ts";
 const owner = { id: "owner", owner: true },
   agent = { id: "agent", owner: false };
 const definition = {
@@ -117,6 +117,8 @@ test("MCP discovers granted custom tools and validates their arguments through t
     const tool = tools.find((tool) => tool.name.startsWith("device_"));
     assert(tool);
     assert.equal(tool.annotations.readOnlyHint, false);
+    assert.equal(tool.title, "Set brightness — desk lamp");
+    assert.match(tool.description, /Set this lamp/);
     const result = await client.callTool({
       name: tool.name,
       arguments: { arguments: { value: 35 }, idempotencyKey: "mcp-custom" },
@@ -169,5 +171,23 @@ test("broadcasts check each device grant and retain independent idempotent outco
       { value: 20 },
       "duplicate",
     ),
+  );
+});
+
+test("custom MCP tool names are bounded and independent of discovery order", () => {
+  const id = "12345678-1234-1234-1234-123456789abc";
+  const first = "custom.identical_prefix.first";
+  const second = "custom.identical_prefix.second";
+  const names = [first, second].map((capability) =>
+    functionToolName(id, capability),
+  );
+  assert.notEqual(names[0], names[1]);
+  for (const name of names) {
+    assert(name.length <= 64);
+    assert.match(name, /^[a-zA-Z0-9_-]+$/);
+  }
+  assert.deepEqual(
+    [second, first].map((capability) => functionToolName(id, capability)),
+    names.toReversed(),
   );
 });

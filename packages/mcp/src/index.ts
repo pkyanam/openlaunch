@@ -1,6 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { Hub, type Principal, type Capability } from "../../core/src/index.ts";
+import { Hub, type Principal } from "../../core/src/index.ts";
+// Keep names stable when grants or manifest ordering change. This hash is a
+// naming aid, never an authorization decision; request() checks the live grant.
+export function functionToolName(deviceId: string, capability: string) {
+  let hash = 0xcbf29ce484222325n;
+  for (const char of capability) {
+    hash ^= BigInt(char.charCodeAt(0));
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return `device_${deviceId.replaceAll("-", "")}_${hash.toString(16).padStart(16, "0")}_${capability.replaceAll(".", "_").slice(0, 6)}`;
+}
 export function createMcp(hub: Hub, p: Principal) {
   const server = new McpServer(
     { name: "openlaunch", version: "0.1.0-dev.0" },
@@ -15,10 +25,12 @@ export function createMcp(hub: Hub, p: Principal) {
     inputSchema: z.ZodRawShape,
     readOnlyHint: boolean,
     fn: (a: any) => unknown,
+    title?: string,
   ) =>
     server.registerTool(
       name,
       {
+        title,
         description,
         inputSchema,
         annotations: {
@@ -119,11 +131,11 @@ export function createMcp(hub: Hub, p: Principal) {
     false,
     (a) => hub.cancel(p, a.actionId),
   );
-  for (const [index, fn] of hub.functions(p).entries()) {
-    const name = `device_${fn.deviceId.replaceAll("-", "")}_${index}_${fn.definition.name.replaceAll(".", "_").slice(0, 16)}`;
+  for (const fn of hub.functions(p)) {
+    const name = functionToolName(fn.deviceId, fn.definition.name);
     tool(
       name,
-      `Request the granted ${fn.definition.name} function on device ${fn.deviceId}. Returns a queued action; inspect get_action for its result.`,
+      `${fn.definition.description} Device: ${fn.deviceName}. Capability: ${fn.definition.name}. Returns a queued action; inspect get_action for its result.`,
       {
         arguments: z.fromJSONSchema(fn.definition.inputSchema),
         idempotencyKey: base.idempotencyKey,
@@ -139,6 +151,7 @@ export function createMcp(hub: Hub, p: Principal) {
           a.idempotencyKey,
           a.ttlSeconds,
         ),
+      `${fn.definition.title} — ${fn.deviceName}`,
     );
   }
   // No grant/enrollment/approval tools: the model cannot escalate its own access.

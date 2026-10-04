@@ -19,7 +19,7 @@ The Node adapter does not need Bluetooth, a phone app or a Raspberry Pi. It can 
 
 ## Create a bridge token
 
-In the console, open **Agent connections**, create a named bridge SDK token, and choose an expiry. Copy it when it is shown. The secret is displayed once; create a replacement if you lose it. Revoke the token from Connections when the agent no longer needs the connection.
+In the console, open **Agents**, create a named bridge SDK token, and choose an expiry. Copy it when it is shown. The secret is displayed once; create a replacement if you lose it. Revoke the token from Connections when the agent no longer needs the connection.
 
 Keep the token in a secret manager or environment variable. Do not paste it into prompts, source code, issue reports, shell history, or logs. An agent should read it from its runtime environment. The owner can separately grant that connection specific functions on each device, with an expiry. A token with no device grants cannot inspect or operate devices. Revoking a device grant blocks that device even if the bridge token remains valid; revoking the token ends the entire connection.
 
@@ -60,7 +60,7 @@ The SDK does not assume a board type. It speaks to the bridge API, so any device
 
 ## Connect a device adapter
 
-For a new adapter on a machine with Node 22.18 or newer, choose **Pair another device** in your console, then paste:
+For a new adapter on a machine with Node 22.18 or newer, choose **Devices → Add device → Custom device** in your console, then paste:
 
 ```sh
 npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup
