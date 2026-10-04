@@ -72,3 +72,66 @@ Upload only after identifying the actual connected board/port. Firmware requires
 - Run browser accessibility/responsive/visual tests on the Mac; cloud UI only build-checked
 
 Never weaken TLS, token validation or authorization to get a demo through. No physical action is represented as exactly-once.
+
+## Unified monorepo commands
+
+Run from the repository root after `npm ci`:
+
+    npm run doctor
+    npm run build
+    npm run test:device
+    npm run test:e2e
+    npm run build:firmware
+    npm run verify
+
+`build` builds both JS applications and native Go/ARM64/ARMv7 device binaries. `verify` additionally checks TypeScript, Node/Python/Go tests, the firmware compile and simulated E2E. `doctor` reports missing tools; it does not install packages, log in or read credentials. Install the pinned Arduino prerequisites listed above before firmware/verify.
+
+## Secure real-board test connection before hosted OAuth
+
+The local server remains bound to 127.0.0.1. A board cannot connect to your Mac's loopback address. Supply a trusted HTTPS reverse proxy/tunnel that you control, then start the server with `OPENLAUNCH_PUBLIC_ORIGIN` set to that exact HTTPS origin. Use disposable development owner/agent tokens, never production tokens. This explicitly exposes the development API at that origin, so only enable it for the test window and shut down the proxy afterward.
+
+The proxy must target http://127.0.0.1:8788 and preserve either the configured public Host or 127.0.0.1:8788. Forwarded headers are not trusted. Open the console through the public HTTPS origin; using the loopback console with public-origin mode enabled will be rejected by origin validation. The origin must be bare (no path/query/credentials).
+
+No tunnel is provisioned automatically. Configuring a public route is an explicit owner setup step. R4 needs a publicly trusted certificate on port 443; do not bypass certificate validation. An expired certificate, missing board CA support or unavailable clock is a blocker to fix, not an excuse to turn verification off.
+
+The pairing console now shows the bridge origin and workspace ID beside the one-time enrollment token. In local mode the workspace ID is 64 zeros; it is a development routing marker, not a credential. In hosted mode use the actual workspace ID returned by the server. Never copy the local marker to a hosted workspace.
+
+### Uno R4 WiFi from macOS
+
+1. Connect the Uno by USB. Run `arduino-cli board list` and confirm its board/port; close other serial monitors.
+2. Compile with `npm run build:firmware`. Flash only the identified board:
+
+       arduino-cli upload --fqbn arduino:renesas_uno:unor4wifi --port /dev/cu.YOUR_CONFIRMED_PORT firmware/uno-r4-wifi/openlaunch
+
+3. Open the HTTPS console and select Pair Uno R4. Copy the workspace ID.
+4. Run the interactive helper. It prompts for Wi-Fi credentials and enrollment token with sensitive entries hidden, asks before sending, and does not write them to a file:
+
+       npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE
+
+5. Wait for the board's pairing confirmation. Refresh inventory, request health and confirm it comes back succeeded with the real board name/RSSI. Explicitly approve LED or text actions and observe the actual board. Then grant the local agent only the capabilities needed for the test.
+
+If confirmation times out, inspect inventory before re-enrolling: the identity may already have been created. The helper intentionally withholds raw serial output and will not erase an existing identity. Wi-Fi credentials remain plaintext in device EEPROM; use an appropriate test network.
+
+### Pi 4 from macOS
+
+Use Raspberry Pi OS, enable SSH through your chosen normal setup, and copy the appropriate artifact from `dist/` to the Pi (arm64 for 64-bit OS, arm for 32-bit OS). This repo does not enable SSH, configure networking, or flash an SD card for you.
+
+On the Pi, set the one-time enrollment token in the process environment and run the binary with the HTTPS origin, workspace ID and an explicit config path outside your checkout:
+
+    ./openlaunch-device --enroll --url https://YOUR_HTTPS_BRIDGE --workspace WORKSPACE_ID_FROM_CONSOLE --config "$HOME/.config/openlaunch/device.json"
+    ./openlaunch-device --config "$HOME/.config/openlaunch/device.json"
+
+Do not pass `--simulate` on real hardware acceptance. This implementation advertises health only on a real Pi; GPIO/display require future adapters. An optional hardened systemd unit is provided at `devices/pi/openlaunch-device.service`; installing it requires preparing its unprivileged user, binary and credential path. That installation is intentionally not automatic.
+
+### Hardware acceptance checklist
+
+- Pair Pi and R4 separately; check distinct identities and the right board capabilities
+- Confirm real health returns, R4 LED changes and matrix text physically appears
+- Confirm an agent sees no device without a grant; grant only intended capabilities
+- Revoke the grant and confirm subsequent commands are rejected
+- Queue with board offline; wait past TTL and confirm it never executes after reconnect
+- Restart bridge and boards; check identity/persistence, avoiding duplicate physical execution claims
+- Revoke device identity and confirm it can no longer poll or execute
+- Never count queued, simulated, or uncertain receipts as real hardware success
+
+Hosted OAuth and openlaunch.dev deployment remain separate acceptance gates. The above path makes real-board testing possible without pretending hosted onboarding is finished.

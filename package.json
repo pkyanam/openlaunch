@@ -16,7 +16,15 @@
     "typecheck": "tsc --noEmit",
     "cf": "cf",
     "check": "npm run typecheck && npm run typecheck --workspace @openlaunch/cloud && npm run typecheck --workspace @openlaunch/web && npm run typecheck --workspace @openlaunch/local && npm test",
-    "dev:local": "node --import tsx apps/local/src/server.ts"
+    "dev:local": "node --import tsx apps/local/src/server.ts",
+    "doctor": "node scripts/tasks.mjs doctor",
+    "build": "node scripts/tasks.mjs build",
+    "build:pi": "node scripts/tasks.mjs pi",
+    "build:firmware": "node scripts/tasks.mjs firmware",
+    "test:device": "node scripts/tasks.mjs device-test",
+    "test:e2e": "node scripts/tasks.mjs e2e",
+    "verify": "node scripts/tasks.mjs verify",
+    "provision:uno": "python3 scripts/provision-uno.py"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261003.1",

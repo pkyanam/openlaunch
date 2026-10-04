@@ -1,11 +1,14 @@
-# Setup gates
+# Setup status and gates
 
-1. Authorize the pinned cf CLI from this cloud workspace, then verify account identity and openlaunch.dev zone. Credentials remain outside the repository.
-2. Verify GitHub connection before creating or publishing a repository; no repository has been created yet.
-3. Select and authorize a GitHub login OAuth application. Add the client secret through secure secret entry, not chat/source control.
-4. Before provisioning paid Cloudflare services, verify credit eligibility/expiry and agree an operator spending limit. Reported credit is not an unlimited spending approval.
-5. Configure separate development and production resources. Add a scoped CI deployment token through the owner's secure setup after the first manual deployment works.
-6. Implement and verify OAuth/MCP, device enrollment and command authorization before exposing any device controls.
-7. Real R4/Pi acceptance testing must be performed on connected hardware. Compiling on Linux is not device validation.
+The monorepo is published at https://github.com/pkyanam/openlaunch. Start with [Mac handoff](MAC-HANDOFF.md). The software can run locally without cloud login; real boards require a reachable trusted HTTPS bridge.
 
-No OpenAI API key is needed for the core MCP bridge. Optional model-based evaluations or voice will need a separately approved API integration later.
+## Cloud rollout still required
+
+1. Sign into the official Cloudflare CLI on the Mac; verify the intended account and openlaunch.dev zone. The cloud workspace's earlier device-code exchange was blocked by network policy.
+2. Confirm a spending limit and credit eligibility before provisioning resources. Reported credit is not unlimited spending permission.
+3. Configure maintained OAuth provider integration and real owner login. Verify consent, PKCE, requested scopes, refresh/revocation and per-workspace isolation.
+4. Restrict openlaunch:owner to owner dashboard sessions. MCP clients get read/act scopes and separately approved device grants.
+5. Deploy the Worker, Durable Object and web assets; configure openlaunch.dev and verify TLS. Do not mistake JWT verification code for a complete OAuth provider.
+6. Complete Pi/R4 Wi-Fi, reconnect, clock, restart and revocation acceptance on actual hardware.
+
+No OpenAI API key is required for the core MCP bridge. Optional model-based evaluations or voice would need a separate approved integration. No Cloudflare resources or DNS changes have been made by the current implementation.

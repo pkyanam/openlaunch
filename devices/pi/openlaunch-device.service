@@ -1,0 +1,23 @@
+[Unit]
+Description=openlaunch device agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=openlaunch
+Group=openlaunch
+StateDirectory=openlaunch
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/openlaunch-device --config /var/lib/openlaunch/device.json
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/openlaunch
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,11 @@ import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hub, emptyState, Fault } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
+import { publicOrigin, requestOrigin } from "./origin.ts";
+const port = Number(process.env.PORT ?? 8788);
+if (!Number.isInteger(port) || port < 1 || port > 65535)
+  throw new Error("Invalid PORT");
+const externalOrigin = publicOrigin(process.env.OPENLAUNCH_PUBLIC_ORIGIN);
 const ownerToken = process.env.OPENLAUNCH_OWNER_TOKEN,
   agentToken = process.env.OPENLAUNCH_AGENT_TOKEN;
 if (
@@ -41,7 +46,8 @@ const server = createServer((req, res) => {
           bytes.push(chunk);
         }
         const host = req.headers.host ?? "";
-        if (!/^127\.0\.0\.1:\d+$/.test(host)) {
+        const origin = requestOrigin(host, port, externalOrigin);
+        if (!origin) {
           res.writeHead(403).end();
           return;
         }
@@ -68,7 +74,6 @@ const server = createServer((req, res) => {
           res.writeHead(404).end();
           return;
         }
-        const origin = "http://" + host;
         const request = new Request(origin + (req.url ?? "/"), {
           method: req.method,
           headers: req.headers as Record<string, string>,
@@ -90,6 +95,7 @@ const server = createServer((req, res) => {
         db.prepare(
           "INSERT INTO hub(id,state) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
         ).run(JSON.stringify(hub.state));
+        response.headers.set("x-openlaunch-workspace", "0".repeat(64));
         res.writeHead(response.status, Object.fromEntries(response.headers));
         res.end(Buffer.from(await response.arrayBuffer()));
       } catch {
@@ -103,7 +109,7 @@ const server = createServer((req, res) => {
 server.requestTimeout = 10000;
 server.headersTimeout = 10000;
 server.maxHeadersCount = 64;
-server.listen(Number(process.env.PORT ?? 8788), "127.0.0.1", () =>
+server.listen(port, "127.0.0.1", () =>
   console.log(
     "openlaunch local bridge listening on loopback; tokens are not logged",
   ),

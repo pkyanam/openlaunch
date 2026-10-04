@@ -25,6 +25,10 @@ See [Mac handoff](docs/MAC-HANDOFF.md) for installation, local end-to-end testin
 
 The cloud workspace's scripts/env.sh uses staged local toolchains and should not be sourced on a Mac. Go client build and E2E instructions are in the handoff.
 
+## Monorepo commands
+
+`npm run doctor` checks tool availability. `npm run build` builds web/cloud and host/Pi binaries. `npm run verify` runs the software tests, firmware compilation and simulated end-to-end test. See the handoff for the secure HTTPS real-board test path and interactive Uno USB provisioning.
+
 ## Modules
 protocol / core / authorization / http / mcp packages; cloud / local / web applications; Go Pi runtime; Arduino firmware; independent host integrations.
 

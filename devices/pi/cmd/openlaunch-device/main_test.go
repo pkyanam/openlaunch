@@ -6,7 +6,7 @@ import (
 )
 
 func TestURL(t *testing.T) {
-	for _, s := range []string{"http://example.com", "https://u:p@example.com", "https://example.com?token=x"} {
+	for _, s := range []string{"https:", "https:///", "http://example.com", "https://u:p@example.com", "https://example.com?token=x"} {
 		if validateURL(s) == nil {
 			t.Fatal("accepted", s)
 		}

@@ -40,7 +40,7 @@ var httpClient = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req
 
 func validateURL(s string) error {
 	u, e := url.Parse(s)
-	if e != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+	if e != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
 		return errors.New("use a bare HTTPS origin")
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && u.Hostname() == "127.0.0.1") {

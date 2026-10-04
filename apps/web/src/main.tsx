@@ -32,6 +32,12 @@ function App() {
     const b = await r.json();
     if (!r.ok)
       throw Error(b.error?.message ?? b.error?.code ?? `HTTP ${r.status}`);
+    if (path === "/v1/enrollments")
+      return {
+        ...b.data,
+        workspace: r.headers.get("x-openlaunch-workspace"),
+        origin: window.location.origin,
+      };
     return b.data;
   }
   async function run(fn: () => Promise<void>) {
@@ -157,6 +163,13 @@ function App() {
         {enrollment && (
           <section className="panel enrollment">
             <h3>One-time enrollment token</h3>
+            <p>Bridge: {enrollment.origin}</p>
+            <p>
+              Workspace:{" "}
+              <code>
+                {enrollment.workspace ?? "Unavailable: do not provision yet"}
+              </code>
+            </p>
             <p>
               Use the device CLI or USB provisioning flow. It does not grant an
               agent access.
