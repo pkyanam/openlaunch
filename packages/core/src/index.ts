@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ActionEnvelope, ActionState } from "../../protocol/src/index.ts";
 import {
   capabilityName,
   functionDefinition,
@@ -6,6 +7,14 @@ import {
 } from "./functions.ts";
 export { capabilityName, functionDefinition } from "./functions.ts";
 export const kinds = ["uno-r4-wifi", "raspberry-pi-4"] as const;
+export const deviceKind = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/);
+export function agentTokenWorkspace(token: string): string | undefined {
+  return /^ol_agent_([a-f0-9]{64})_[a-f0-9]{64}$/.exec(token)?.[1];
+}
 const boundedText = z
   .string()
   .max(96)
@@ -19,7 +28,7 @@ export type Capability = string;
 export const manifestSchema = z
   .object({
     name: z.string().min(1).max(64),
-    kind: z.enum(kinds),
+    kind: deviceKind,
     capabilities: z.array(capabilityName).min(1).max(16),
     functions: z.array(functionDefinition).max(16).optional(),
   })
@@ -54,28 +63,14 @@ export const manifestSchema = z
       });
   });
 export type Manifest = z.infer<typeof manifestSchema>;
-export type Status =
-  | "queued"
-  | "received"
-  | "succeeded"
-  | "failed"
-  | "expired"
-  | "cancelled"
-  | "unknown";
+export type Status = ActionState;
 export interface Device extends Manifest {
   id: string;
   tokenHash: string;
   revoked: boolean;
   lastSeen: number;
 }
-export interface Action {
-  id: string;
-  deviceId: string;
-  capability: Capability;
-  args: Record<string, unknown>;
-  status: Status;
-  createdAt: number;
-  expiresAt: number;
+export interface Action extends ActionEnvelope {
   dispatchedAt?: number;
   result?: unknown;
   clientKey: string;
@@ -95,12 +90,22 @@ interface Grant {
   capabilities: Capability[];
   expiresAt: number;
 }
+interface AgentConnection {
+  id: string;
+  principal: string;
+  name: string;
+  tokenHash: string;
+  expiresAt: number;
+  revoked: boolean;
+  access: "read" | "act";
+}
 export interface State {
   version: 1;
   devices: Device[];
   actions: Action[];
   enrollments: Enrollment[];
   grants: Grant[];
+  agentConnections?: AgentConnection[];
   audit: { at: number; event: string; target: string; principal: string }[];
 }
 export interface Principal {
@@ -124,6 +129,7 @@ export function emptyState(): State {
     actions: [],
     enrollments: [],
     grants: [],
+    agentConnections: [],
     audit: [],
   };
 }
@@ -155,6 +161,7 @@ export class Hub {
     private now: () => number = Date.now,
   ) {
     if (state.version !== 1) throw new Error("Unsupported state version");
+    state.agentConnections ??= [];
   }
   private audit(event: string, target: string, principal: string) {
     this.state.audit.push({ at: this.now(), event, target, principal });
@@ -234,8 +241,7 @@ export class Hub {
   }
   async enrollment(p: Principal, kind: Manifest["kind"]) {
     this.owner(p);
-    if (!kinds.includes(kind))
-      throw new Fault("invalid", 400, "Unsupported device kind");
+    deviceKind.parse(kind);
     const token = secret();
     this.state.enrollments = this.state.enrollments.filter(
       (e) => !e.used && e.expiresAt > this.now(),
@@ -283,6 +289,124 @@ export class Hub {
     if (!token || (await hash(token)) !== d.tokenHash)
       throw new Fault("unauthorized", 401, "Invalid device credential");
     return d;
+  }
+  publishManifest(id: string, input: unknown) {
+    const device = this.device(id);
+    const manifest = manifestSchema.parse(input);
+    if (manifest.kind !== device.kind)
+      throw new Fault(
+        "invalid",
+        400,
+        "Changing device kind requires a new enrollment",
+      );
+    const describe = (m: Manifest) =>
+      JSON.stringify({
+        name: m.name,
+        kind: m.kind,
+        capabilities: m.capabilities,
+        functions: m.functions ?? [],
+      });
+    if (describe(device) === describe(manifest))
+      return { ok: true, grantsRevoked: false };
+    Object.assign(device, manifest);
+    device.functions = manifest.functions;
+    this.state.grants = this.state.grants.filter(
+      (grant) => grant.deviceId !== id,
+    );
+    for (const action of this.state.actions)
+      if (
+        action.deviceId === id &&
+        ["queued", "received"].includes(action.status)
+      )
+        action.status = action.dispatchedAt ? "unknown" : "cancelled";
+    this.audit("device.manifest_updated", id, "device");
+    return { ok: true, grantsRevoked: true };
+  }
+  connections(p: Principal) {
+    this.owner(p);
+    return this.state
+      .agentConnections!.filter((c) => !c.revoked && c.expiresAt > this.now())
+      .map(({ tokenHash, ...connection }) => connection);
+  }
+  async createConnection(
+    p: Principal,
+    workspace: string,
+    name: string,
+    ttlSeconds = 86400,
+    access: "read" | "act" = "act",
+  ) {
+    this.owner(p);
+    if (
+      !/^[a-f0-9]{64}$/.test(workspace) ||
+      !name.trim() ||
+      name.length > 64 ||
+      !Number.isInteger(ttlSeconds) ||
+      ttlSeconds < 60 ||
+      ttlSeconds > 2592000 ||
+      !["read", "act"].includes(access)
+    )
+      throw new Fault("invalid", 400, "Invalid agent connection");
+    this.state.agentConnections = this.state.agentConnections!.filter(
+      (c) => !c.revoked && c.expiresAt > this.now(),
+    );
+    if (this.state.agentConnections.length >= 20)
+      throw new Fault("limit", 429, "Agent connection limit reached");
+    const id = crypto.randomUUID();
+    const token = `ol_agent_${workspace}_${secret()}`;
+    const connection: AgentConnection = {
+      id,
+      principal: `connection:${id}`,
+      name: name.trim(),
+      tokenHash: await hash(token),
+      expiresAt: this.now() + ttlSeconds * 1000,
+      revoked: false,
+      access,
+    };
+    this.state.agentConnections.push(connection);
+    this.audit("connection.created", id, p.id);
+    const { tokenHash, ...safe } = connection;
+    return { ...safe, token };
+  }
+  async authenticateConnection(
+    token: string,
+    workspace: string,
+  ): Promise<Principal> {
+    if (agentTokenWorkspace(token) !== workspace)
+      throw new Fault("unauthorized", 401, "Invalid agent connection");
+    const tokenHash = await hash(token);
+    const connection = this.state.agentConnections!.find(
+      (c) =>
+        c.tokenHash === tokenHash && !c.revoked && c.expiresAt > this.now(),
+    );
+    if (!connection)
+      throw new Fault(
+        "unauthorized",
+        401,
+        "Agent connection expired or revoked",
+      );
+    return {
+      id: connection.principal,
+      owner: false,
+      readOnly: connection.access === "read",
+    };
+  }
+  revokeConnection(p: Principal, id: string) {
+    this.owner(p);
+    const connection = this.state.agentConnections!.find((c) => c.id === id);
+    if (!connection)
+      throw new Fault("not_found", 404, "Agent connection not found");
+    connection.revoked = true;
+    this.state.grants = this.state.grants.filter(
+      (g) => g.principal !== connection.principal,
+    );
+    for (const action of this.state.actions)
+      if (
+        action.principalId === connection.principal &&
+        action.status === "queued"
+      )
+        action.status = "cancelled";
+    this.audit("connection.revoked", id, p.id);
+    return { ok: true };
   }
   grant(
     p: Principal,
@@ -501,14 +625,21 @@ export class Hub {
     );
     if (!a) return null;
     const principal = a.principalId;
+    const connectionValid =
+      !principal.startsWith("connection:") ||
+      this.state.agentConnections!.some(
+        (c) =>
+          c.principal === principal && !c.revoked && c.expiresAt > this.now(),
+      );
     if (
-      !this.state.grants.some(
-        (g) =>
-          g.principal === principal &&
-          g.deviceId === deviceId &&
-          g.capabilities.includes(a.capability) &&
-          g.expiresAt > this.now(),
-      ) &&
+      (!connectionValid ||
+        !this.state.grants.some(
+          (g) =>
+            g.principal === principal &&
+            g.deviceId === deviceId &&
+            g.capabilities.includes(a.capability) &&
+            g.expiresAt > this.now(),
+        )) &&
       !a.ownerAuthorized
     ) {
       a.status = "cancelled";

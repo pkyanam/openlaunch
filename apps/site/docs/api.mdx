@@ -9,26 +9,46 @@ The web console, MCP and device clients use the same command service and permiss
 
 Owner management uses an authenticated Clerk owner session. Google is the enabled sign-in provider; email/password sign-in is disabled. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant. OAuth uses PKCE.
 
+Other agents and applications use an owner-created bridge SDK token. Choose read-only or action access and a lifetime of up to 30 days. The service still requires a separate grant for each device function. See [Bridge SDK](/sdk) for setup and client examples.
+
 Device requests use their own enrollment-issued bearer credential. On the hosted bridge they also include `x-openlaunch-workspace`, returned during pairing. Keep credentials out of logs and source control.
 
 ## Routes
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| GET | `/healthz` | Service health; not a device result |
-| GET | `/v1/devices` | Devices visible to the current principal |
-| POST | `/v1/enrollments` | Owner creates a 10-minute, single-use enrollment |
-| POST | `/v1/device/enroll` | Device exchanges an enrollment for its credential |
-| POST | `/v1/grants` | Owner approves agent/device/capability access |
-| POST | `/v1/grants/revoke` | Owner revokes that agent's access to a device |
-| POST | `/v1/devices/{id}/revoke` | Owner revokes the device credential |
-| POST | `/v1/devices/{id}/actions` | Request a supported capability |
-| POST | `/v1/broadcasts` | Request an action for up to 20 devices, with a result for each |
-| GET | `/v1/actions/{id}` | Inspect the command result |
-| POST | `/v1/actions/{id}/cancel` | Cancel an undispatched command |
-| POST | `/v1/device/{id}/next` | Device polls for its next command |
-| POST | `/v1/device/{id}/result` | Device reports success or failure |
-| POST | `/mcp` | Stateless device MCP requests |
+| Method | Route                               | Purpose                                                                 |
+| ------ | ----------------------------------- | ----------------------------------------------------------------------- |
+| GET    | `/healthz`                          | Service health; not a device result                                     |
+| GET    | `/v1/devices`                       | Devices visible to the current principal                                |
+| POST   | `/v1/enrollments`                   | Owner creates a 10-minute, single-use enrollment                        |
+| GET    | `/v1/agent-connections`             | Owner lists active SDK connections; secrets are omitted                 |
+| POST   | `/v1/agent-connections`             | Owner creates a named, expiring SDK token shown once                    |
+| POST   | `/v1/agent-connections/{id}/revoke` | Owner revokes the connection and its grants                             |
+| POST   | `/v1/device/{id}/manifest`          | Device publishes implemented functions; changed manifests revoke grants |
+| POST   | `/v1/device/enroll`                 | Device exchanges an enrollment for its credential                       |
+| POST   | `/v1/grants`                        | Owner approves agent/device/capability access                           |
+| POST   | `/v1/grants/revoke`                 | Owner revokes that agent's access to a device                           |
+| POST   | `/v1/devices/{id}/revoke`           | Owner revokes the device credential                                     |
+| POST   | `/v1/devices/{id}/actions`          | Request a supported capability                                          |
+| POST   | `/v1/broadcasts`                    | Request an action for up to 20 devices, with a result for each          |
+| GET    | `/v1/actions/{id}`                  | Inspect the command result                                              |
+| POST   | `/v1/actions/{id}/cancel`           | Cancel an undispatched command                                          |
+| POST   | `/v1/device/{id}/next`              | Device polls for its next command                                       |
+| POST   | `/v1/device/{id}/result`            | Device reports success or failure                                       |
+| POST   | `/mcp`                              | Stateless device MCP requests                                           |
+
+## Create an agent connection
+
+An authenticated owner sends `POST /v1/agent-connections` with:
+
+```json
+{ "name": "workbench agent", "access": "act", "ttlSeconds": 86400 }
+```
+
+`access` is `read` or `act`; the token lifetime is 60–2,592,000 seconds. Save the returned token in protected storage when it is shown. Listing connections never returns the token again. A connection cannot enroll devices, approve itself or create another connection. Revocation removes its grants and cancels queued actions; it cannot undo an action already delivered.
+
+## Publish device functions
+
+A device authenticates with its own credential and sends `{ "manifest": ... }` to `POST /v1/device/{id}/manifest`. Its kind must match enrollment. Publishing an identical manifest keeps grants intact. A changed manifest removes previous device grants, cancels queued actions and marks outstanding received actions uncertain. The owner approves the functions again. Use the SDK's `publishManifest()` or adapter CLI `publish` command rather than copying credentials into commands.
 
 ## Request an action
 

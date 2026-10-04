@@ -25,4 +25,5 @@ __pycache__/
 /apps/site/public/install.sh
 /apps/site/public/install-pi.sh
 /apps/site/public/downloads/openlaunch-plugin.zip
+/apps/site/public/downloads/openlaunch-sdk.tgz
 /apps/site/public/downloads/provision-uno.py

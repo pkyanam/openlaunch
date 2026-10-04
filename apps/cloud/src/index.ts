@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { authenticateClerk, type ClerkEnv } from "./clerk-auth.ts";
 import {
+  agentTokenWorkspace,
   type Principal,
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
@@ -17,10 +18,15 @@ export class WorkspaceHub extends DurableObject<Env> {
     return this.ctx.blockConcurrencyWhile(async () => {
       const principal = request.headers.get("x-openlaunch-principal");
       return withWorkspaceState(this.ctx.storage, (hub) => {
-        return handle(request, hub, async () => {
-          if (!principal) throw new Error("Missing trusted principal");
-          return JSON.parse(principal) as Principal;
-        });
+        return handle(
+          request,
+          hub,
+          async () => {
+            if (!principal) throw new Error("Missing trusted principal");
+            return JSON.parse(principal) as Principal;
+          },
+          { workspace: request.headers.get("x-openlaunch-workspace") ?? "" },
+        );
       });
     });
   }
@@ -70,6 +76,7 @@ export default {
       });
     const headers = new Headers(request.headers);
     headers.delete("x-openlaunch-principal");
+    headers.delete("x-openlaunch-workspace");
     if (
       !(
         await env.REQUEST_LIMITER.limit({
@@ -100,6 +107,18 @@ export default {
       workspace = request.headers.get("x-openlaunch-workspace") ?? "";
       if (!/^[a-f0-9]{64}$/.test(workspace))
         return new Response("Invalid workspace", { status: 400 });
+    } else if (
+      agentTokenWorkspace(
+        /^Bearer ([^\s]+)$/.exec(
+          request.headers.get("authorization") ?? "",
+        )?.[1] ?? "",
+      )
+    ) {
+      workspace = agentTokenWorkspace(
+        /^Bearer ([^\s]+)$/.exec(
+          request.headers.get("authorization") ?? "",
+        )?.[1] ?? "",
+      )!;
     } else {
       try {
         const authenticated = await authenticateClerk(request, env);
@@ -148,6 +167,7 @@ export default {
         },
         { status: 503, headers: { "cache-control": "no-store" } },
       );
+    headers.set("x-openlaunch-workspace", workspace);
     const response = await env.HUBS.get(env.HUBS.idFromName(workspace)).fetch(
       new Request(request, { headers }),
     );

@@ -1,32 +1,35 @@
 /** Provider-independent protocol. No model names, provider credentials or raw shell commands. */
 export const PROTOCOL_VERSION = 1 as const;
-export type DeviceKind = "uno-r4-wifi" | "raspberry-pi-4";
+/** Bounded lowercase family identifier; maintained adapters include Uno R4 and Pi 4. */
+export type DeviceKind = string;
 export type ActionState =
   | "queued"
   | "received"
-  | "running"
   | "succeeded"
   | "failed"
   | "expired"
+  | "cancelled"
   | "unknown";
 export interface Capability {
   name: string;
+  title: string;
+  description: string;
   access: "read" | "write";
   inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
 }
 export interface DeviceManifest {
-  protocolVersion: typeof PROTOCOL_VERSION;
-  deviceId: string;
+  name: string;
   kind: DeviceKind;
-  capabilities: Capability[];
+  capabilities: string[];
+  functions?: Capability[];
 }
 export interface ActionEnvelope {
-  protocolVersion: typeof PROTOCOL_VERSION;
-  actionId: string;
+  id: string;
   deviceId: string;
   capability: string;
-  arguments: Record<string, unknown>;
+  args: Record<string, unknown>;
+  status: ActionState;
+  createdAt: number;
   expiresAt: number;
 }
 export function isExpired(action: ActionEnvelope, now: number): boolean {

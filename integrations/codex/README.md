@@ -8,10 +8,10 @@ The canonical device MCP endpoint is `https://www.openlaunch.dev/mcp`; the separ
 codex mcp add openlaunch \
   --url https://www.openlaunch.dev/mcp \
   --oauth-resource https://www.openlaunch.dev/mcp \
-  --oauth-client-registration CIMD
+  --oauth-client-registration cimd
 codex mcp login openlaunch \
   --scopes openid,openlaunch:read,openlaunch:act \
-  --oauth-client-registration CIMD
+  --oauth-client-registration cimd
 ```
 
 `--oauth-resource` preserves the canonical MCP resource through authorization and token exchange. `CIMD` uses Codex's issuer-bound public client identity, `https://chatgpt.com/oauth/codex/client.json`; it is not a client secret. The signed-in owner separately approves OAuth scopes, then grants this agent specific functions on a specific device in the openlaunch console. OAuth approval does not enroll or authorize hardware. To search product documentation, add `openlaunch-docs` at `https://www.openlaunch.dev/docs-mcp`; that server is read-only and does not provide device access.

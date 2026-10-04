@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   Hub,
   Fault,
-  kinds,
+  deviceKind,
   capabilityName,
   type Principal,
 } from "../../core/src/index.ts";
@@ -35,6 +35,7 @@ export async function handle(
   request: Request,
   hub: Hub,
   resolve: (r: Request) => Promise<Principal>,
+  context: { workspace?: string } = {},
 ): Promise<Response> {
   try {
     const path = new URL(request.url).pathname;
@@ -52,12 +53,18 @@ export async function handle(
         .parse(await body(request));
       return json(await hub.enroll(b.token, b.manifest), 201);
     }
-    const deviceRoute = /^\/v1\/device\/([a-f0-9-]{36})\/(next|result)$/.exec(
-      path,
-    );
+    const deviceRoute =
+      /^\/v1\/device\/([a-f0-9-]{36})\/(next|result|manifest)$/.exec(path);
     if (deviceRoute) {
       const id = deviceRoute[1]!;
       await hub.authenticateDevice(id, bearer(request));
+      if (deviceRoute[2] === "manifest" && method === "POST") {
+        const b = z
+          .object({ manifest: z.unknown() })
+          .strict()
+          .parse(await body(request));
+        return json(hub.publishManifest(id, b.manifest));
+      }
       if (deviceRoute[2] === "next" && method === "POST")
         return json(hub.next(id));
       if (deviceRoute[2] === "result" && method === "POST") {
@@ -73,7 +80,10 @@ export async function handle(
       }
       throw new Fault("method", 405, "Method not allowed");
     }
-    const p = await resolve(request);
+    const token = bearer(request);
+    const p = token.startsWith("ol_agent_")
+      ? await hub.authenticateConnection(token, context.workspace ?? "")
+      : await resolve(request);
     if (path === "/mcp") {
       if (method !== "POST")
         throw new Fault("method", 405, "Stateless MCP uses POST");
@@ -93,11 +103,37 @@ export async function handle(
     if (path === "/v1/devices" && method === "GET") return json(hub.list(p));
     if (path === "/v1/enrollments" && method === "POST") {
       const b = z
-        .object({ kind: z.enum(kinds) })
+        .object({ kind: deviceKind })
         .strict()
         .parse(await body(request));
       return json(await hub.enrollment(p, b.kind), 201);
     }
+    if (path === "/v1/agent-connections" && method === "GET")
+      return json(hub.connections(p));
+    if (path === "/v1/agent-connections" && method === "POST") {
+      const b = z
+        .object({
+          name: z.string().min(1).max(64),
+          ttlSeconds: z.number().int().min(60).max(2592000).default(86400),
+          access: z.enum(["read", "act"]).default("act"),
+        })
+        .strict()
+        .parse(await body(request));
+      return json(
+        await hub.createConnection(
+          p,
+          context.workspace ?? "",
+          b.name,
+          b.ttlSeconds,
+          b.access,
+        ),
+        201,
+      );
+    }
+    const connectionRevoke =
+      /^\/v1\/agent-connections\/([a-f0-9-]{36})\/revoke$/.exec(path);
+    if (connectionRevoke && method === "POST")
+      return json(hub.revokeConnection(p, connectionRevoke[1]!));
     if (path === "/v1/grants" && method === "POST") {
       const b = z
         .object({

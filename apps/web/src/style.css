@@ -354,3 +354,31 @@ a:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 4px;
 }
+.connections form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: end;
+  margin: 20px 0;
+}
+.connections label {
+  display: grid;
+  gap: 8px;
+}
+.connections .row {
+  justify-content: space-between;
+  padding: 12px 0;
+}
+.connection-secret {
+  border: 1px solid #888;
+  padding: 20px;
+  margin: 20px 0;
+}
+.connection-secret textarea {
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.connection-secret button {
+  margin: 0 12px 12px 0;
+}

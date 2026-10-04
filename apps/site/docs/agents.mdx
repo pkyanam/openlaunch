@@ -1,42 +1,67 @@
 ---
 title: Connect an agent
-description: Connect Codex and other MCP clients, approve specific device capabilities, and use the separate read-only documentation server.
+description: Connect ChatGPT, Codex or another agent to openlaunch through OAuth or a bridge SDK token, grant device functions and follow their action results.
 ---
 
-openlaunch uses MCP, a shared way for agents to call tools. The same permission checks apply to every provider.
+openlaunch supports MCP clients and direct SDK clients. ChatGPT and Codex can link through OAuth; any agent or app can use an owner-issued bridge SDK token. Both paths use the same per-device function grants. Linking an agent does not enroll a device or authorize every device in the workspace.
+
+## ChatGPT and Codex
+
+Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Choose ChatGPT or Codex under a device’s **Agent permission**, select its functions, and save the permission. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
+
+For Codex CLI:
+
+```sh
+codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-resource https://www.openlaunch.dev/mcp --oauth-client-registration cimd
+codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd
+```
+
+OAuth consent and device grants are separate. Reconnect your MCP client after granting newly published custom functions so it refreshes tool discovery.
+
+## Any agent with the bridge SDK
+
+In **Connections**, create a named bridge SDK token, set its expiry, and copy it when shown. The secret is shown once. Provide the bridge URL and token to your agent as environment secrets. Revoke it in Connections to end that connection. Never put the token in a prompt, source file, shell command, or log.
+
+Install `@openlaunch/sdk` in the agent's runtime and use `createClient({ url, token })`. The client can list devices visible to that connection, request a granted function, and inspect or cancel its action. Use `broadcast()` for the same function on several devices. The owner grants functions separately for each device and can choose an expiry. Without a grant, a valid token cannot see or operate that device.
+
+```sh
+npm install https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
+```
+
+See the [Bridge SDK guide](/sdk) for a minimal code example, action lifecycle, and adapter interface.
 
 ## Codex on your computer
 
-Start the bridge using [Get started](/setup). The launcher prints a command tailored to your installation. For the default installation:
+For the local MCP bridge, start with [Get started](/setup). The launcher prints a command tailored to your installation. For the default installation:
 
 ```sh
 codex mcp add openlaunch -- node ~/.local/share/openlaunch/scripts/local-mcp.mjs
 ```
 
-The adapter reads only your protected **agent** credential. It never forwards your owner session key. Restart Codex or refresh its MCP connections, then ask it to list your openlaunch devices.
+The adapter reads only its protected agent credential. It never forwards your owner session key. Restart Codex or refresh its MCP connections, then ask it to list its granted openlaunch devices. In Connections, grant this connection only the functions it needs on each device.
 
-In your console, grant `local-agent` a capability for the board you paired. Start with `device.health`. Without a grant, the agent will see no accessible devices and cannot act on them.
+## MCP connections
 
-## Hosted connections
+Hosted MCP clients use the openlaunch MCP service with OAuth or an owner-issued connection token sent as an HTTP bearer credential. Use the exact MCP URL and client setup shown by your deployed console. Do not substitute the documentation MCP address or give an owner session key to an agent. A connection token cannot expand its own grants.
 
-Hosted linking uses Clerk sign-in and OAuth consent. Request `openlaunch:read` to list granted devices and inspect results, and `openlaunch:act` to request changes. The owner still approves each device capability separately.
+Each connection token belongs to one named agent connection. It has an expiry and can be revoked independently. Grant expiry, token expiry and device enrollment are separate controls; see [Pairing and permissions](/pairing).
 
-Use the exact MCP URL and client identity shown by your deployed console. Do not substitute the documentation MCP address or give your owner session to ChatGPT. Hosted device linking is enabled only after the deployment passes its authentication checks; [verification](/status) records the checked endpoints.
+## Device tools
 
-## Your device functions
-
-Custom functions published by your adapter appear automatically after you approve a grant. Their tools carry the device name, description and parameter schema. See [Build your own functions](/functions). The standard adapters also provide these helpers:
+Custom functions published by an adapter appear after the owner grants them to a connection. Their tools include the device name and function schema. Standard functions available on the maintained hardware integrations are:
 
 | Tool                    | Purpose                                             |
 | ----------------------- | --------------------------------------------------- |
-| `list_devices`          | List granted devices and their last-seen status     |
-| `request_device_health` | Ask the device for a fresh health result            |
+| `list_devices`          | List devices visible to this connection            |
+| `request_device_health` | Ask a device for a fresh health result              |
 | `set_led`               | Set the Uno's built-in LED                          |
 | `show_text`             | Display up to 96 ASCII characters on the Uno matrix |
 | `get_action`            | Read the actual action outcome                      |
 | `cancel_action`         | Cancel an action that has not been delivered        |
 
 An action ID is a receipt number, not proof that the board acted. Ask the agent to check `get_action` until it reaches a terminal result.
+
+The maintained hardware integrations currently cover Uno R4 WiFi and Raspberry Pi. An agent can use any device family that has an openlaunch adapter and manifest; the bridge does not require a built-in profile for a custom kind. Start with the [custom function guide](/functions) to publish bounded functions for another board or setup.
 
 ## Documentation for agents
 

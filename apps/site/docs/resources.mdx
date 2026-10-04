@@ -16,6 +16,10 @@ Installers are served by openlaunch from the same source commit as the website. 
 
 [Install the Pi agent](/install-pi.sh), [download the Codex plugin](/downloads/openlaunch-plugin.zip), or [install the local development bridge](/install.sh). For the local bridge, use the [GitHub installer backup](https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh). `/downloads/provision-uno.py` serves the provisioning script directly. Source, CI artifacts and release pages remain linked to GitHub. There is no hosted device token or login needed to read the docs.
 
+## Device and agent SDK
+
+[Download the JavaScript/TypeScript SDK](/downloads/openlaunch-sdk.tgz) or follow the [Device and agent SDK guide](/sdk) for a single-command custom adapter setup. It includes agent API clients and a device client, with typed manifests, action receipts and custom function publishing. The [SDK source](https://github.com/pkyanam/openlaunch/tree/main/packages/sdk) is the backup and reference implementation. Native embedded firmware uses the same [HTTP contract](/api); the maintained Uno adapter is separate from the Node runtime.
+
 ## Shared packages
 
 The packages are in the monorepo and are not published to npm yet. See [all package sources](https://github.com/pkyanam/openlaunch/tree/main/packages), including protocol, auth, core, HTTP and MCP. The [architecture guide](/architecture) explains their boundaries.

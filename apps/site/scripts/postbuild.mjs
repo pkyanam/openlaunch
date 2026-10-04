@@ -31,7 +31,9 @@ if (existsSync("../../scripts/install-pi.sh")) {
 }
 const origin =
   process.env.OPENLAUNCH_SITE_ORIGIN || "https://www.openlaunch.dev";
-execFileSync(process.execPath, ["../../scripts/package-plugin.mjs"], { stdio: "inherit" });
+execFileSync(process.execPath, ["../../scripts/package-plugin.mjs"], {
+  stdio: "inherit",
+});
 // Bundle the shared console for the hosted route, with only its public Clerk key.
 if (process.env.CLERK_PUBLISHABLE_KEY) {
   execFileSync(
@@ -113,10 +115,19 @@ writeFileSync(
         },
         {
           url: `${origin}/install-pi.sh`,
-          sha256: createHash("sha256").update(readFileSync("../../scripts/install-pi.sh")).digest("hex"),
+          sha256: createHash("sha256")
+            .update(readFileSync("../../scripts/install-pi.sh"))
+            .digest("hex"),
           backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/install-pi.sh`,
         },
       ],
+      sdk: {
+        url: `${origin}/downloads/openlaunch-sdk.tgz`,
+        sha256: createHash("sha256")
+          .update(readFileSync("dist/client/downloads/openlaunch-sdk.tgz"))
+          .digest("hex"),
+        source: `https://github.com/pkyanam/openlaunch/tree/${commit}/packages/sdk`,
+      },
     },
     null,
     2,

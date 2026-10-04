@@ -6,6 +6,7 @@
 - `apps/local`: persistent local developer bridge, bound to loopback by default
 - `apps/site`: product website, searchable guides, Markdown downloads and read-only documentation MCP
 - `apps/web`: React owner console for pairing, permissions and action inspection
+- `packages/sdk`: typed agent/device clients and a custom adapter CLI; independent of board libraries and agent providers
 - `packages/protocol`: capability, device manifest and request contracts
 - `packages/core`: enrollment, device identities, grants, command lifecycle, expiry and revocation
 - `packages/authorization`: shared authorization helpers
@@ -22,7 +23,7 @@ JavaScript packages use npm workspaces and one lockfile. Go and Arduino keep the
 
 Clerk provides hosted owner sign-in and agent OAuth. The hosted service verifies owner sessions and OAuth access tokens against the configured issuer. OAuth uses PKCE and resource audiences; admitted agent identities are configured explicitly. Google is the enabled sign-in provider, and email/password sign-in is disabled.
 
-Owner sessions and agent identities are separate. An owner creates a board-kind-bound, single-use enrollment token with a 10-minute lifetime. The device exchanges it for its own credential. Enrollment associates the device with the owner's workspace, but does not grant an agent permission to use it. The owner separately grants an agent selected capabilities on that device for a bounded period. OAuth scopes allow API operations; they do not create device grants.
+Owner sessions and agent identities are separate. An owner creates a board-kind-bound, single-use enrollment token with a 10-minute lifetime. The device exchanges it for its own credential. Enrollment associates the device with the owner's workspace, but does not grant an agent permission to use it. The owner separately grants an agent selected capabilities on that device for a bounded period. OAuth scopes allow API operations; they do not create device grants. Other applications use named, expiring owner-created SDK connections. Their secrets authenticate a connection, never an owner or a device, and are stored as hashes. Read-only connections cannot issue commands.
 
 The hosted service derives each workspace's SQLite Durable Object identity from the verified Clerk issuer and user identity. Requests are isolated by workspace. Agent requests are checked for their OAuth scope and a live per-device capability grant on each call, including calls made through previously discovered custom-function tools.
 
@@ -33,6 +34,14 @@ An authorized MCP request becomes a typed, bounded action. Devices initiate outb
 Devices may advertise functions in their manifest. Definitions include a name, title, description and input schema. Supported input fields are bounded strings, bounded numbers or integers, and booleans in a root object that rejects additional properties. Manifests are limited to 16 functions and 16 parameters per function, reject external schema references and cannot replace built-in capabilities. An owner can grant custom functions individually; approved functions appear as device-specific MCP tools and are checked against current grants when invoked.
 
 The `POST /v1/broadcasts` endpoint can request the same action for up to 20 devices. It returns an independent action or error for every device, so a broadcast is not an atomic multi-device operation.
+
+## Device SDK boundaries
+
+The cloud service accepts bounded custom device kinds without a board-specific service change. A device adapter owns its hardware drivers, credential storage, manifest and execution. The shared protocol owns enrollment, polling and correlated results. Agent integrations use the same API and grants; provider credentials never reach firmware.
+
+Linux and desktop custom adapters can use the Node SDK and its setup/publish/run CLI. The maintained Go Pi adapter is a separate lightweight health runtime. Native microcontroller adapters speak the same HTTPS contract, using platform TLS and storage. An ESP32 development board is not the Uno R4 connectivity coprocessor; support for one must not alter the other's transport firmware.
+
+Manifest changes require owner reapproval. They revoke prior device grants, cancel queued commands and preserve uncertainty for commands already received. A schema describes implemented behavior; advertising a function cannot install a driver or make an unsupported board operation work.
 
 ## Trust boundaries and runtime support
 

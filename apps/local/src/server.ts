@@ -84,14 +84,19 @@ const server = createServer((req, res) => {
         const row = db.prepare("SELECT state FROM hub WHERE id=1").get() as
           { state: string } | undefined;
         const hub = new Hub(row ? JSON.parse(row.state) : emptyState());
-        const response = await handle(request, hub, async (r) => {
-          const token =
-            r.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-          if (equal(token, ownerToken!)) return { id: "owner", owner: true };
-          if (equal(token, agentToken!))
-            return { id: "local-agent", owner: false };
-          throw new Fault("unauthorized", 401, "Valid bearer required");
-        });
+        const response = await handle(
+          request,
+          hub,
+          async (r) => {
+            const token =
+              r.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+            if (equal(token, ownerToken!)) return { id: "owner", owner: true };
+            if (equal(token, agentToken!))
+              return { id: "local-agent", owner: false };
+            throw new Fault("unauthorized", 401, "Valid bearer required");
+          },
+          { workspace: "0".repeat(64) },
+        );
         db.prepare(
           "INSERT INTO hub(id,state) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
         ).run(JSON.stringify(hub.state));

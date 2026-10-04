@@ -5,6 +5,7 @@ export default defineMeta({
     "setup",
     "agents",
     "functions",
+    "sdk",
     "uno-r4",
     "pi",
     "pairing",

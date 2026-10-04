@@ -1,0 +1,27 @@
+{
+  "name": "@openlaunch/sdk",
+  "version": "0.1.0-dev.0",
+  "description": "Provider-neutral openlaunch SDK for agents and device bridges",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "openlaunch-device": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

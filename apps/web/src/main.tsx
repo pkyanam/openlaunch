@@ -19,6 +19,13 @@ type Device = {
   lastSeen: number;
   functions?: FunctionDefinition[];
 };
+type Connection = {
+  id: string;
+  principal: string;
+  name: string;
+  expiresAt: number;
+  access: "read" | "act";
+};
 function App({ session }: { session?: () => Promise<string | null> }) {
   const [token, setToken] = useState(""),
     [devices, setDevices] = useState<Device[]>([]),
@@ -37,6 +44,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [broadcastDevices, setBroadcastDevices] = useState<string[]>([]),
     [broadcastFunction, setBroadcastFunction] = useState("device.health"),
     [broadcastResults, setBroadcastResults] = useState<any[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectionName, setConnectionName] = useState("My agent");
+  const [connectionLifetime, setConnectionLifetime] = useState(86400);
+  const [connectionAccess, setConnectionAccess] = useState<"read" | "act">(
+    "act",
+  );
+  const [connectionSecret, setConnectionSecret] = useState<string | null>(null);
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -54,6 +68,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         ...b.data,
         workspace: r.headers.get("x-openlaunch-workspace"),
         origin: window.location.origin,
+        kind: (data as { kind: string }).kind,
       };
     return b.data;
   }
@@ -70,9 +85,42 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   useEffect(() => {
     if (session) refresh();
   }, []);
+  useEffect(() => {
+    if (!session && !token) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const inventory = await api("/v1/devices");
+        if (!cancelled) setDevices(inventory);
+      } catch {
+        /* Explicit operations show errors; background refresh stays quiet. */
+      }
+    }, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [!!session, token]);
+  useEffect(() => {
+    if (!action || !["queued", "received"].includes(action.status)) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const current = await api(`/v1/actions/${action.id}`);
+        if (!cancelled) setAction(current);
+      } catch {
+        /* Keep the last known receipt rather than inventing an outcome. */
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [action?.id, action?.status]);
   const refresh = () =>
     run(async () => {
       setDevices(await api("/v1/devices"));
+      setConnections(await api("/v1/agent-connections"));
       setNotice(
         "Device inventory refreshed. Online means seen within 45 seconds.",
       );
@@ -91,9 +139,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         ttlSeconds: 60,
       });
       setAction(a);
-      setNotice(
-        "Queued. This is not yet a device success. Refresh the action result after the device polls.",
-      );
+      setNotice("Queued. Waiting for the device result…");
     });
   const chosenDevices = devices.filter((device) =>
     broadcastDevices.includes(device.id),
@@ -166,31 +212,78 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             Devices <span>{devices.length}</span>
           </h2>
           <div className="row">
-            {(["raspberry-pi-4", "uno-r4-wifi"] as const).map((kind) => (
-              <button
-                key={kind}
-                className="secondary"
-                disabled={(!token && !session) || busy}
-                onClick={() =>
-                  run(async () => {
-                    setEnrollment(
-                      await api("/v1/enrollments", "POST", { kind }),
-                    );
-                    setNotice(
-                      "Enrollment is single-use and expires in 10 minutes. Keep it private.",
-                    );
-                  })
-                }
-              >
-                Pair {kind === "raspberry-pi-4" ? "Pi 4" : "Uno R4"}
-              </button>
-            ))}
+            <button className="secondary" disabled={busy} onClick={refresh}>
+              Refresh devices
+            </button>
+            {(["raspberry-pi-4", "uno-r4-wifi", "custom.device"] as const).map(
+              (kind) => (
+                <button
+                  key={kind}
+                  className="secondary"
+                  disabled={(!token && !session) || busy}
+                  onClick={() =>
+                    run(async () => {
+                      setEnrollment(
+                        await api("/v1/enrollments", "POST", { kind }),
+                      );
+                      setNotice(
+                        "Enrollment is single-use and expires in 10 minutes. Keep it private.",
+                      );
+                    })
+                  }
+                >
+                  {kind === "custom.device"
+                    ? "Pair another device"
+                    : `Pair ${kind === "raspberry-pi-4" ? "Pi 4" : "Uno R4"}`}
+                </button>
+              ),
+            )}
           </div>
         </section>
         {enrollment && (
           <section className="panel enrollment">
-            <h3>One-time enrollment token</h3>
+            <h3>
+              Connect{" "}
+              {enrollment.kind === "raspberry-pi-4"
+                ? "your Pi"
+                : enrollment.kind === "uno-r4-wifi"
+                  ? "your Uno"
+                  : "your device"}
+            </h3>
+            {enrollment.kind === "raspberry-pi-4" ? (
+              <>
+                <p>
+                  Paste this command in your Pi terminal, then enter the
+                  workspace and code below when prompted.
+                </p>
+                <pre>
+                  curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash
+                </pre>
+              </>
+            ) : (
+              <p>
+                {enrollment.kind === "uno-r4-wifi"
+                  ? "Use the USB setup helper to connect your board."
+                  : "Use the SDK to enroll your adapter with kind custom.device, then publish the functions it implements."}{" "}
+                <a
+                  href={
+                    enrollment.kind === "uno-r4-wifi"
+                      ? "/docs/uno-r4"
+                      : "/docs/sdk"
+                  }
+                >
+                  Setup guide
+                </a>
+              </p>
+            )}
             <p>Bridge: {enrollment.origin}</p>
+            {enrollment.kind === "custom.device" && (
+              <pre>
+                npx --yes
+                --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz
+                openlaunch-device setup
+              </pre>
+            )}
             <p>
               Workspace:{" "}
               <code>
@@ -206,6 +299,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               aria-label="Enrollment token"
               value={enrollment.token}
             />
+            <button
+              className="secondary"
+              onClick={() =>
+                run(async () => {
+                  await navigator.clipboard.writeText(enrollment.token);
+                  setNotice("Enrollment code copied.");
+                })
+              }
+            >
+              Copy enrollment code
+            </button>
             <button className="secondary" onClick={() => setEnrollment(null)}>
               Hide token
             </button>
@@ -304,6 +408,14 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                         <option value="https://chatgpt.com/oauth/client.json">
                           ChatGPT
                         </option>
+                        {connections.map((connection) => (
+                          <option
+                            key={connection.id}
+                            value={connection.principal}
+                          >
+                            {connection.name}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   ) : (
@@ -412,6 +524,126 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             ))
           )}
         </div>
+        <section className="panel connections">
+          <h2>Agent connections</h2>
+          <p>
+            ChatGPT and Codex connect with OAuth. For another agent or app,
+            create a bridge SDK token and grant it device functions above.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              run(async () => {
+                const connection = await api("/v1/agent-connections", "POST", {
+                  name: connectionName,
+                  ttlSeconds: connectionLifetime,
+                  access: connectionAccess,
+                });
+                setConnectionSecret(connection.token);
+                setPrincipal(connection.principal);
+                setConnections(await api("/v1/agent-connections"));
+                setNotice(
+                  "Connection created. Choose its device functions above.",
+                );
+              });
+            }}
+          >
+            <label>
+              Connection name
+              <input
+                value={connectionName}
+                maxLength={64}
+                required
+                onChange={(e) => setConnectionName(e.target.value)}
+              />
+            </label>
+            <label>
+              Token expires
+              <select
+                value={connectionLifetime}
+                onChange={(e) => setConnectionLifetime(Number(e.target.value))}
+              >
+                <option value={3600}>In one hour</option>
+                <option value={86400}>In 24 hours</option>
+                <option value={604800}>In 7 days</option>
+                <option value={2592000}>In 30 days</option>
+              </select>
+            </label>
+            <label>
+              Access
+              <select
+                value={connectionAccess}
+                onChange={(e) =>
+                  setConnectionAccess(e.target.value as "read" | "act")
+                }
+              >
+                <option value="act">Request granted functions</option>
+                <option value="read">Read granted health and results</option>
+              </select>
+            </label>
+            <button disabled={busy || !connectionName.trim()}>
+              Create SDK token
+            </button>
+          </form>
+          {connectionSecret && (
+            <div className="connection-secret">
+              <label>
+                Bridge SDK token
+                <textarea readOnly value={connectionSecret} />
+              </label>
+              <p>
+                Save this in your app's secret settings. It is shown once and
+                clears when you reload.
+              </p>
+              <button
+                className="secondary"
+                onClick={() =>
+                  run(async () => {
+                    await navigator.clipboard.writeText(connectionSecret);
+                    setNotice("SDK token copied.");
+                  })
+                }
+              >
+                Copy SDK token
+              </button>
+              <button
+                className="secondary"
+                onClick={() => setConnectionSecret(null)}
+              >
+                Hide SDK token
+              </button>
+              <a href="/docs/sdk">Use the SDK</a>
+            </div>
+          )}
+          {connections.map((connection) => (
+            <div className="row" key={connection.id}>
+              <span>
+                {connection.name} · expires{" "}
+                {new Date(connection.expiresAt).toLocaleString()}
+              </span>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    await api(
+                      `/v1/agent-connections/${connection.id}/revoke`,
+                      "POST",
+                      {},
+                    );
+                    setConnectionSecret(null);
+                    setConnections(await api("/v1/agent-connections"));
+                    setNotice(
+                      "Connection revoked. Its queued actions are cancelled.",
+                    );
+                  })
+                }
+              >
+                Revoke {connection.name}
+              </button>
+            </div>
+          ))}
+        </section>
         {devices.length > 1 && (
           <section className="panel result">
             <h2>Broadcast a function</h2>
