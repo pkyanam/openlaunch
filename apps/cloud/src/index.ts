@@ -1,13 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { authenticateClerk, type ClerkEnv } from "./clerk-auth.ts";
 import {
-  Hub,
-  emptyState,
-  hash,
   type Principal,
-  type State,
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
+import { withWorkspaceState } from "./state.ts";
 interface Env extends ClerkEnv {
   HUBS: DurableObjectNamespace;
   API_ORIGIN?: string;
@@ -18,17 +15,13 @@ interface Env extends ClerkEnv {
 export class WorkspaceHub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     return this.ctx.blockConcurrencyWhile(async () => {
-      const state = await this.ctx.storage.get<State>("state");
-      const hub = new Hub(state ?? emptyState());
       const principal = request.headers.get("x-openlaunch-principal");
-      const response = await handle(request, hub, async () => {
-        if (!principal) throw new Error("Missing trusted principal");
-        return JSON.parse(principal) as Principal;
+      return withWorkspaceState(this.ctx.storage, (hub) => {
+        return handle(request, hub, async () => {
+          if (!principal) throw new Error("Missing trusted principal");
+          return JSON.parse(principal) as Principal;
+        });
       });
-      const serialized = JSON.stringify(hub.state);
-      if (serialized !== JSON.stringify(state ?? emptyState()))
-        await this.ctx.storage.put("state", hub.state);
-      return response;
     });
   }
 }
