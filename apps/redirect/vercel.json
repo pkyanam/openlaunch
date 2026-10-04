@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "redirects": [
+    { "source": "/:path*", "destination": "https://www.openlaunch.dev/:path*", "permanent": true }
+  ]
+}
