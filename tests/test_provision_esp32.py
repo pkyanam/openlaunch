@@ -59,7 +59,7 @@ class Esp32ProvisionTests(unittest.TestCase):
         self.assertEqual(payload["requestCreatedAtMs"], 123456789)
         self.assertEqual(payload["enrollmentToken"], "")
         agent_token = f"ol_agent_{workspace}_{'c' * 64}"
-        self.assertEqual(p.parse_sdk_token(agent_token), workspace)
+        self.assertIsNone(p.parse_sdk_token(agent_token))
         with self.assertRaisesRegex(ValueError, "does not match"):
             p.make_config_payload(
                 "https://bridge.example", "c" * 64, "Workshop", "", "",

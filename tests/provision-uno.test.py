@@ -51,9 +51,9 @@ class ProvisionTests(unittest.TestCase):
             p.make_payload("https://x.example", "0" * 64, "x" * 33, "", "a" * 64,
                            legacy_enrollment=True)
 
-    def test_sdk_agent_token_workspace_parser_and_uuid_validation(self):
+    def test_sdk_token_parser_rejects_legacy_agent_tokens(self):
         workspace = "f" * 64
-        self.assertEqual(p.parse_sdk_token(f"ol_agent_{workspace}_{'e' * 64}"), workspace)
+        self.assertIsNone(p.parse_sdk_token(f"ol_agent_{workspace}_{'e' * 64}"))
         self.assertIsNone(p.parse_sdk_token("ol_sdk_bad_secret"))
         with self.assertRaisesRegex(ValueError, "stable UUID"):
             p.make_payload("https://x.example", workspace, "test", "", f"ol_sdk_{workspace}_{'e' * 64}",

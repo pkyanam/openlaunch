@@ -126,7 +126,7 @@ def verify_bridge(origin, context):
 
 
 def parse_sdk_token(value):
-    match = re.fullmatch(r"ol_(?:sdk|agent)_([a-f0-9]{64})_([a-f0-9]{64})", value or "")
+    match = re.fullmatch(r"ol_sdk_([a-f0-9]{64})_([a-f0-9]{64})", value or "")
     return match.group(1) if match else None
 
 

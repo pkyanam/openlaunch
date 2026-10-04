@@ -35,7 +35,7 @@ def validate_origin(origin):
 
 
 def parse_sdk_token(token):
-    match = re.fullmatch(r"ol_(?:sdk|agent)_([a-f0-9]{64})_[a-f0-9]{64}", token or "")
+    match = re.fullmatch(r"ol_sdk_([a-f0-9]{64})_[a-f0-9]{64}", token or "")
     return match.group(1) if match else None
 
 
