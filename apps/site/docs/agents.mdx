@@ -7,7 +7,7 @@ openlaunch supports MCP clients and direct SDK clients. ChatGPT and Codex can li
 
 ## ChatGPT and Codex
 
-Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Choose ChatGPT or Codex under a device’s **Agent permission**, select its functions, and save the permission. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
+Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Choose ChatGPT or Codex under **Devices → Access**, select its functions, and select **Save grant**. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
 
 For Codex CLI:
 
@@ -20,7 +20,7 @@ OAuth consent and device grants are separate. Reconnect your MCP client after gr
 
 ## Any agent with the bridge SDK
 
-In **Connections**, create a named bridge SDK token, set its expiry, and copy it when shown. The secret is shown once. Provide the bridge URL and token to your agent as environment secrets. Revoke it in Connections to end that connection. Never put the token in a prompt, source file, shell command, or log.
+In **Agents**, create a named bridge SDK token, set its expiry, and copy it when shown. The secret is shown once. Provide the bridge URL and token to your agent as environment secrets. Revoke it in Agents to end that connection. Never put the token in a prompt, source file, shell command, or log.
 
 Install `@openlaunch/sdk` in the agent's runtime and use `createClient({ url, token })`. The client can list devices visible to that connection, request a granted function, and inspect or cancel its action. Use `broadcast()` for the same function on several devices. The owner grants functions separately for each device and can choose an expiry. Without a grant, a valid token cannot see or operate that device.
 
@@ -52,7 +52,7 @@ Custom functions published by an adapter appear after the owner grants them to a
 
 | Tool                    | Purpose                                             |
 | ----------------------- | --------------------------------------------------- |
-| `list_devices`          | List devices visible to this connection            |
+| `list_devices`          | List devices visible to this connection             |
 | `request_device_health` | Ask a device for a fresh health result              |
 | `set_led`               | Set the Uno's built-in LED                          |
 | `show_text`             | Display up to 96 ASCII characters on the Uno matrix |

@@ -11,6 +11,7 @@ description: See the hosted software and device behaviors that have been checked
 - OAuth scopes and device capability grants are separate. Owners must approve capabilities for each device and agent.
 - The hosted API uses SQLite-backed Durable Objects keyed to the verified Clerk workspace identity.
 - Custom manifest functions are schema-validated, exposed as device-specific MCP tools after an owner grant, and checked against the live grant at invocation.
+- Live software acceptance verified generic SDK enrollment, rejection of a reused code, ungranted action denial, manifest publication and reapproval, custom MCP execution, and a completed software result. The approved Codex OAuth connection successfully discovered and listed its granted device.
 - Broadcast requests support up to 20 devices and return an independent result for each device.
 
 ## Software and firmware behavior
@@ -26,4 +27,4 @@ Physical acceptance remains open. Pi and Uno checks for network access, TLS and 
 
 ## Try openlaunch
 
-Follow [local setup](/setup), run the software checks, and use the trusted HTTPS test path for deliberate [Uno R4](/uno-r4) or [Pi](/pi) hardware acceptance. Website hosting and hosted identity do not establish that a physical board is connected.
+Start in the [hosted console](https://www.openlaunch.dev/console/), follow [setup](/setup), and use the hardware checklist for deliberate [Uno R4](/uno-r4) or [Pi](/pi) hardware acceptance. Website hosting and hosted identity do not establish that a physical board is connected.

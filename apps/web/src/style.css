@@ -1284,3 +1284,7 @@ footer {
     transition-duration: 0.01ms !important;
   }
 }
+
+.receipt-result dl { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); gap: 10px 20px; }
+.receipt-result dt { color: #666666; text-transform: capitalize; }
+.receipt-result dd { margin: 0; overflow-wrap: anywhere; }

@@ -97,6 +97,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
       ? `OPENLAUNCH_WORKSPACE=${enrollment.workspace} npx --yes --package=https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz openlaunch-device setup --url ${quoteShellValue(enrollment.origin)}`
       : null;
+  const codexConnectCommand =
+    "codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-resource https://www.openlaunch.dev/mcp --oauth-client-registration cimd && codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd";
   const piSetupCommand =
     enrollment && /^[a-f0-9]{64}$/.test(enrollment.workspace ?? "")
       ? `curl -fsSL https://www.openlaunch.dev/install-pi.sh | OPENLAUNCH_WORKSPACE_ID=${enrollment.workspace} bash`
@@ -139,6 +141,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     if (!session && !token) return;
     let cancelled = false;
     const timer = setInterval(async () => {
+      if (document.visibilityState === "hidden") return;
       try {
         const inventory = await api("/v1/devices");
         if (!cancelled) {
@@ -172,32 +175,71 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     };
   }, [!!session, token, pairingBaseline]);
   useEffect(() => {
-    if (!action || !["queued", "received"].includes(action.status)) return;
+    if (page !== "Activity" || (!session && !token)) return;
     let cancelled = false;
-    const timer = setInterval(async () => {
+    const update = async () => {
+      if (document.visibilityState === "hidden") return;
       try {
-        const current = await api(`/v1/actions/${action.id}`);
-        if (!cancelled) {
+        const history = await api("/v1/actions");
+        if (cancelled) return;
+        setReceipts(history);
+        setSelectedReceipt((receipt: any) =>
+          receipt
+            ? (history.find((item: any) => item.id === receipt.id) ?? receipt)
+            : null,
+        );
+        setBroadcastResults((items: any[]) =>
+          items.map((item) =>
+            item.action
+              ? {
+                  ...item,
+                  action:
+                    history.find(
+                      (receipt: any) => receipt.id === item.action.id,
+                    ) ?? item.action,
+                }
+              : item,
+          ),
+        );
+        const current =
+          action && history.find((item: any) => item.id === action.id);
+        if (current && current.status !== action.status) {
           setAction(current);
-          setReceipts((items) =>
-            [current, ...items.filter((item) => item.id !== current.id)].slice(
-              0,
-              100,
-            ),
-          );
-          setSelectedReceipt((receipt: any) =>
-            receipt?.id === current.id ? current : receipt,
+          setNotice(
+            current.status === "queued"
+              ? "Queued. Waiting for the device result…"
+              : current.status === "received"
+                ? "The device received the request. Waiting for its result…"
+                : current.status === "succeeded"
+                  ? "The device reported success. See the receipt for its result."
+                  : current.status === "unknown"
+                    ? "The outcome is unknown. Check the device before trying again."
+                    : `Action ${current.status}. See the receipt for details.`,
           );
         }
       } catch {
         /* Keep the last known receipt rather than inventing an outcome. */
       }
-    }, 2000);
+    };
+    update();
+    const timer = setInterval(
+      update,
+      receipts.some((item) => ["queued", "received"].includes(item.status))
+        ? 2000
+        : 10000,
+    );
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [action?.id, action?.status]);
+  }, [
+    page,
+    !!session,
+    token,
+    action?.id,
+    action?.status,
+    receipts.some((item) => ["queued", "received"].includes(item.status)),
+  ]);
   const refresh = () =>
     run(async () => {
       const [inventory, agentConnections, activity, savedGrants] =
@@ -239,9 +281,14 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     });
   const request = (d: Device, capability: string, args: unknown) =>
     run(async () => {
+      const definition =
+        d.functions?.find((fn) => fn.name === capability) ??
+        builtInFunctions.find((fn) => fn.name === capability);
       if (
-        capability !== "device.health" &&
-        !(await confirmAction(`Apply ${capability} to ${d.name}?`))
+        definition?.access === "write" &&
+        !(await confirmAction(
+          `Run ${d.functions?.find((fn) => fn.name === capability)?.title ?? builtInFunctions.find((fn) => fn.name === capability)?.title ?? capability} on ${d.name}?`,
+        ))
       )
         return;
       const a = await api(`/v1/devices/${d.id}/actions`, "POST", {
@@ -251,6 +298,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         ttlSeconds: 60,
       });
       setAction(a);
+      setSelectedReceipt(a);
+      setPage("Activity");
       setReceipts((items) =>
         [a, ...items.filter((item) => item.id !== a.id)].slice(0, 100),
       );
@@ -760,7 +809,47 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   through their openlaunch OAuth flow. Their access is
                   controlled by the saved device grants shown on each device.
                 </p>
-                <a href="/docs">Read agent setup documentation</a>
+                <div className="setup-command">
+                  <code>https://www.openlaunch.dev/mcp</code>
+                </div>
+                <div className="row">
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      run(async () => {
+                        await navigator.clipboard.writeText(
+                          "https://www.openlaunch.dev/mcp",
+                        );
+                        setNotice(
+                          "MCP URL copied. Add it in your agent’s connector settings.",
+                        );
+                      })
+                    }
+                  >
+                    Copy MCP URL
+                  </button>
+                  <a href="/downloads/openlaunch-plugin.zip">Download plugin</a>
+                  <a href="/docs/agents">Connection guide</a>
+                </div>
+                <details>
+                  <summary>Connect Codex CLI</summary>
+                  <div className="setup-command">
+                    <code>{codexConnectCommand}</code>
+                  </div>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      run(async () => {
+                        await navigator.clipboard.writeText(
+                          codexConnectCommand,
+                        );
+                        setNotice("Codex connection command copied.");
+                      })
+                    }
+                  >
+                    Copy Codex command
+                  </button>
+                </details>
               </section>
               <section className="panel">
                 <h2>Create an SDK connection</h2>
@@ -1062,6 +1151,44 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       Close
                     </button>
                   </div>
+                  {selectedReceipt.result !== undefined && (
+                    <div className="receipt-result">
+                      <h3>Device result</h3>
+                      {selectedReceipt.result !== null &&
+                      typeof selectedReceipt.result === "object" &&
+                      !Array.isArray(selectedReceipt.result) ? (
+                        <dl>
+                          {Object.entries(selectedReceipt.result).map(
+                            ([key, value]) => (
+                              <React.Fragment key={key}>
+                                <dt>
+                                  {key
+                                    .replace(/([a-z])([A-Z])/g, "$1 $2")
+                                    .replaceAll("_", " ")}
+                                </dt>
+                                <dd>
+                                  {typeof value === "boolean"
+                                    ? value
+                                      ? "Yes"
+                                      : "No"
+                                    : typeof value === "string" ||
+                                        typeof value === "number"
+                                      ? String(value)
+                                      : JSON.stringify(value)}
+                                </dd>
+                              </React.Fragment>
+                            ),
+                          )}
+                        </dl>
+                      ) : (
+                        <p>
+                          {typeof selectedReceipt.result === "string"
+                            ? selectedReceipt.result
+                            : JSON.stringify(selectedReceipt.result)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <details>
                     <summary>Raw receipt data</summary>
                     <pre>{JSON.stringify(selectedReceipt, null, 2)}</pre>
@@ -1312,8 +1439,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </label>
             )}
             <p>
-              Enrollment code expires in 10 minutes and works once. It does not
-              grant agent access.
+              {Date.now() >= enrollment.expiresAt
+                ? "This code has expired. Close setup and create a new enrollment."
+                : `This code works once and expires at ${new Date(enrollment.expiresAt).toLocaleTimeString()}.`}{" "}
+              Agent access is approved separately.
             </p>
             {enrollmentRevealed ? (
               <>
@@ -1342,7 +1471,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 </button>
               </>
             ) : (
-              <button onClick={() => setEnrollmentRevealed(true)}>
+              <button
+                disabled={Date.now() >= enrollment.expiresAt}
+                onClick={() => setEnrollmentRevealed(true)}
+              >
                 Show one-time enrollment code
               </button>
             )}
