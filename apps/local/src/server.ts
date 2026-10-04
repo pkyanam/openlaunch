@@ -66,7 +66,9 @@ const server = createServer((req, res) => {
                   ? "text/javascript"
                   : file.endsWith(".css")
                     ? "text/css"
-                    : "text/html",
+                    : file.endsWith(".svg")
+                      ? "image/svg+xml"
+                      : "text/html",
                 "x-content-type-options": "nosniff",
               })
               .end(readFileSync(file));
