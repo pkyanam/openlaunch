@@ -16,6 +16,8 @@ The workflow records the source commit in `deployment.json`; the deployed Pages 
 
 `www.openlaunch.dev` is served from Cloudflare Pages. Vercel nameservers remain authoritative and continue to manage DNS. The apex `openlaunch.dev` redirects to `www` through Vercel. Preserve Clerk production records and unrelated verification records when managing the domain.
 
+After each production upload, CI runs `python3 scripts/verify-hosted.py` against the public HTTPS endpoints. It requires matching site and bridge commits, configured authentication and controls, an authentication challenge for device inventory, the apex redirect and byte-for-byte installer copies. It retries briefly for deployment propagation and fails the deployment job if these checks remain inconsistent. Run the same command from the deployed checkout for a manual check; it needs no credentials. This verifies deployment wiring, not an owner login or physical execution.
+
 For a deployment review, confirm the `www` HTTPS response, apex redirect, Pages source commit, site pages and static metadata, and the documentation MCP endpoint. Use normal certificate validation.
 
 ## Hosted device service
