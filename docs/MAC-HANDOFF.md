@@ -54,8 +54,15 @@ IMPORTANT: OAuth authorization/login/consent/refresh endpoints are NOT implement
 
     arduino-cli core update-index
     arduino-cli core install arduino:renesas_uno@1.6.0
-    arduino-cli lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
-    arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi firmware/uno-r4-wifi/openlaunch
+    npm run prepare:firmware
+
+The prepare command validates and stages stock transport sources and writes the isolated configuration without compiling or downloading. Install the pinned dependencies in that configuration, then build:
+
+    arduino-cli --config-file build/firmware/stock/arduino-cli.json lib update-index
+    arduino-cli --config-file build/firmware/stock/arduino-cli.json lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
+    npm run build:firmware
+
+The default `stock` profile stages stock WiFiS3 from the pinned core. It excludes the global sketchbook and Arduino environment overrides, and checks the compiler's resolved WiFiS3 path. Dependencies live under ignored `build/arduino-dependencies`; builds never install or replace global libraries. Do not use a raw `arduino-cli compile` on a Mac with a patched global WiFiS3. See [transport profiles](UNO-R4-PROFILES.md) for the repaired board.
 
 Upload only after identifying the actual connected board/port. Firmware requires an HTTPS bridge, verified TLS and a valid clock before acting. Provision through USB serial JSON at 115200 using the documented fields in the sketch. Do not commit Wi-Fi passwords, enrollment tokens or device credentials. EEPROM storage is plaintext; physical access can expose credentials. Only built-in LED, ASCII text matrix and health are implemented. No arbitrary pin control. No OTA updates are implemented.
 
@@ -81,6 +88,7 @@ Run from the repository root after `npm ci`:
     npm run build
     npm run test:device
     npm run test:e2e
+    npm run prepare:firmware
     npm run build:firmware
     npm run verify
 
@@ -101,7 +109,9 @@ The pairing console now shows the bridge origin and workspace ID beside the one-
 1. Connect the Uno by USB. Run `arduino-cli board list` and confirm its board/port; close other serial monitors.
 2. Compile with `npm run build:firmware`. Flash only the identified board:
 
-       arduino-cli upload --fqbn arduino:renesas_uno:unor4wifi --port /dev/cu.YOUR_CONFIRMED_PORT firmware/uno-r4-wifi/openlaunch
+       arduino-cli upload --fqbn arduino:renesas_uno:unor4wifi --port /dev/cu.YOUR_CONFIRMED_PORT --input-dir build/firmware/stock/compiled
+
+   For the repaired board, explicitly build `console-mux` and use `build/firmware/console-mux/compiled` instead. The existing matching custom ESP bridge must remain installed. Upload is a separate owner action; build commands never flash.
 
 3. Open the HTTPS console and select Pair Uno R4. Copy the workspace ID.
 4. Run the interactive helper. It prompts for Wi-Fi credentials and enrollment token with sensitive entries hidden, asks before sending, and does not write them to a file:

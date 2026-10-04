@@ -12,6 +12,7 @@ node_modules/
 dist/
 build/
 .DS_Store
+__pycache__/
 # Device credentials / journals, never versioned
 **/device.json
 **/device.json.*

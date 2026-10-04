@@ -53,12 +53,7 @@ function build() {
   pi();
 }
 function firmware() {
-  run("arduino-cli", [
-    "compile",
-    "--fqbn",
-    "arduino:renesas_uno:unor4wifi",
-    "firmware/uno-r4-wifi/openlaunch",
-  ]);
+  run(process.execPath, ["scripts/firmware.mjs", ...process.argv.slice(3)]);
 }
 const command = process.argv[2];
 if (command === "doctor") {

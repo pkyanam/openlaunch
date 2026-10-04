@@ -27,7 +27,7 @@ The cloud workspace's scripts/env.sh uses staged local toolchains and should not
 
 ## Monorepo commands
 
-`npm run doctor` checks tool availability. `npm run build` builds web/cloud and host/Pi binaries. `npm run verify` runs the software tests, firmware compilation and simulated end-to-end test. See the handoff for the secure HTTPS real-board test path and interactive Uno USB provisioning.
+`npm run doctor` checks tool availability. `npm run build` builds web/cloud and host/Pi binaries. `npm run prepare:firmware` validates and stages the isolated stock transport without compiling; install its pinned dependencies using the [Mac handoff](docs/MAC-HANDOFF.md), then run `npm run build:firmware`. `npm run verify` runs the software tests, stock firmware compilation and simulated end-to-end test. The [transport profiles](docs/UNO-R4-PROFILES.md) also cover explicit opt-in support for a repaired Uno R4 WiFi. See the handoff for the secure HTTPS real-board test path and interactive Uno USB provisioning.
 
 ## Modules
 protocol / core / authorization / http / mcp packages; cloud / local / web applications; Go Pi runtime; Arduino firmware; independent host integrations.

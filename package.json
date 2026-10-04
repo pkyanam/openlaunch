@@ -21,6 +21,7 @@
     "build": "node scripts/tasks.mjs build",
     "build:pi": "node scripts/tasks.mjs pi",
     "build:firmware": "node scripts/tasks.mjs firmware",
+    "prepare:firmware": "node scripts/firmware.mjs --prepare-only",
     "test:device": "node scripts/tasks.mjs device-test",
     "test:e2e": "node scripts/tasks.mjs e2e",
     "verify": "node scripts/tasks.mjs verify",
