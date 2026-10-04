@@ -18,6 +18,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build:site
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
       - run: npm run check:site
       - run: python3 tests/provision-uno.test.py
       - run: npm run test:device
@@ -38,6 +40,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build:site
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
       - run: npm run check:site
       - run: python3 tests/provision-uno.test.py
       - run: npm run typecheck --workspace @openlaunch/cloud
@@ -92,7 +96,7 @@ jobs:
         with:
           name: openlaunch-website
           path: apps/site/dist/client
-      - run: npx wrangler pages deploy apps/site/dist/client --project-name openlaunch-site --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false --no-bundle
+      - run: npx wrangler pages deploy --cwd apps/site --project-name openlaunch-site --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false --no-bundle
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

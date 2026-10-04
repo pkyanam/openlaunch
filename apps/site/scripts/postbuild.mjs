@@ -1,3 +1,4 @@
+import { cpSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 // Publish installers from this exact checkout alongside the website.
@@ -13,6 +14,30 @@ for (const [source, destination] of [
 }
 const origin =
   process.env.OPENLAUNCH_SITE_ORIGIN || "https://www.openlaunch.dev";
+// Bundle the shared console for the hosted route, with only its public Clerk key.
+if (process.env.CLERK_PUBLISHABLE_KEY) {
+  execFileSync(
+    process.execPath,
+    [
+      "../../node_modules/vite/bin/vite.js",
+      "build",
+      "--base",
+      "/console/",
+      "--outDir",
+      "../site/dist/client/console",
+      "--emptyOutDir",
+    ],
+    {
+      cwd: "../web",
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        VITE_CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY,
+      },
+    },
+  );
+  cpSync("public/icon.svg", "dist/client/console/icon.svg");
+}
 // Blume's custom homepage is indexable but is omitted from its generated llms index.
 const homepage = `## Website\n\n- [openlaunch home](${origin}/): Connect your agents to your hardware. Setup, hardware, source links and documentation.\n\n`;
 const indexPath = "dist/client/llms.txt";
@@ -104,7 +129,17 @@ writeFileSync(
   "dist/client/_routes.json",
   JSON.stringify({
     version: 1,
-    include: ["/docs-mcp", "/", "/docs", "/docs/*"],
+    include: [
+      "/docs-mcp",
+      "/",
+      "/docs",
+      "/docs/*",
+      "/v1/*",
+      "/mcp",
+      "/healthz",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/*",
+    ],
     exclude: ["/docs/*.md", "/docs/*.mdx"],
   }),
 );

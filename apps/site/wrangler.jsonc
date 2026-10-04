@@ -1,0 +1,16 @@
+{
+  "name": "openlaunch-site",
+  "pages_build_output_dir": "./dist/client",
+  "compatibility_date": "2026-10-04",
+  "services": [
+    {
+      "binding": "BRIDGE",
+      "service": "openlaunch-bridge"
+    }
+  ],
+  "env": {
+    "preview": {
+      "services": []
+    }
+  }
+}

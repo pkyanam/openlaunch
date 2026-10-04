@@ -366,6 +366,34 @@ function App({ session }: { session?: () => Promise<string | null> }) {
 }
 function HostedApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const [account, setAccount] = useState<{
+    deviceControlsEnabled: boolean;
+  } | null>(null);
+  const [accountError, setAccountError] = useState("");
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    let active = true;
+    (async () => {
+      try {
+        const token = await getToken();
+        const response = await fetch("/v1/account", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(body.error?.message ?? "Unable to load account");
+        if (active) setAccount(body.data);
+      } catch (error) {
+        if (active)
+          setAccountError(
+            error instanceof Error ? error.message : "Unable to load account",
+          );
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isLoaded, isSignedIn, getToken]);
   if (!isLoaded) return <main>Loading your account…</main>;
   if (!isSignedIn)
     return (
@@ -373,6 +401,35 @@ function HostedApp() {
         <h1>Sign in to openlaunch</h1>
         <SignIn routing="hash" />
       </main>
+    );
+  if (accountError)
+    return (
+      <main>
+        <h1>Account connection</h1>
+        <p role="alert">{accountError}</p>
+        <UserButton />
+        <a href="/docs/troubleshooting">Get help</a>
+      </main>
+    );
+  if (!account) return <main>Connecting your account…</main>;
+  if (!account.deviceControlsEnabled)
+    return (
+      <>
+        <header>
+          <a className="brand" href="/">
+            openlaunch
+          </a>
+          <UserButton />
+        </header>
+        <main>
+          <h1>Account connected</h1>
+          <p>
+            Your sign-in has been verified. Device linking opens after this
+            deployment completes its connection checks.
+          </p>
+          <a href="/docs">Explore the docs</a>
+        </main>
+      </>
     );
   return <App session={getToken} />;
 }

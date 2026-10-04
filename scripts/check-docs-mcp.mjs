@@ -74,7 +74,32 @@ try {
     new Request("https://www.openlaunch.dev/mcp"),
     { ASSETS: assets },
   );
-  assert.equal(controls.status, 404);
+  assert.equal(controls.status, 503);
+  let forwarded;
+  const protectedResponse = await worker.fetch(
+    new Request("https://www.openlaunch.dev/v1/account", {
+      headers: {
+        authorization: "Bearer fixture",
+        "x-openlaunch-principal": "forged",
+      },
+    }),
+    {
+      ASSETS: assets,
+      BRIDGE: {
+        fetch: async (request) => {
+          forwarded = request;
+          return Response.json(
+            { error: { code: "unauthorized" } },
+            { status: 401 },
+          );
+        },
+      },
+    },
+  );
+  assert.equal(protectedResponse.status, 401);
+  assert.equal(forwarded.headers.get("x-openlaunch-principal"), null);
+  assert.equal(forwarded.headers.get("authorization"), "Bearer fixture");
+  assert.equal(new URL(forwarded.url).pathname, "/v1/account");
   console.log(
     `PASS: Blume MCP discovery, ${pages.length} Markdown pages, search, navigation, content negotiation and separation from device controls`,
   );
