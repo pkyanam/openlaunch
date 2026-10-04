@@ -55,7 +55,9 @@ const body = async (r: Request) => {
       new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes),
     );
   } catch {
-    throw new Fault("invalid_json", 400, "Invalid JSON");
+    const zeroBytes = bytes.reduce((count, byte) => count + Number(byte === 0), 0);
+    throw new Fault("invalid_json", 400,
+      `Invalid JSON (bytes=${bytes.length}, zeroBytes=${zeroBytes}, first=${bytes[0] ?? -1}, last=${bytes.at(-1) ?? -1})`);
   }
 };
 export async function handle(
