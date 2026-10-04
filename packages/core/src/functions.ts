@@ -57,6 +57,30 @@ export const functionDefinition = z
     for (const value of Object.values(properties)) {
       if (value.type === "string" && (value.minLength ?? 0) > value.maxLength)
         ctx.addIssue({ code: "custom", message: "Invalid string bounds" });
+      if (value.type === "string" && value.enum) {
+        if (new Set(value.enum).size !== value.enum.length)
+          ctx.addIssue({ code: "custom", message: "Duplicate string choices" });
+        if (
+          value.enum.some(
+            (choice) =>
+              choice.length < (value.minLength ?? 0) ||
+              choice.length > value.maxLength,
+          )
+        )
+          ctx.addIssue({
+            code: "custom",
+            message: "String choices must satisfy their length bounds",
+          });
+      }
+      if (
+        value.type === "integer" &&
+        Math.max(Math.ceil(value.minimum), Number.MIN_SAFE_INTEGER) >
+          Math.min(Math.floor(value.maximum), Number.MAX_SAFE_INTEGER)
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "Integer bounds must include a safe integer",
+        });
       if (
         (value.type === "number" || value.type === "integer") &&
         value.minimum > value.maximum
@@ -69,8 +93,34 @@ export function functionArguments(
   definition: FunctionDefinition,
   input: unknown,
 ): Record<string, unknown> {
-  return z.fromJSONSchema(definition.inputSchema).parse(input) as Record<
-    string,
-    unknown
-  >;
+  // Compile the supported vocabulary explicitly. Generic JSON Schema
+  // conversion can ignore length constraints when a string also has enum.
+  const properties: Record<string, z.ZodType> = {};
+  for (const [name, property] of Object.entries(
+    definition.inputSchema.properties,
+  )) {
+    let schema: z.ZodType;
+    if (property.type === "string") {
+      const text = z
+        .string()
+        .min(property.minLength ?? 0)
+        .max(property.maxLength);
+      schema = property.enum
+        ? text.refine(
+            (value) => property.enum!.includes(value),
+            "Unsupported string choice",
+          )
+        : text;
+    } else if (property.type === "boolean") {
+      schema = z.boolean();
+    } else {
+      const number =
+        property.type === "integer" ? z.number().int() : z.number();
+      schema = number.min(property.minimum).max(property.maximum);
+    }
+    properties[name] = definition.inputSchema.required.includes(name)
+      ? schema
+      : schema.optional();
+  }
+  return z.object(properties).strict().parse(input);
 }

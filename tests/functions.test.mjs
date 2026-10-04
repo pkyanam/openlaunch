@@ -191,3 +191,63 @@ test("custom MCP tool names are bounded and independent of discovery order", () 
     names.toReversed(),
   );
 });
+
+test("function publication rejects contradictory choices and impossible integer ranges", () => {
+  const withProperty = (property) => ({
+    ...manifest,
+    functions: [
+      {
+        ...definition,
+        inputSchema: {
+          ...definition.inputSchema,
+          properties: { value: property },
+        },
+      },
+    ],
+  });
+  for (const property of [
+    { type: "string", maxLength: 2, enum: ["long"] },
+    { type: "string", minLength: 1, maxLength: 2, enum: [""] },
+    { type: "string", maxLength: 2, enum: ["a", "a"] },
+    { type: "integer", minimum: 0.1, maximum: 0.2 },
+    {
+      type: "integer",
+      minimum: Number.MAX_SAFE_INTEGER + 1,
+      maximum: Number.MAX_SAFE_INTEGER + 2,
+    },
+  ])
+    assert.equal(
+      manifestSchema.safeParse(withProperty(property)).success,
+      false,
+    );
+  assert.equal(
+    manifestSchema.safeParse(
+      withProperty({ type: "integer", minimum: 0.1, maximum: 1.2 }),
+    ).success,
+    true,
+  );
+  assert.equal(
+    manifestSchema.safeParse(
+      withProperty({ type: "string", maxLength: 2, enum: ["", "ok"] }),
+    ).success,
+    true,
+  );
+});
+
+test("runtime enforces enum bounds even for an older persisted definition", async () => {
+  const { functionArguments } =
+    await import("../packages/core/src/functions.ts");
+  const older = {
+    ...definition,
+    inputSchema: {
+      ...definition.inputSchema,
+      properties: {
+        value: { type: "string", maxLength: 2, enum: ["ok", "long"] },
+      },
+    },
+  };
+  assert.deepEqual(functionArguments(older, { value: "ok" }), { value: "ok" });
+  assert.throws(() => functionArguments(older, { value: "long" }));
+  assert.throws(() => functionArguments(older, { value: "no" }));
+  assert.throws(() => functionArguments(older, { value: "ok", extra: true }));
+});
