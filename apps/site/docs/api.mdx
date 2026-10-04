@@ -15,39 +15,39 @@ Device polling and result reports use a private per-device bearer credential. Ne
 
 ## Routes
 
-| Method | Route                           | Purpose                                                                 |
-| ------ | ------------------------------- | ----------------------------------------------------------------------- |
-| GET    | `/healthz`                      | Service health; not a device result                                     |
-| GET    | `/v1/devices`                   | Devices visible to the current principal                                |
-| GET    | `/v1/functions`                 | Custom functions this principal may currently call                       |
-| POST   | `/v1/sdk/devices`               | Attach a device using a setup token and stable request ID                |
-| POST   | `/v1/enrollments`               | Owner creates a 10-minute, single-use enrollment                        |
-| GET    | `/v1/device-setup-tokens`       | Owner lists setup-purpose and eligible legacy tokens; secrets are omitted |
-| POST   | `/v1/device-setup-tokens`       | Owner creates a setup token (one-device default), shown once            |
-| POST   | `/v1/device-setup-tokens/{id}/revoke` | Owner revokes a setup token; an issued child credential remains valid |
-| GET    | `/v1/sdk-tokens`                | Legacy alias for listing setup-purpose and eligible legacy tokens       |
-| POST   | `/v1/sdk-tokens`                | Legacy alias for creating a device setup token                           |
-| POST   | `/v1/sdk-tokens/{id}/revoke`    | Legacy alias for revoking a device setup token                           |
-| GET    | `/v1/agent-connections`         | Owner lists agent API connections; secrets are omitted                   |
-| POST   | `/v1/agent-connections`         | Owner creates an `ol_agent_` API credential, shown once                  |
-| POST   | `/v1/agent-connections/{id}/revoke` | Owner revokes an agent connection and its grants                     |
-| POST   | `/v1/device/{id}/manifest`      | Device publishes implemented functions; changed manifests revoke grants |
-| POST   | `/v1/device/enroll`             | Device exchanges an enrollment for its credential                       |
-| GET    | `/v1/grants`                    | Owner lists active saved grants                                         |
-| POST   | `/v1/grants`                    | Owner approves agent/device/capability access                           |
-| POST   | `/v1/grants/revoke`             | Owner revokes that agent's access to a device                           |
-| POST   | `/v1/devices/{id}/revoke`       | Owner revokes the device credential                                     |
-| POST   | `/v1/devices/{id}/actions`      | Request a supported capability                                          |
-| POST   | `/v1/broadcasts`                | Request an action for up to 20 devices, with a result for each          |
-| GET    | `/v1/actions`                   | Owner lists the latest 100 action receipts                              |
-| GET    | `/v1/actions/export`            | Owner downloads all retained action receipts                            |
-| GET    | `/v1/actions/{id}`              | Inspect the command result                                              |
-| POST   | `/v1/actions/{id}/cancel`       | Cancel an undispatched command                                          |
-| POST   | `/v1/device/{id}/next`          | Device polls for its next command                                       |
-| POST   | `/v1/device/{id}/result`        | Device reports success or failure                                       |
-| POST   | `/v1/device/{id}/events-ticket` | Issue a 30-second, single-use WebSocket handshake ticket                |
-| GET    | `/v1/device/{id}/events`        | WebSocket connection for payload-free device wake hints                 |
-| POST   | `/mcp`                          | Stateless device MCP requests                                           |
+| Method | Route                                 | Purpose                                                                   |
+| ------ | ------------------------------------- | ------------------------------------------------------------------------- |
+| GET    | `/healthz`                            | Service health; not a device result                                       |
+| GET    | `/v1/devices`                         | Devices visible to the current principal                                  |
+| GET    | `/v1/functions`                       | Granted built-in and custom functions                                     |
+| POST   | `/v1/sdk/devices`                     | Attach a device using a setup token and stable request ID                 |
+| POST   | `/v1/enrollments`                     | Owner creates a 10-minute, single-use enrollment                          |
+| GET    | `/v1/device-setup-tokens`             | Owner lists setup-purpose and eligible legacy tokens; secrets are omitted |
+| POST   | `/v1/device-setup-tokens`             | Owner creates a setup token (one-device default), shown once              |
+| POST   | `/v1/device-setup-tokens/{id}/revoke` | Owner revokes a setup token; an issued child credential remains valid     |
+| GET    | `/v1/sdk-tokens`                      | Legacy alias for listing setup-purpose and eligible legacy tokens         |
+| POST   | `/v1/sdk-tokens`                      | Legacy alias for creating a device setup token                            |
+| POST   | `/v1/sdk-tokens/{id}/revoke`          | Legacy alias for revoking a device setup token                            |
+| GET    | `/v1/agent-connections`               | Owner lists agent API connections; secrets are omitted                    |
+| POST   | `/v1/agent-connections`               | Owner creates an `ol_agent_` API credential, shown once                   |
+| POST   | `/v1/agent-connections/{id}/revoke`   | Owner revokes an agent connection and its grants                          |
+| POST   | `/v1/device/{id}/manifest`            | Device publishes implemented functions; changed manifests revoke grants   |
+| POST   | `/v1/device/enroll`                   | Device exchanges an enrollment for its credential                         |
+| GET    | `/v1/grants`                          | Owner lists active saved grants                                           |
+| POST   | `/v1/grants`                          | Owner approves agent/device/capability access                             |
+| POST   | `/v1/grants/revoke`                   | Owner revokes that agent's access to a device                             |
+| POST   | `/v1/devices/{id}/revoke`             | Owner revokes the device credential                                       |
+| POST   | `/v1/devices/{id}/actions`            | Request a supported capability                                            |
+| POST   | `/v1/broadcasts`                      | Request an action for up to 20 devices, with a result for each            |
+| GET    | `/v1/actions`                         | Owner lists the latest 100 action receipts                                |
+| GET    | `/v1/actions/export`                  | Owner downloads all retained action receipts                              |
+| GET    | `/v1/actions/{id}`                    | Inspect the command result                                                |
+| POST   | `/v1/actions/{id}/cancel`             | Cancel an undispatched command                                            |
+| POST   | `/v1/device/{id}/next`                | Device polls for its next command                                         |
+| POST   | `/v1/device/{id}/result`              | Device reports success or failure                                         |
+| POST   | `/v1/device/{id}/events-ticket`       | Issue a 30-second, single-use WebSocket handshake ticket                  |
+| GET    | `/v1/device/{id}/events`              | WebSocket connection for payload-free device wake hints                   |
+| POST   | `/mcp`                                | Stateless device MCP requests                                             |
 
 ## Create a device setup token
 
@@ -75,7 +75,9 @@ Create agent API credentials separately with `POST /v1/agent-connections` and a 
 
 The response has `purpose: "agent"` and `expiresAt` is `null` for a non-expiring connection. The returned `ol_agent_` credential can authenticate API requests but cannot attach devices. OAuth clients use the hosted OAuth flow instead. Older untyped combined connection records remain supported for compatibility; do not create new combined records.
 
-## List available custom functions
+## List devices and functions
+
+`GET /v1/devices` gives owners the complete device inventory. Agent responses contain only devices with currently permitted functions, and filter their `capabilities` and `functions` to the current credential’s grants and read/action scope. The same permission filter powers MCP and CLI discovery.
 
 `GET /v1/functions` returns `{ "data": [...] }` with only advertised built-in and custom functions the current credential may use. Each row has `deviceId`, `deviceName`, `kind`, the device's `definition` (name, title, description, access, and bounded input schema), and `guide`. The guide contains schema-based usage notes and may include a profile-specific note only when the device kind and full function schema match a verified catalog entry. It is explanatory text, not authorization, and does not add arguments or capabilities. This route requires the same bearer token and workspace context as other agent API calls. Rows reflect current per-device grants; read-only credentials do not receive write functions. Device setup tokens cannot use this route. Use the returned definitions as the available call schema, and check each operation's result through the action receipt APIs.
 

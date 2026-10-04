@@ -52,7 +52,8 @@ const builtInFunctionDefinitions: Record<string, FunctionDefinition> = {
   "display.text": {
     name: "display.text",
     title: "Display text",
-    description: "Show up to 96 printable ASCII characters on the device display.",
+    description:
+      "Show up to 96 printable ASCII characters on the device display.",
     access: "write",
     inputSchema: {
       type: "object",
@@ -272,7 +273,11 @@ export class Hub {
     this.device(d);
     if (p.owner) return;
     if (isDeviceSetupPrincipal(p))
-      throw new Fault("forbidden", 403, "Device setup tokens cannot access functions");
+      throw new Fault(
+        "forbidden",
+        403,
+        "Device setup tokens cannot access functions",
+      );
     if (
       !this.state.grants.some(
         (g) =>
@@ -295,7 +300,8 @@ export class Hub {
   }
   functions(p: Principal) {
     return this.functionCatalog(p).filter(
-      (entry) => !Object.hasOwn(builtInFunctionDefinitions, entry.definition.name),
+      (entry) =>
+        !Object.hasOwn(builtInFunctionDefinitions, entry.definition.name),
     );
   }
   functionCatalog(p: Principal) {
@@ -304,11 +310,16 @@ export class Hub {
       .filter((device) => !device.revoked)
       .flatMap((device) => {
         const custom = new Map(
-          (device.functions ?? []).map((definition) => [definition.name, definition]),
+          (device.functions ?? []).map((definition) => [
+            definition.name,
+            definition,
+          ]),
         );
         return device.capabilities
           .map((name) => custom.get(name) ?? builtInFunctionDefinitions[name])
-          .filter((definition): definition is FunctionDefinition => Boolean(definition))
+          .filter((definition): definition is FunctionDefinition =>
+            Boolean(definition),
+          )
           .filter(
             (definition) =>
               !(p.readOnly && definition.access === "write") &&
@@ -330,20 +341,27 @@ export class Hub {
       });
   }
   list(p: Principal) {
+    const permitted = new Map<string, Set<string>>();
+    if (!p.owner)
+      for (const entry of this.functionCatalog(p)) {
+        const names = permitted.get(entry.deviceId) ?? new Set<string>();
+        names.add(entry.definition.name);
+        permitted.set(entry.deviceId, names);
+      }
     return this.state.devices
-      .filter(
-        (d) =>
-          !d.revoked &&
-          (p.owner ||
-            (!isDeviceSetupPrincipal(p) && this.state.grants.some(
-              (g) =>
-                g.principal === p.id &&
-                g.deviceId === d.id &&
-                grantIsActive(g, this.now()),
-            ))),
-      )
+      .filter((d) => !d.revoked && (p.owner || permitted.has(d.id)))
       .map(({ tokenHash, attachedConnectionId, ...d }) => ({
         ...d,
+        ...(!p.owner
+          ? {
+              capabilities: d.capabilities.filter((name) =>
+                permitted.get(d.id)!.has(name),
+              ),
+              functions: d.functions?.filter((definition) =>
+                permitted.get(d.id)!.has(definition.name),
+              ),
+            }
+          : {}),
         online: this.now() - d.lastSeen < 45000,
       }));
   }
@@ -494,8 +512,8 @@ export class Hub {
   }
   deviceSetupTokens(p: Principal) {
     this.owner(p);
-    return this.state.agentConnections!
-      .filter(
+    return this.state
+      .agentConnections!.filter(
         (c) =>
           !c.revoked &&
           connectionIsActive(c, this.now()) &&
@@ -538,13 +556,13 @@ export class Hub {
       attachment.deviceLimit > 20 ||
       (attachment.canAttach
         ? attachment.deviceLimit < 1
-        : attachment.deviceLimit !== 0)
-      || (purpose === "agent" && attachment.canAttach)
-      || (purpose === "device-setup" && !attachment.canAttach)
+        : attachment.deviceLimit !== 0) ||
+      (purpose === "agent" && attachment.canAttach) ||
+      (purpose === "device-setup" && !attachment.canAttach)
     )
       throw new Fault("invalid", 400, "Invalid agent connection");
-    this.state.agentConnections = this.state.agentConnections!.filter(
-      (c) => connectionIsActive(c, this.now()),
+    this.state.agentConnections = this.state.agentConnections!.filter((c) =>
+      connectionIsActive(c, this.now()),
     );
     if (this.state.agentConnections.length >= 20)
       throw new Fault("limit", 429, "Agent connection limit reached");
@@ -585,7 +603,7 @@ export class Hub {
     if (
       p.owner ||
       !connection ||
-      (connection.purpose === "agent") ||
+      connection.purpose === "agent" ||
       !(connection.purpose === "device-setup" || connection.canAttach)
     )
       throw new Fault("forbidden", 403, "This SDK token cannot attach devices");
@@ -732,8 +750,7 @@ export class Hub {
       throw new Fault("unauthorized", 401, "Invalid agent connection");
     const tokenHash = await hash(token);
     const connection = this.state.agentConnections!.find(
-      (c) =>
-        c.tokenHash === tokenHash && connectionIsActive(c, this.now()),
+      (c) => c.tokenHash === tokenHash && connectionIsActive(c, this.now()),
     );
     if (!connection)
       throw new Fault(
@@ -742,10 +759,7 @@ export class Hub {
         "Agent connection expired or revoked",
       );
     const tokenPurpose = agentTokenPurpose(token);
-    if (
-      connection.purpose &&
-      connection.purpose !== tokenPurpose
-    )
+    if (connection.purpose && connection.purpose !== tokenPurpose)
       throw new Fault("unauthorized", 401, "Invalid token purpose");
     return {
       id: connection.principal,
@@ -788,7 +802,11 @@ export class Hub {
           connection.purpose === "device-setup",
       )
     )
-      throw new Fault("forbidden", 403, "Device setup tokens cannot receive grants");
+      throw new Fault(
+        "forbidden",
+        403,
+        "Device setup tokens cannot receive grants",
+      );
     if (
       !principal ||
       principal.length > 128 ||
@@ -1004,8 +1022,7 @@ export class Hub {
     const connectionValid =
       !principal.startsWith("connection:") ||
       this.state.agentConnections!.some(
-        (c) =>
-          c.principal === principal && connectionIsActive(c, this.now()),
+        (c) => c.principal === principal && connectionIsActive(c, this.now()),
       );
     if (
       (!connectionValid ||

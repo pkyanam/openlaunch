@@ -83,7 +83,10 @@ test("function catalog includes only each built-in or custom function granted fo
     capabilities: ["device.health", "led.set", definition.name],
     functions: [definition],
   });
-  hub.grant(owner, agent.id, device.deviceId, ["device.health", definition.name]);
+  hub.grant(owner, agent.id, device.deviceId, [
+    "device.health",
+    definition.name,
+  ]);
   const catalog = hub.functionCatalog(agent);
   assert.deepEqual(
     catalog.map((entry) => [entry.deviceId, entry.definition.name]),
@@ -92,9 +95,14 @@ test("function catalog includes only each built-in or custom function granted fo
       [device.deviceId, definition.name],
     ],
   );
-  assert.equal(catalog.some((entry) => entry.deviceId === other.deviceId), false);
+  assert.equal(
+    catalog.some((entry) => entry.deviceId === other.deviceId),
+    false,
+  );
   assert.deepEqual(
-    hub.functionCatalog({ ...agent, readOnly: true }).map((entry) => entry.definition.name),
+    hub
+      .functionCatalog({ ...agent, readOnly: true })
+      .map((entry) => entry.definition.name),
     ["device.health"],
   );
   assert.equal(hub.functions(agent).length, 1);
@@ -181,17 +189,21 @@ test("MCP generates per-device built-in tools from the same grant-filtered catal
   hub.grant(owner, agent.id, device.deviceId, ["device.health"]);
   const server = createMcp(hub, agent);
   const client = new Client({ name: "builtin-catalog-test", version: "1" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
     const { tools } = await client.listTools();
     const healthTool = tools.find(
-      (item) => item.name === functionToolName(device.deviceId, "device.health"),
+      (item) =>
+        item.name === functionToolName(device.deviceId, "device.health"),
     );
     assert(healthTool);
     assert.equal(
-      tools.some((item) => item.name === functionToolName(device.deviceId, "led.set")),
+      tools.some(
+        (item) => item.name === functionToolName(device.deviceId, "led.set"),
+      ),
       false,
     );
     const result = await client.callTool({
@@ -319,4 +331,23 @@ test("runtime enforces enum bounds even for an older persisted definition", asyn
   assert.throws(() => functionArguments(older, { value: "long" }));
   assert.throws(() => functionArguments(older, { value: "no" }));
   assert.throws(() => functionArguments(older, { value: "ok", extra: true }));
+});
+
+test("agent device inventory exposes only granted function metadata", async () => {
+  const { hub, device } = await fixture();
+  assert.deepEqual(hub.list(agent), []);
+  hub.grant(owner, agent.id, device.deviceId, ["device.health"], null);
+  const inventory = hub.list(agent);
+  assert.deepEqual(inventory[0].capabilities, ["device.health"]);
+  assert.deepEqual(inventory[0].functions, []);
+  assert.deepEqual(hub.list(owner)[0].capabilities, manifest.capabilities);
+  assert.deepEqual(hub.list(owner)[0].functions, [definition]);
+  hub.grant(owner, agent.id, device.deviceId, manifest.capabilities, null);
+  assert.deepEqual(hub.list(agent)[0].functions, [definition]);
+  assert.deepEqual(hub.list({ ...agent, readOnly: true })[0].capabilities, [
+    "device.health",
+  ]);
+  assert.deepEqual(hub.list({ ...agent, readOnly: true })[0].functions, []);
+  hub.revokeGrant(owner, agent.id, device.deviceId);
+  assert.deepEqual(hub.list(agent), []);
 });
