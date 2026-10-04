@@ -76,7 +76,9 @@ export async function handle(
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin)
       throw new Fault("origin", 403, "Cross-origin request rejected");
-    if (path === "/v1/device/enroll" && method === "POST") {
+    if (path === "/v1/device/enroll") {
+      if (method !== "POST")
+        throw new Fault("method", 405, "Method not allowed");
       const b = z
         .object({ token: z.string().length(64), manifest: z.unknown() })
         .strict()
@@ -110,6 +112,10 @@ export async function handle(
       }
       throw new Fault("method", 405, "Method not allowed");
     }
+    // Device credentials never become owner/agent credentials on a misspelled
+    // route. Report the route error before resolving an agent principal.
+    if (path.startsWith("/v1/device/"))
+      throw new Fault("not_found", 404, "Device route not found");
     const token = bearer(request);
     const p = agentTokenWorkspace(token)
       ? await hub.authenticateConnection(token, context.workspace ?? "")

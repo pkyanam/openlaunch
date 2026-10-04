@@ -12,6 +12,32 @@ const resolve = async (r) => {
   if (t === "Bearer agent-fixture") return agent;
   throw new Fault("unauthorized", 401, "fixture auth required");
 };
+test("invalid device routes return stable errors without resolving an agent", async () => {
+  let resolutions = 0;
+  const unavailable = async () => {
+    resolutions++;
+    throw new Error("Device request has no owner principal");
+  };
+  for (const [path, method, status, code] of [
+    [
+      "/v1/device/11111111-1111-4111-8111-111111111111/events/ticket",
+      "POST",
+      404,
+      "not_found",
+    ],
+    ["/v1/device/enroll", "GET", 405, "method"],
+  ]) {
+    const response = await handle(
+      new Request(`https://bridge.example${path}`, { method }),
+      new Hub(),
+      unavailable,
+    );
+    assert.equal(response.status, status);
+    assert.equal((await response.json()).error.code, code);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+  }
+  assert.equal(resolutions, 0);
+});
 async function api(h, path, method = "GET", data, token = "owner-fixture") {
   return handle(
     new Request("http://127.0.0.1:8788" + path, {
