@@ -1,0 +1,3 @@
+/* Keep docs, callouts, syntax highlighting and search monochrome too. */
+html { filter: grayscale(1); }
+.dark img[src='/icon.png'], [data-theme='dark'] img[src='/icon.png'] { filter: grayscale(1) invert(1); }

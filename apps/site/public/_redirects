@@ -1,0 +1,4 @@
+/downloads/source https://github.com/pkyanam/openlaunch/archive/refs/heads/main.zip 302
+/downloads/pi https://github.com/pkyanam/openlaunch/actions/workflows/ci.yml 302
+/downloads/releases https://github.com/pkyanam/openlaunch/releases 302
+/downloads/provision-uno https://github.com/pkyanam/openlaunch/blob/main/scripts/provision-uno.py 302

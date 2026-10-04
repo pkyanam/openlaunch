@@ -1,0 +1,35 @@
+---
+title: Downloads & resources
+description: Find openlaunch source downloads, CI binary artifacts, shared SDK packages, official hardware documentation and the tools needed to build and pair your board.
+---
+
+## openlaunch downloads
+
+Downloads currently live on GitHub. There is no published stable binary release or flashable Pi OS image yet.
+
+- [Source ZIP (main)](https://github.com/pkyanam/openlaunch/archive/refs/heads/main.zip) — moving branch; use a commit archive for reproducibility.
+- [CI builds and Pi binary artifacts](https://github.com/pkyanam/openlaunch/actions/workflows/ci.yml) — open a successful run and download `openlaunch-pi-binaries`. GitHub sign-in may be required. Build outputs are developer artifacts, not hardware-verified releases.
+- [Release page](https://github.com/pkyanam/openlaunch/releases) — future versioned binaries will appear here.
+- [R4 provisioning script](https://github.com/pkyanam/openlaunch/blob/main/scripts/provision-uno.py) — review it in the checkout, then run `npm run provision:uno`. Do not pipe remote scripts into a shell.
+- [Stock firmware source](https://github.com/pkyanam/openlaunch/tree/main/firmware) and [build profiles](https://github.com/pkyanam/openlaunch/blob/main/docs/UNO-R4-PROFILES.md).
+- [Pi Go agent and systemd service](https://github.com/pkyanam/openlaunch/tree/main/devices/pi).
+
+Site aliases `/downloads/source`, `/downloads/pi`, `/downloads/releases`, and `/downloads/provision-uno` redirect to these GitHub resources. There is no hosted device token or login needed to read the docs.
+
+## Shared packages
+
+The packages are in the monorepo and are not published to npm yet. See [all package sources](https://github.com/pkyanam/openlaunch/tree/main/packages), including protocol, auth, core, HTTP and MCP. The [architecture guide](/architecture) explains their boundaries.
+
+## Hardware and upstream projects
+
+| Project             | Documentation                                                                          | Source / downloads                                                       |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Arduino Uno R4 WiFi | [Board, pinout, schematics](https://docs.arduino.cc/hardware/uno-r4-wifi/)             | [Renesas board core](https://github.com/arduino/ArduinoCore-renesas)     |
+| Arduino CLI         | [CLI docs](https://docs.arduino.cc/arduino-cli/)                                       | [CLI releases](https://github.com/arduino/arduino-cli/releases)          |
+| Raspberry Pi 4      | [Hardware docs](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html) | [OS images and Imager](https://www.raspberrypi.com/software/)            |
+| MCP                 | [Protocol docs](https://modelcontextprotocol.io/docs/getting-started/intro)            | [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) |
+| Go                  | [Go docs](https://go.dev/doc/)                                                         | [Go downloads](https://go.dev/dl/)                                       |
+| Node.js             | [Node docs](https://nodejs.org/docs/latest/api/)                                       | [Node downloads](https://nodejs.org/en/download)                         |
+| Blume               | [Website and docs](https://useblume.dev/)                                              | [Blume source](https://github.com/haydenbleasel/blume)                   |
+
+Use the versions pinned by the repository's [Mac setup guide](https://github.com/pkyanam/openlaunch/blob/main/docs/MAC-HANDOFF.md). The repaired board's custom ESP firmware and private repair assets are not downloads for this project.

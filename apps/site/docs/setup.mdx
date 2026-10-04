@@ -3,36 +3,37 @@ title: Local setup
 description: Build the openlaunch monorepo, run simulated pairing tests and start the local owner console before moving to trusted HTTPS hardware acceptance.
 ---
 
-## Prerequisites
+## Run the local bridge
 
-Use Node 24+, Go matching `devices/pi/go.mod` (currently 1.27.1), Python 3 and Arduino CLI 1.5.1 for firmware. No Docker is needed. Do not source `scripts/env.sh` on your Mac; it is a cloud staging wrapper.
-
-## Build and check
+Install Node 24+ and Go matching `devices/pi/go.mod` (currently 1.27.1). [Downloads and upstream docs](/resources).
 
 ```sh
 git clone https://github.com/pkyanam/openlaunch.git
 cd openlaunch
 npm ci
-npm run doctor
-npm run check
-npm run build
-npm run test:device
+npm run build --workspace @openlaunch/web
 npm run test:e2e
 ```
 
-If you already have a checkout, inspect its status and preserve local changes instead of cloning over it. The build includes the website, React console, Cloudflare scaffold and Go host/ARM binaries. It never flashes a board.
+The test pairs a simulated device and checks command results, persistence and revocation. It doesn't touch hardware. If you already have a checkout, preserve local changes.
 
-`test:e2e` creates disposable fixture tokens internally, binds to loopback, exercises a Go simulated device, checks persistence and revocation, and cleans up its temporary directory. Simulated LED/display results are not physical acceptance.
-
-## Start the console
-
-Set distinct random development-only `OPENLAUNCH_OWNER_TOKEN` and `OPENLAUNCH_AGENT_TOKEN` in your terminal environment. The bridge rejects missing, short or equal values. Keep these tokens out of prompts, source files and shell history; do not reuse production credentials.
+Start the console with two random, temporary tokens. These commands generate them locally without printing them or putting their values in shell history:
 
 ```sh
+export OPENLAUNCH_OWNER_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+export OPENLAUNCH_AGENT_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
 npm run dev:local
 ```
 
-Open `http://127.0.0.1:8788`. Enter the owner token in the development session field; it stays in page memory. Create an enrollment for your board kind. The default agent principal is `local-agent`.
+Open `http://127.0.0.1:8788`. Copy the owner token into the console's development session field using your local password/clipboard workflow; on macOS, `printf %s "$OPENLAUNCH_OWNER_TOKEN" | pbcopy` copies it without displaying it. Clear your clipboard afterward. The console keeps the token in page memory.
+
+In the console:
+
+1. Create an enrollment for **Uno R4 WiFi** or **Pi**.
+2. Follow the [Uno guide](/uno-r4) or [Pi guide](/pi) to pair it within 10 minutes.
+3. Grant `local-agent` the device's health capability, request health, and inspect the completed result.
+
+Pairing registers the device; the grant lets the agent use it. Add LED or matrix grants only for the Uno. [Full pairing and permission rules](/pairing).
 
 ## Local MCP
 

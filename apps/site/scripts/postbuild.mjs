@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const origin =
   process.env.OPENLAUNCH_SITE_ORIGIN || "https://www.openlaunch.dev";
 // Blume's custom homepage is indexable but is omitted from its generated llms index.
-const homepage = `## Website\n\n- [openlaunch home](${origin}/): Your agents. Your devices. Your permission. Product story, hardware targets, pairing and developer alpha status.\n\n`;
+const homepage = `## Website\n\n- [openlaunch home](${origin}/): Connect your agents to your hardware. Setup, hardware, source links and developer alpha status.\n\n`;
 const indexPath = "dist/llms.txt";
 const index = readFileSync(indexPath, "utf8").replace(
   "## Docs\n",
@@ -37,4 +37,16 @@ writeFileSync(
   "dist/_headers",
   readFileSync("dist/_headers", "utf8") +
     "\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
+);
+// Blume 2.1.1's generated 404 ignores the custom Logo slot and omits raster dimensions.
+const notFoundPath = "dist/404.html";
+writeFileSync(
+  notFoundPath,
+  readFileSync(notFoundPath, "utf8").replace(
+    /<img\b[^>]*src="\/icon\.png"[^>]*>/g,
+    (tag) =>
+      /\bwidth=/.test(tag)
+        ? tag
+        : tag.replace("<img", '<img width="1280" height="1280"'),
+  ),
 );
