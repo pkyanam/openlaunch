@@ -45,7 +45,7 @@ def verify(commit):
     status, _, _ = response(ORIGIN + '/v1/devices')
     assert status == 401, 'device inventory must require authentication'
     for policy in ['terms', 'privacy']:
-        status, _, body = response(ORIGIN + '/docs/' + policy)
+        status, _, body = response(ORIGIN + '/docs/' + policy + '/')
         assert status == 200 and b'Belweave' in body and b'info@belweave.com' in body, f'policy unavailable: {policy}'
         status, _, body = response(ORIGIN + '/docs/' + policy + '.md')
         assert status == 200 and b'Belweave' in body, f'Markdown policy unavailable: {policy}'
