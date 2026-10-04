@@ -27,3 +27,27 @@ The owner login and agent OAuth consent flow have been exercised successfully. A
 The software acceptance on commit `873f82900d99125782e7e9347753e6ee675ee90e` exercised the public Node installer, SDK attachment, owner grants, official Codex OAuth custom-tool discovery, completed action tracking and matching durable result receipts. Test tokens and device identities were revoked afterward. Native download checksums and both apex/www HTTPS routes matched the deployed commit. The corresponding GitHub Actions run was `37224049998`, with all required jobs successful.
 
 For firmware and device acceptance, use [MAC-HANDOFF.md](MAC-HANDOFF.md) and [UNO-R4-PROFILES.md](UNO-R4-PROFILES.md). Private repair assets are isolated from the public site and should not be published.
+
+## Workspace storage migration and rollback
+
+The device Worker stores workspace collections as individual rows in native
+SQLite. Read-only requests leave rows unchanged; a normal idle poll changes only
+the device's last-seen record. Action outcomes, grants and audit changes commit
+in one synchronous transaction. Audit rollover retains stable record identities
+and removes only the oldest entry.
+
+On first access, the Worker saves the exact prior KV snapshot as
+`state:legacy-v1`, imports it into SQLite transactionally, and replaces the old
+`state` key with a migration guard before accepting new operations. SQL counts,
+record identifiers and schema versions are checked when loading. An interrupted
+guard write is repaired only if the legacy data still matches the saved backup;
+a changed legacy value requires explicit recovery rather than silently discarding
+it.
+
+After migration, use a Worker version that understands this SQLite schema for
+rollback. Older versions reject the guarded state. Restoring the old backup
+would lose subsequent revocations and outcomes, so never replace current data
+with that snapshot as a routine rollback. The backup is a recovery input, not an
+automatic restore point. The adapter still reconstructs the working state in
+memory; byte-based workspace capacity and result reservations require further
+work before claiming a fixed memory bound for all allowed payloads.

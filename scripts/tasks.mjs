@@ -88,6 +88,7 @@ else if (command === "e2e") {
   run("python3", ["tests/provision-uno.test.py"]);
   go(["test", "./..."]);
   build();
+  npm("test:cloud-storage");
   firmware();
   run(process.execPath, ["scripts/e2e.mjs"]);
 } else {

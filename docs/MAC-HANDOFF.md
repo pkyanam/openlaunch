@@ -12,11 +12,14 @@ Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not sourc
     npm run check
     npm run build --workspace @openlaunch/web
     npm run build --workspace @openlaunch/cloud
+    npm run test:cloud-storage
     cd devices/pi
     go test ./...
     go build -o ../../dist/openlaunch-device-host ./cmd/openlaunch-device
     cd ../..
     node scripts/e2e.mjs
+
+The cloud storage check runs the built Worker in local workerd with disposable SQLite files, verifies SDK attachment, a runtime restart, idempotency, grants, outcomes, export and revocation, then removes its temporary directory. It uses test principals at the edge-to-object boundary; Clerk authentication has separate verification tests. It does not contact production or access hardware.
 
 The E2E command generates disposable local fixture tokens internally, starts only on 127.0.0.1, runs the Go client, checks persistence/revocation, and removes its temporary test directory. It does not access real devices or external accounts.
 

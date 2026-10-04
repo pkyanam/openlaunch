@@ -29,7 +29,8 @@
     "build:site": "npm run build --workspace @openlaunch/site",
     "check:site": "npm run validate --workspace @openlaunch/site && npm run audit --workspace @openlaunch/site && node scripts/check-docs-mcp.mjs",
     "setup": "npm ci && npm run build --workspace @openlaunch/web && node scripts/start-local.mjs",
-    "start:local": "node scripts/start-local.mjs"
+    "start:local": "node scripts/start-local.mjs",
+    "test:cloud-storage": "node scripts/verify-cloud-storage.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261003.1",
@@ -40,6 +41,7 @@
     "cf": "1.0.0-beta.12",
     "esbuild": "0.28.2",
     "jose": "6.2.12",
+    "miniflare": "5.20260930.0-alpha",
     "prettier": "3.9.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",

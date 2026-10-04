@@ -6,7 +6,7 @@ import {
   type Principal,
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
-import { withWorkspaceState } from "./state.ts";
+import { withWorkspaceSQLiteState } from "./sqlite-state.ts";
 import { DeviceEvents, type DeviceEventsSocket } from "./device-events.ts";
 interface Env extends ClerkEnv {
   HUBS: DurableObjectNamespace;
@@ -22,7 +22,7 @@ export class WorkspaceHub extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.events = new DeviceEvents(ctx, async (id, credential) =>
-      withWorkspaceState(ctx.storage, (hub) =>
+      withWorkspaceSQLiteState(ctx.storage, ctx.storage.sql, (hub) =>
         hub.authenticateDevice(id, credential),
       ),
     );
@@ -40,10 +40,13 @@ export class WorkspaceHub extends DurableObject<Env> {
           return this.events.handleTicket(request, eventRoute[1]!);
         // Ticket possession must not outlive canonical device revocation, even
         // if clearing the ticket store previously failed after the state commit.
-        const active = await withWorkspaceState(this.ctx.storage, async (hub) =>
-          hub.state.devices.some(
-            (device) => device.id === eventRoute[1] && !device.revoked,
-          ),
+        const active = await withWorkspaceSQLiteState(
+          this.ctx.storage,
+          this.ctx.storage.sql,
+          async (hub) =>
+            hub.state.devices.some(
+              (device) => device.id === eventRoute[1] && !device.revoked,
+            ),
         );
         if (!active)
           return Response.json(
@@ -59,8 +62,9 @@ export class WorkspaceHub extends DurableObject<Env> {
       }
       const principal = request.headers.get("x-openlaunch-principal");
       let wake: string[] = [];
-      const response = await withWorkspaceState(
+      const response = await withWorkspaceSQLiteState(
         this.ctx.storage,
+        this.ctx.storage.sql,
         async (hub) => {
           const queued = new Set(
             hub.state.actions
