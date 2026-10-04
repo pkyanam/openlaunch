@@ -48,6 +48,14 @@ After migration, use a Worker version that understands this SQLite schema for
 rollback. Older versions reject the guarded state. Restoring the old backup
 would lose subsequent revocations and outcomes, so never replace current data
 with that snapshot as a routine rollback. The backup is a recovery input, not an
-automatic restore point. The adapter still reconstructs the working state in
-memory; byte-based workspace capacity and result reservations require further
-work before claiming a fixed memory bound for all allowed payloads.
+automatic restore point. The shared core enforces a 16 MiB logical workspace
+budget, measured from UTF-8 records with per-row overhead, a reserved audit ring
+and 16 KiB reserved per queued or received action for its result. Admissions are
+checked before writes, including complete SDK attachments. An over-budget legacy
+workspace blocks new work and queued dispatch but can accept non-growing results
+from already received actions and revoke access. History is never evicted to
+make room.
+
+The adapter still reconstructs the working state in memory. The logical quota
+is a conservative admission policy, not a measured JavaScript heap guarantee;
+profile large-workspace memory and request cost before increasing it.

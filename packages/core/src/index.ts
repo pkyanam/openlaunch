@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertWorkspaceStorageBudget } from "./storage-budget.ts";
 import type { ActionEnvelope, ActionState } from "../../protocol/src/index.ts";
 import {
   capabilityName,
@@ -181,6 +182,16 @@ export class Hub {
     state.agentConnections ??= [];
     state.attachAttempts ??= [];
   }
+  private capacity(
+    changes: Partial<State> = {},
+    mode: "new-work" | "dispatch" | "drain" = "new-work",
+  ) {
+    assertWorkspaceStorageBudget(
+      this.state,
+      { ...this.state, ...changes },
+      { mode },
+    );
+  }
   private audit(event: string, target: string, principal: string) {
     this.state.audit.push({ at: this.now(), event, target, principal });
     this.state.audit = this.state.audit.slice(-1000);
@@ -301,12 +312,14 @@ export class Hub {
     if (this.state.enrollments.length >= 10)
       throw new Fault("limit", 429, "Too many pending enrollments");
     const expiresAt = this.now() + 600000;
-    this.state.enrollments.push({
+    const enrollment = {
       hash: await hash(token),
       expiresAt,
       used: false,
       kind,
-    });
+    };
+    this.capacity({ enrollments: [...this.state.enrollments, enrollment] });
+    this.state.enrollments.push(enrollment);
     this.audit("enrollment.created", kind, principal);
     return { token, expiresInSeconds: 600, expiresAt };
   }
@@ -339,6 +352,7 @@ export class Hub {
       revoked: false,
       lastSeen: this.now(),
     };
+    this.capacity({ devices: [...this.state.devices, d] });
     e.used = true;
     this.state.devices.push(d);
     this.audit("device.enrolled", d.id, "device");
@@ -368,6 +382,11 @@ export class Hub {
       });
     if (describe(device) === describe(manifest))
       return { ok: true, grantsRevoked: false };
+    this.capacity({
+      devices: this.state.devices.map((d) =>
+        d.id === id ? { ...d, ...manifest, functions: manifest.functions } : d,
+      ),
+    });
     Object.assign(device, manifest);
     device.functions = manifest.functions;
     this.state.grants = this.state.grants.filter(
@@ -440,6 +459,9 @@ export class Hub {
       access,
       ...attachment,
     };
+    this.capacity({
+      agentConnections: [...this.state.agentConnections, connection],
+    });
     this.state.agentConnections.push(connection);
     this.audit("connection.created", id, p.id);
     const { tokenHash, ...safe } = connection;
@@ -538,6 +560,43 @@ export class Hub {
         );
       return { deviceId, token: credential };
     }
+    // Admit the complete attachment before issuing its internal enrollment.
+    // A failed quota check must not leave a consumed token or partial device.
+    this.capacity({
+      devices: [
+        ...this.state.devices,
+        {
+          ...manifest,
+          id: deviceId,
+          tokenHash: await hash(credential),
+          revoked: false,
+          lastSeen: this.now(),
+          attachedConnectionId: connection.id,
+        },
+      ],
+      attachAttempts: [
+        ...this.state.attachAttempts!,
+        {
+          connectionId: connection.id,
+          requestId,
+          fingerprint,
+          deviceId,
+          keyVersion,
+          expiresAt: this.now() + 600000,
+        },
+      ],
+      enrollments: [
+        ...this.state.enrollments.filter(
+          (e) => !e.used && e.expiresAt > this.now(),
+        ),
+        {
+          hash: "0".repeat(64),
+          expiresAt: this.now() + 600000,
+          used: false,
+          kind: manifest.kind,
+        },
+      ],
+    });
     const enrollment = await this.issueEnrollment(
       manifest.kind,
       connection.principal,
@@ -620,15 +679,17 @@ export class Hub {
       ttlSeconds > 86400
     )
       throw new Fault("invalid", 400, "Invalid grant");
-    this.state.grants = this.state.grants.filter(
+    const grants = this.state.grants.filter(
       (g) => g.principal !== principal || g.deviceId !== id,
     );
-    this.state.grants.push({
+    grants.push({
       principal,
       deviceId: id,
       capabilities,
       expiresAt: this.now() + ttlSeconds * 1000,
     });
+    this.capacity({ grants });
+    this.state.grants = grants;
     this.audit("grant.updated", id, p.id);
     return { ok: true };
   }
@@ -783,6 +844,7 @@ export class Hub {
       principalId: p.id,
       ownerAuthorized: p.owner,
     };
+    this.capacity({ actions: [...this.state.actions, a] });
     this.state.actions.push(a);
     this.audit("action.queued", a.id, p.id);
     return a;
@@ -810,11 +872,13 @@ export class Hub {
   next(deviceId: string) {
     this.expire();
     const d = this.device(deviceId);
-    d.lastSeen = this.now();
     const a = this.state.actions.find(
       (a) => a.deviceId === deviceId && a.status === "queued",
     );
-    if (!a) return null;
+    if (!a) {
+      d.lastSeen = this.now();
+      return null;
+    }
     const principal = a.principalId;
     const connectionValid =
       !principal.startsWith("connection:") ||
@@ -834,8 +898,11 @@ export class Hub {
       !a.ownerAuthorized
     ) {
       a.status = "cancelled";
+      d.lastSeen = this.now();
       return null;
     }
+    this.capacity({}, "dispatch");
+    d.lastSeen = this.now();
     a.status = "received";
     a.dispatchedAt = this.now();
     this.audit("action.dispatched", a.id, "device");
@@ -850,13 +917,15 @@ export class Hub {
     result: unknown,
   ) {
     this.expire();
-    this.device(deviceId).lastSeen = this.now();
+    const device = this.device(deviceId);
     const a = this.state.actions.find(
       (a) => a.id === id && a.deviceId === deviceId,
     );
     if (!a) throw new Fault("not_found", 404, "Action not found");
-    if (a.status === status && canonical(a.result) === canonical(result))
+    if (a.status === status && canonical(a.result) === canonical(result)) {
+      device.lastSeen = this.now();
       return a;
+    }
     if (a.status !== "received")
       throw new Fault(
         "conflict",
@@ -868,6 +937,15 @@ export class Hub {
       throw new Fault("invalid", 400, "JSON result required");
     if (encoded.length > 4096)
       throw new Fault("too_large", 413, "Result too large");
+    this.capacity(
+      {
+        actions: this.state.actions.map((action) =>
+          action.id === id ? { ...action, status, result } : action,
+        ),
+      },
+      "drain",
+    );
+    device.lastSeen = this.now();
     a.status = status;
     a.result = result;
     this.audit("action." + status, a.id, "device");

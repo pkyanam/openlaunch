@@ -93,8 +93,14 @@ The normal Activity list shows the latest 100 actions.
 `exportedAt` is a Unix timestamp in milliseconds. Internal idempotency metadata
 and device credentials are excluded. Agents cannot export owner history.
 
-A workspace retains up to 5,000 actions. At that limit, new actions are rejected
-with HTTP 429. Downloading is a copy and does not remove actions or free capacity;
+A workspace retains up to 5,000 actions within a 16 MiB logical storage budget.
+New actions, attachments, grants and manifest growth can reach the byte limit
+earlier and return HTTP 429 with `storage_full`. Pending actions reserve 16 KiB
+for their result when accepted. A full workspace still accepts results from
+already received actions, permits revocation and serves saved history; it does
+not dispatch more queued work while over budget.
+
+Downloading is a copy and does not remove actions or free capacity;
 saved requests continue to prevent accidental duplicate execution. History
 archiving is not currently available.
 
