@@ -76,7 +76,7 @@ Cloudflare's documented external-DNS path supports `www.openlaunch.dev`. Its ape
 
 After a successful deployment:
 
-1. Add `www.openlaunch.dev` with `cf pages domains create --project-name openlaunch-site --name www.openlaunch.dev` (confirm current help/schema).
+1. Add `www.openlaunch.dev` with `cf pages domains create openlaunch-site --name www.openlaunch.dev` (confirm current help/schema).
 2. Inspect Cloudflare's response and use the **actual returned** Pages target in an explicit `www` CNAME through Vercel. Re-read DNS first. Do not change wildcard, verification or email records unintentionally.
 3. Verify domain validation, authoritative DNS, HTTPS with normal certificate checks, homepage, `/docs/setup`, `/docs/uno-r4`, search assets and `/deployment.json`.
 4. Compare `deployment.json.commit` and Cloudflare's deployment trigger commit to the CI-passing GitHub commit; require `dirty: false`.
