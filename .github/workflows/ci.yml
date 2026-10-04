@@ -17,6 +17,7 @@ jobs:
           cache: false
       - run: npm ci
       - run: npm run check
+      - run: npm run build:pi
       - run: npm run build:site
         env:
           CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
@@ -39,6 +40,7 @@ jobs:
           cache: false
       - run: npm ci
       - run: npm run check
+      - run: npm run build:pi
       - run: npm run build:site
         env:
           CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
@@ -51,7 +53,6 @@ jobs:
       - run: npm run build --workspace @openlaunch/web
       - run: cd devices/pi && go test ./... && go build -o ../../dist/openlaunch-device-host ./cmd/openlaunch-device
       - run: node scripts/e2e.mjs
-      - run: npm run build:pi
       - uses: actions/upload-artifact@v4
         with:
           name: openlaunch-website
@@ -96,6 +97,13 @@ jobs:
         with:
           name: openlaunch-website
           path: apps/site/dist/client
+      - run: node scripts/deploy-cloud.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+          OPENLAUNCH_CONTROLS_ENABLED: ${{ vars.OPENLAUNCH_CONTROLS_ENABLED }}
       - run: npx wrangler pages deploy --cwd apps/site --project-name openlaunch-site --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false --no-bundle
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

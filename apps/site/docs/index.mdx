@@ -1,21 +1,21 @@
 ---
 title: Introduction
-description: Connect an agent to your board, approve a health check or LED change, and follow the result with clear setup and permission guides.
+description: Connect ChatGPT or Codex to a supported board with openlaunch. Pair your device, choose the functions an agent may use and inspect each action result.
 ---
 
-openlaunch connects agents to device capabilities you approve. Start with a health check, an LED, or a message on an Uno's matrix. The device stays independent of your AI provider.
+openlaunch connects agents to device operations that an owner approves. The Uno R4 WiFi supports health checks, its built-in LED and matrix text. The Pi runtime reports process health. Custom device functions can be described in a manifest and granted individually. Device credentials stay separate from AI provider credentials.
 
-A **device** is your board. An **agent** is the software asking it to do something. A **capability** is one specific operation, such as setting an LED. A **grant** is your permission for one agent to use capabilities on one device until an expiry time.
+A **device** is a board. An **agent** is software requesting an operation. A **capability** is one operation, such as setting an LED. A **grant** is an owner's permission for one agent to use selected capabilities on one device until a specified expiry.
 
-## Your first connection
+## Get started
 
-1. [Start your console](/setup).
+1. [Start the console](/setup).
 2. Pair an [Uno R4 WiFi](/uno-r4) or [Pi 4](/pi).
-3. [Connect an agent](/agents) and approve health access.
-4. Ask for a health check, then inspect its completed result.
+3. [Connect an agent](/agents) and grant health access.
+4. Request a health check and inspect the reported result.
 
-## Explore
+## Guides
 
-[Permissions](/pairing) explains enrollment, grants and results. [API reference](/api) and [architecture](/architecture) cover the shared service for developers. [Resources](/resources) links source, firmware, SDKs and OS images. [Troubleshooting](/troubleshooting) helps with common connection problems.
+[Permissions](/pairing) explains enrollment, grants and command results. The [API reference](/api) and [architecture](/architecture) describe the shared service. [Resources](/resources) links source, firmware and setup materials. [Troubleshooting](/troubleshooting) covers common connection problems.
 
-The [verification page](/status) records which software and hardware checks have passed. The docs offer search, Markdown downloads, PDF/EPUB export, browser narration, and a [read-only docs MCP server](/agents#documentation-for-agents).
+The [verification page](/status) records hosted software behavior and remaining physical device checks. The docs include search, Markdown downloads, PDF and EPUB exports, browser narration and a [read-only documentation MCP server](/agents#documentation-for-agents).

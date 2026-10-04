@@ -1,13 +1,13 @@
 ---
 title: API reference
-description: Explore the shared device API for enrollment, agent grants, action requests and results, used by the openlaunch console and MCP.
+description: Explore authentication, device grants, action requests, custom functions and results in the shared openlaunch API.
 ---
 
-The web console and MCP use the same command service and permission checks. A future CLI can use this API without creating a second authorization system.
+The web console, MCP and device clients use the same command service and permission checks.
 
 ## Authentication
 
-Owner management uses an authenticated owner session. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant.
+Owner management uses an authenticated Clerk owner session. Google is the enabled sign-in provider; email/password sign-in is disabled. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant. OAuth uses PKCE.
 
 Device requests use their own enrollment-issued bearer credential. On the hosted bridge they also include `x-openlaunch-workspace`, returned during pairing. Keep credentials out of logs and source control.
 
@@ -23,6 +23,7 @@ Device requests use their own enrollment-issued bearer credential. On the hosted
 | POST | `/v1/grants/revoke` | Owner revokes that agent's access to a device |
 | POST | `/v1/devices/{id}/revoke` | Owner revokes the device credential |
 | POST | `/v1/devices/{id}/actions` | Request a supported capability |
+| POST | `/v1/broadcasts` | Request an action for up to 20 devices, with a result for each |
 | GET | `/v1/actions/{id}` | Inspect the command result |
 | POST | `/v1/actions/{id}/cancel` | Cancel an undispatched command |
 | POST | `/v1/device/{id}/next` | Device polls for its next command |
@@ -40,9 +41,19 @@ Device requests use their own enrollment-issued bearer credential. On the hosted
 }
 ```
 
-Capabilities are `device.health` with `{}`, `led.set` with `{ "on": true }`, and `display.text` with `{ "text": "hello" }`. A device must advertise and implement the requested capability. Pi currently implements health; Uno implements all three.
+Built-in capabilities are `device.health` with `{}`, `led.set` with `{ "on": true }`, and `display.text` with `{ "text": "hello" }`. A device must advertise and implement the requested capability. Pi currently reports health; Uno implements all three.
 
 TTL is 1–300 seconds. Reuse an idempotency key only for an identical request. A conflicting duplicate is rejected. Devices poll every 10 seconds, so allow enough time for delivery.
+
+## Custom device functions
+
+A device can advertise custom functions in its manifest with a name, title, description and input schema. Schemas accept a root object with bounded string, number, integer or boolean fields. Additional root properties and external schema references are rejected. Each manifest supports up to 16 functions and each function up to 16 parameters; a custom function cannot replace a built-in capability.
+
+The owner grants each custom function to an agent through the console. Granted functions appear as device-specific MCP tools. The service checks the current grant each time one is called, so a previously discovered tool stops working after its grant is revoked.
+
+## Broadcasts
+
+`POST /v1/broadcasts` accepts up to 20 device IDs and a capability request, including its arguments, idempotency key and TTL. It returns an independent action or error for each device. A broadcast is not atomic: devices can accept, reject or complete the action independently. Inspect each action result.
 
 ## Responses and errors
 
@@ -50,6 +61,6 @@ REST success responses use `{ "data": ... }`. Errors use `{ "error": { "code": "
 
 Inspect the returned action ID. `queued` and `received` are intermediate states. Terminal states distinguish success, failure, cancellation and expiry; an uncertain delivered outcome must not be reported as success. See [pairing and permissions](/pairing) for the lifecycle.
 
-## Source and SDKs
+## Source
 
-[Protocol schemas](https://github.com/pkyanam/openlaunch/tree/main/packages/protocol), [command service](https://github.com/pkyanam/openlaunch/tree/main/packages/core), [HTTP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/http) and [MCP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/mcp) live in the same repository. Package publishing and language SDKs can build on those schemas; see [resources](/resources) for current source downloads and upstream tools.
+[Protocol schemas](https://github.com/pkyanam/openlaunch/tree/main/packages/protocol), [command service](https://github.com/pkyanam/openlaunch/tree/main/packages/core), [HTTP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/http) and [MCP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/mcp) live in the same repository. See [resources](/resources) for current source downloads and upstream tools.

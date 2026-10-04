@@ -23,16 +23,18 @@ Hosted linking uses Clerk sign-in and OAuth consent. Request `openlaunch:read` t
 
 Use the exact MCP URL and client identity shown by your deployed console. Do not substitute the documentation MCP address or give your owner session to ChatGPT. Hosted device linking is enabled only after the deployment passes its authentication checks; [verification](/status) records the checked endpoints.
 
-## Tools
+## Your device functions
 
-| Tool | Purpose |
-| --- | --- |
-| `list_devices` | List granted devices and their last-seen status |
-| `request_device_health` | Ask the device for a fresh health result |
-| `set_led` | Set the Uno's built-in LED |
-| `show_text` | Display up to 96 ASCII characters on the Uno matrix |
-| `get_action` | Read the actual action outcome |
-| `cancel_action` | Cancel an action that has not been delivered |
+Custom functions published by your adapter appear automatically after you approve a grant. Their tools carry the device name, description and parameter schema. See [Build your own functions](/functions). The standard adapters also provide these helpers:
+
+| Tool                    | Purpose                                             |
+| ----------------------- | --------------------------------------------------- |
+| `list_devices`          | List granted devices and their last-seen status     |
+| `request_device_health` | Ask the device for a fresh health result            |
+| `set_led`               | Set the Uno's built-in LED                          |
+| `show_text`             | Display up to 96 ASCII characters on the Uno matrix |
+| `get_action`            | Read the actual action outcome                      |
+| `cancel_action`         | Cancel an action that has not been delivered        |
 
 An action ID is a receipt number, not proof that the board acted. Ask the agent to check `get_action` until it reaches a terminal result.
 

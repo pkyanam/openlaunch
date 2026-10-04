@@ -1,31 +1,49 @@
 ---
 title: Architecture
-description: Explore the shared protocol, permissions and device adapters behind openlaunch, from Clerk identities to Go and Arduino runtimes.
+description: Learn how openlaunch separates hosted identity, device permissions, command delivery and board runtimes across its shared API, MCP and adapters.
 ---
 
-## Monorepo boundaries
+## Components
 
-| Component                          | Responsibility                                                     |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| TypeScript protocol/auth/core      | Typed capabilities, enrollment, grants, TTLs and command lifecycle |
-| HTTP and MCP packages              | Transport-neutral API and official-SDK agent tools                 |
-| React web console                  | Owner enrollment, permissions and action inspection          |
-| Node/SQLite local bridge           | Loopback developer runtime and persistent state                    |
-| Cloudflare Worker + Durable Object | Clerk verification and isolated workspace persistence                     |
-| Go Pi agent                        | Outbound polling and real process health                           |
-| Arduino firmware                   | R4 health, built-in LED and matrix text                            |
-| Blume website                      | Product website, searchable docs and read-only documentation MCP |
+| Component | Responsibility |
+| --- | --- |
+| TypeScript protocol, authorization and core | Device manifests, enrollment, grants, command expiry and lifecycle |
+| HTTP and MCP packages | Shared API handlers and agent tools |
+| React owner console | Pairing, capability grants and action inspection |
+| Node and SQLite local bridge | Local development service and persistent state |
+| Cloudflare Worker and Durable Objects | Hosted API, Clerk verification and workspace-isolated SQLite persistence |
+| Go Pi runtime | Outbound polling and process health |
+| Arduino Uno R4 firmware | Health, built-in LED and matrix text |
+| Blume website | Product site, searchable guides and read-only documentation MCP |
 
-## Trust boundaries
+## Identity and permissions
 
-Model output cannot authorize itself. The bridge checks API scopes and per-device grants. Device credentials are independent of provider credentials. Cloudflare is a trusted relay: TLS protects each hop rather than encrypting actions end-to-end from the model host to hardware.
+Clerk verifies hosted owner sessions and agent OAuth tokens. OAuth uses PKCE and resource audiences; only configured agent identities are admitted. Google is the enabled sign-in provider, and email/password sign-in is disabled. Owner sessions and agent identities have separate roles.
 
-R4 credentials are plaintext in EEPROM; Pi credentials live in a restricted local file. Physical compromise can expose them. Commands are typed and bounded; unrestricted shell and arbitrary LAN proxying are not default capabilities.
+An owner pairs a device with a single-use enrollment token, then grants an agent selected capabilities on that device with an expiry. OAuth scopes authorize API operations but do not create device grants. The service checks the current scope and per-device grant whenever an agent calls a tool, including a custom function discovered earlier.
 
-## Delivery
+Hosted workspace storage uses SQLite-backed Durable Objects identified from the verified Clerk issuer and user identity. A workspace cannot use another workspace's device records or grants.
 
-Current devices initiate outbound HTTPS polls every 10 seconds and report correlated results. Command TTLs prevent stale execution. Received and completed outcomes remain distinct, and acknowledgment loss can leave uncertainty.
+## Manifests and command delivery
 
-WebSocket delivery, OTA signing and rollback, broad-scale quotas and durable event subscriptions are future work. D1 and R2 are design options rather than deployed dependencies.
+A device manifest can describe custom functions with a name, title, description and input schema. Schemas support a root object with bounded strings, bounded numbers or integers, and booleans. Additional root properties and external references are rejected. Each manifest can contain up to 16 functions, with up to 16 parameters per function; custom definitions cannot replace built-in capabilities. After an owner grants a function, it appears as a device-specific MCP tool. The live grant is checked again when the tool runs.
 
-Read the canonical [architecture document](https://github.com/pkyanam/openlaunch/blob/main/docs/architecture.md) for implementation boundaries.
+Devices poll the service over outbound HTTPS every 10 seconds and report correlated results. Commands move through queued, received and terminal states, and expire within a bounded lifetime. If a device disconnects or an acknowledgment is lost, the service may not know whether the physical action occurred. There is no exactly-once execution guarantee.
+
+`POST /v1/broadcasts` can request an action for up to 20 devices. Each device receives its own action or error result; a broadcast is not an atomic operation.
+
+## Trust and device support
+
+Model output cannot grant itself permission. The service checks API scopes and per-device grants. Device credentials are separate from provider credentials. Cloudflare is a trusted relay: TLS protects each network hop, rather than encrypting an action end-to-end from the model host to hardware.
+
+R4 credentials are plaintext in EEPROM; Pi credentials use a restricted local file. Physical compromise can expose them. Commands are typed and bounded; unrestricted shell access and arbitrary LAN proxying are not default capabilities.
+
+The Pi runtime currently reports process health; GPIO and display control are not implemented. Uno R4 firmware supports health, its built-in LED and matrix text. Physical network, TLS, provisioning, power-loss and reconnect acceptance remains to be completed.
+
+## Deployment
+
+The hosted API and public documentation website are separate services. Cloudflare Pages serves the site and read-only `/docs-mcp`; the Cloudflare Worker and Durable Objects serve authenticated device controls. `www.openlaunch.dev` serves the website, and the apex redirects to `www`. Vercel remains authoritative for DNS.
+
+WebSocket delivery, OTA signing and rollback, durable event subscriptions, broader quotas and account lifecycle controls are future work. D1 and R2 are design options, not deployed dependencies.
+
+See the canonical [architecture document](https://github.com/pkyanam/openlaunch/blob/main/docs/architecture.md) and [verification record](/status) for implementation and acceptance details.

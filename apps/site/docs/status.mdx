@@ -1,29 +1,29 @@
 ---
 title: Verification
-description: Review checked software behavior, supported board capabilities, authentication acceptance and the remaining real hardware tests.
+description: See the hosted software and device behaviors that have been checked, and the physical hardware work that remains.
 ---
 
-## Implemented locally
+## Hosted software
 
-- SQLite persistence, enrollment and separate scoped capability grants.
-- Command expiry, revocation and queued/received/terminal outcomes.
-- React developer console and six official-SDK MCP tools.
-- Go client with real process health and explicitly labeled simulation.
-- Compiled Arduino R4 health, LED and matrix firmware with isolated transports.
-- Cloudflare Worker, Clerk session/OAuth verification and SQLite-backed Durable Object.
+- The public site is deployed at `www.openlaunch.dev`; the apex redirects to `www`.
+- The site documentation and read-only documentation MCP are deployed separately from the device-control service.
+- Clerk Google owner sign-in and the admitted agent OAuth flow have been exercised. The agent connection was approved by the user.
+- OAuth scopes and device capability grants are separate. Owners must approve capabilities for each device and agent.
+- The hosted API uses SQLite-backed Durable Objects keyed to the verified Clerk workspace identity.
+- Custom manifest functions are schema-validated, exposed as device-specific MCP tools after an owner grant, and checked against the live grant at invocation.
+- Broadcast requests support up to 20 devices and return an independent result for each device.
 
-## Pending before hosted device controls
+## Software and firmware behavior
 
-Clerk production DNS and HTTPS are verified. OAuth discovery advertises the required scopes and PKCE. Owner sessions and agent scope boundaries pass automated tests. Hosted sign-in, agent consent and tenant persistence still require end-to-end acceptance on the deployed service before device linking is enabled.
+- Enrollment, scoped grants, action expiry, revocation and queued/received/terminal command outcomes are implemented.
+- The Go Pi runtime reports process health. GPIO and display control are not implemented.
+- Uno R4 firmware supports health, the built-in LED and matrix text.
+- Simulated device results are identified as simulated; they do not demonstrate a physical action.
 
-Tenant isolation and Durable Object persistence need acceptance on a real deployment. Rate limits, abuse protection, quotas, retention and account lifecycle also need work before broad access.
+## Physical device acceptance
 
-## Pending on hardware
+Physical acceptance remains open. Pi and Uno checks for network access, TLS and time synchronization, provisioning, power loss and reconnect have not been completed. Uno command journaling and bounded streaming response parsing need work before expanding its functions; Pi result-retry reconciliation also remains open. Neither device promises exactly-once physical execution.
 
-Actual Pi/R4 network, TLS, time sync, provisioning, power loss and reconnect tests remain unverified. Only R4 LED and matrix operations are implemented beyond health. Pi GPIO/display and OTA updates are future work.
+## Try openlaunch
 
-R4 needs a persistent executed-command journal and bounded streaming response parsing before expanding capabilities. Pi needs result-retry reconciliation. Neither runtime promises exactly-once physical execution.
-
-## What you can do now
-
-Follow [local setup](/setup), run the simulated E2E tests, then use the trusted HTTPS developer test path for deliberate [R4](/uno-r4) or [Pi](/pi) acceptance. Public website hosting is independent of device-control deployment.
+Follow [local setup](/setup), run the software checks, and use the trusted HTTPS test path for deliberate [Uno R4](/uno-r4) or [Pi](/pi) hardware acceptance. Website hosting and hosted identity do not establish that a physical board is connected.

@@ -5,7 +5,7 @@ description: Find openlaunch source downloads, CI binary artifacts, shared SDK p
 
 ## openlaunch downloads
 
-Installers are served by openlaunch from the same source commit as the website. GitHub hosts source code and backup copies. There is no published stable binary release or flashable Pi OS image yet.
+Installers are served by openlaunch from the same source commit as the website. GitHub hosts source code and backup copies. The Pi installer downloads a standalone ARM binary and verifies its checksum. Raspberry Pi OS remains the operating system; openlaunch does not provide a flashable OS image.
 
 - [Source ZIP (main)](https://github.com/pkyanam/openlaunch/archive/refs/heads/main.zip) — moving branch; use a commit archive for reproducibility.
 - [CI builds and Pi binary artifacts](https://github.com/pkyanam/openlaunch/actions/workflows/ci.yml) — open a successful run and download `openlaunch-pi-binaries`. GitHub sign-in may be required. Build outputs are developer artifacts, not hardware-verified releases.
@@ -14,7 +14,7 @@ Installers are served by openlaunch from the same source commit as the website. 
 - [Stock firmware source](https://github.com/pkyanam/openlaunch/tree/main/firmware) and [build profiles](https://github.com/pkyanam/openlaunch/blob/main/docs/UNO-R4-PROFILES.md).
 - [Pi Go agent and systemd service](https://github.com/pkyanam/openlaunch/tree/main/devices/pi).
 
-[Install openlaunch](/install.sh), or use the [GitHub installer backup](https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh). `/downloads/provision-uno.py` serves the provisioning script directly. Source, CI artifacts and release pages remain linked to GitHub. There is no hosted device token or login needed to read the docs.
+[Install the Pi agent](/install-pi.sh), [download the Codex plugin](/downloads/openlaunch-plugin.zip), or [install the local development bridge](/install.sh). For the local bridge, use the [GitHub installer backup](https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/install.sh). `/downloads/provision-uno.py` serves the provisioning script directly. Source, CI artifacts and release pages remain linked to GitHub. There is no hosted device token or login needed to read the docs.
 
 ## Shared packages
 

@@ -23,4 +23,6 @@ __pycache__/
 
 # Installers are copied from tracked sources during website builds.
 /apps/site/public/install.sh
+/apps/site/public/install-pi.sh
+/apps/site/public/downloads/openlaunch-plugin.zip
 /apps/site/public/downloads/provision-uno.py

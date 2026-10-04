@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  capabilityName,
+  functionDefinition,
+  functionArguments,
+} from "./functions.ts";
+export { capabilityName, functionDefinition } from "./functions.ts";
 export const kinds = ["uno-r4-wifi", "raspberry-pi-4"] as const;
 const boundedText = z
   .string()
@@ -9,17 +15,44 @@ export const capabilitySchemas = {
   "display.text": z.object({ text: boundedText }).strict(),
   "led.set": z.object({ on: z.boolean() }).strict(),
 } as const;
-export type Capability = keyof typeof capabilitySchemas;
+export type Capability = string;
 export const manifestSchema = z
   .object({
     name: z.string().min(1).max(64),
     kind: z.enum(kinds),
-    capabilities: z
-      .array(z.enum(["device.health", "display.text", "led.set"]))
-      .min(1)
-      .max(3),
+    capabilities: z.array(capabilityName).min(1).max(16),
+    functions: z.array(functionDefinition).max(16).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((manifest, ctx) => {
+    const definitions = manifest.functions ?? [];
+    if (
+      new Set(manifest.capabilities).size !== manifest.capabilities.length ||
+      new Set(definitions.map((f) => f.name)).size !== definitions.length
+    )
+      ctx.addIssue({ code: "custom", message: "Duplicate device functions" });
+    for (const definition of definitions) {
+      if (
+        Object.hasOwn(capabilitySchemas, definition.name) ||
+        !manifest.capabilities.includes(definition.name)
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "Function definitions must match custom capabilities",
+        });
+    }
+    if (
+      manifest.capabilities.some(
+        (name) =>
+          !Object.hasOwn(capabilitySchemas, name) &&
+          !definitions.some((f) => f.name === name),
+      )
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Custom capabilities require function schemas",
+      });
+  });
 export type Manifest = z.infer<typeof manifestSchema>;
 export type Status =
   | "queued"
@@ -159,6 +192,28 @@ export class Hub {
         a.status = a.dispatchedAt ? "unknown" : "expired";
     }
   }
+  functions(p: Principal) {
+    return this.list(p).flatMap((device) =>
+      (device.functions ?? [])
+        .filter(
+          (fn) =>
+            !(p.readOnly && fn.access === "write") &&
+            (p.owner ||
+              this.state.grants.some(
+                (grant) =>
+                  grant.principal === p.id &&
+                  grant.deviceId === device.id &&
+                  grant.capabilities.includes(fn.name) &&
+                  grant.expiresAt > this.now(),
+              )),
+        )
+        .map((definition) => ({
+          deviceId: device.id,
+          deviceName: device.name,
+          definition,
+        })),
+    );
+  }
   list(p: Principal) {
     return this.state.devices
       .filter(
@@ -241,7 +296,10 @@ export class Hub {
     if (
       !principal ||
       principal.length > 128 ||
-      capabilities.length > 3 ||
+      capabilities.length < 1 ||
+      capabilities.length > 16 ||
+      new Set(capabilities).size !== capabilities.length ||
+      !Number.isInteger(ttlSeconds) ||
       !capabilities.every((c) => d.capabilities.includes(c)) ||
       ttlSeconds < 1 ||
       ttlSeconds > 86400
@@ -288,6 +346,53 @@ export class Hub {
     this.audit("device.revoked", id, p.id);
     return { ok: true };
   }
+  broadcast(
+    p: Principal,
+    ids: string[],
+    capability: Capability,
+    args: unknown,
+    key: string,
+    ttlSeconds = 30,
+  ) {
+    if (
+      !ids.length ||
+      ids.length > 20 ||
+      new Set(ids).size !== ids.length ||
+      !key ||
+      key.length > 64
+    )
+      throw new Fault(
+        "invalid",
+        400,
+        "Choose 1–20 distinct devices and an idempotency key of at most 64 characters",
+      );
+    return ids.map((deviceId) => {
+      try {
+        return {
+          deviceId,
+          action: this.request(
+            p,
+            deviceId,
+            capability,
+            args,
+            `${key}:${deviceId}`,
+            ttlSeconds,
+          ),
+        };
+      } catch (error) {
+        return {
+          deviceId,
+          error: {
+            code: error instanceof Fault ? error.code : "invalid",
+            message:
+              error instanceof Fault
+                ? error.message
+                : "Function arguments are invalid",
+          },
+        };
+      }
+    });
+  }
   request(
     p: Principal,
     id: string,
@@ -297,10 +402,15 @@ export class Hub {
     ttlSeconds = 30,
   ) {
     this.expire();
-    if (p.readOnly && capability !== "device.health")
-      throw new Fault("forbidden", 403, "Write scope required");
     this.allowed(p, id, capability);
     const d = this.device(id);
+    const definition = d.functions?.find((f) => f.name === capability);
+    if (
+      p.readOnly &&
+      (definition?.access ??
+        (capability === "device.health" ? "read" : "write")) !== "read"
+    )
+      throw new Fault("forbidden", 403, "Write scope required");
     if (!d.capabilities.includes(capability))
       throw new Fault("unsupported", 400, "Device capability unavailable");
     if (
@@ -315,7 +425,16 @@ export class Hub {
         400,
         "Idempotency key and bounded TTL required",
       );
-    const parsed = capabilitySchemas[capability].parse(args);
+    const builtIn = Object.hasOwn(capabilitySchemas, capability)
+      ? capabilitySchemas[capability as keyof typeof capabilitySchemas]
+      : undefined;
+    const parsed = builtIn
+      ? builtIn.parse(args)
+      : definition
+        ? functionArguments(definition, args)
+        : (() => {
+            throw new Fault("unsupported", 400, "Function schema unavailable");
+          })();
     const clientKey = JSON.stringify([p.id, key]);
     const fingerprint = canonical({ id, capability, args: parsed, ttlSeconds });
     const old = this.state.actions.find((a) => a.clientKey === clientKey);

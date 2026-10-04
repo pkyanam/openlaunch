@@ -1,0 +1,54 @@
+---
+title: Build your own functions
+description: Publish device functions with bounded parameters, discover them through MCP, choose agent permissions and broadcast requests with separate results.
+---
+
+A **function** is something your device knows how to do: read a sensor, change a light, or update a display. openlaunch calls that function a _capability_ in its API. You write the device code; openlaunch handles discovery, permission and delivery.
+
+## Add a function to your device adapter
+
+Give the function a name, a short explanation, and a schema for its inputs. Include it in the manifest your adapter sends during pairing. For example, a lamp adapter can publish:
+
+```json
+{
+  "name": "desk lamp",
+  "kind": "raspberry-pi-4",
+  "capabilities": ["device.health", "light.brightness"],
+  "functions": [
+    {
+      "name": "light.brightness",
+      "title": "Set brightness",
+      "description": "Set this lamp's brightness from 0 to 100.",
+      "access": "write",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
+        "required": ["value"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
+```
+
+Your adapter must implement `light.brightness` and report its result. A manifest describes code; it does not install code or add a circuit. The standard Pi agent exposes health. The standard Uno sketch implements health, LED and matrix text. Extend the [Pi adapter source](https://github.com/pkyanam/openlaunch/tree/main/devices/pi) or [Uno sketch](https://github.com/pkyanam/openlaunch/tree/main/firmware/uno-r4-wifi) for additional hardware behavior.
+
+Inputs support booleans, bounded numbers or integers, and strings with a maximum length and optional choices. Use at most 16 named parameters and 16 functions per device. External schema references and executable input schemas are rejected. Standard function names cannot be overridden.
+
+## Use it in the console
+
+After pairing your adapter, its function appears on the device card with a form based on its schema. Choose the parameters and run it. The receipt starts queued; inspect its result after the device polls.
+
+Open **Agent permission**, select the functions you want that agent to use, and choose an expiry. Approved custom functions appear in the agent's MCP tools automatically. Their names identify the device as well as the function. Revoking a grant also blocks an already-discovered tool from running.
+
+Firmware or adapter changes require a matching manifest. Re-pair the updated adapter when you change its published function definitions; existing grants do not authorize a replacement device.
+
+## Broadcast to several devices
+
+Use **Broadcast a function** in the console. Choose devices, then choose a function they all publish. Each device gets its own command, permission check, expiry and receipt. A rejection on one device does not make another device's completed action disappear.
+
+Developers can use `POST /v1/broadcasts` with `deviceIds`, `capability`, `arguments`, `idempotencyKey` and `ttlSeconds`. Responses contain an action or an error for each device. Retrying the same request with the same key reuses each existing action. A broadcast is not an atomic hardware operation: inspect each result.
+
+Read the [API guide](/api) and [pairing rules](/pairing) when building a new adapter. Keep the repaired Uno's console UART profile separate from stock firmware; see the [Uno guide](/uno-r4).

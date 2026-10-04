@@ -1,25 +1,27 @@
 # openlaunch deployment
 
-The owner approved a $10/month ceiling and Vercel DNS with `www` first. Credit applicability remains unverified because the credits API returned 403. The Cloudflare account is `preetham@belweave.com`, ID `98117dde620017491911477efef1efbb`. Preserve unrelated resources and DNS.
+## Current services
+
+The public website and documentation MCP run on the Cloudflare Pages project `openlaunch-site`. The hosted device API runs separately on Cloudflare Workers with a SQLite-backed Durable Object for each workspace. Owner and agent identity are provided by Clerk. Website availability does not imply that a physical device is online or that its capabilities have been granted.
+
+The Cloudflare account is `preetham@belweave.com`, ID `98117dde620017491911477efef1efbb`. The approved Cloudflare spend ceiling is $10/month; the existing Workers Paid plan is $5/month. A reported API credit balance could not be verified because the credits endpoint returned HTTP 403. Preserve unrelated account resources and DNS records.
 
 ## Website and documentation MCP
 
-`openlaunch-site` is a direct-upload Pages project, created with the pinned official `cf` CLI. The owner later authorized Wrangler as a fallback: the current `cf pages deploy` directory-upload command does not upload assets, and Cloudflare rejected Git project creation with error 8000011 despite the GitHub app having All Repositories access. GitHub Actions provides CI/CD without that installation association.
+`openlaunch-site` is a direct-upload Pages project. GitHub Actions builds the site and validates its documentation, then deploys the resulting `apps/site/dist/client` artifact with pinned Wrangler. The production deployment runs only after the required software, macOS, Linux and firmware checks pass. Pull requests do not receive the production deployment credential. The Pages Worker serves Blume and its read-only documentation MCP at `/docs-mcp`; it has no device-control authority.
 
-The software job builds Blume and validates all docs, then uploads the site artifact including `.well-known` discovery files. The deployment job requires macOS, Linux and firmware checks to pass. It downloads that exact artifact and uploads `apps/site/dist/client` through pinned Wrangler with bundling disabled. The commit recorded by Pages must match `deployment.json.commit`, with `dirty: false`. PRs do not receive the deployment credential or publish production.
+The workflow records the source commit in `deployment.json`; the deployed Pages commit must match that value and report `dirty: false`. The CI token is stored as the `CLOUDFLARE_API_TOKEN` GitHub Actions secret and is scoped to Pages write, Workers Scripts write and account read, restricted to the openlaunch account. It expires January 2, 2027; rotate it before expiry. `CLOUDFLARE_ACCOUNT_ID`, the public `CLERK_PUBLISHABLE_KEY` and `OPENLAUNCH_CONTROLS_ENABLED` are repository variables. `CLERK_SECRET_KEY` is a protected deployment secret. CI deploys the authenticated bridge with `cf` before uploading the website. Never put credentials in tracked files or use an expiring interactive login as a CI credential.
 
-`CLOUDFLARE_API_TOKEN` is a GitHub Actions secret scoped to Pages write and account read for this account. It expires January 2, 2027 and must be rotated before then. `CLOUDFLARE_ACCOUNT_ID` is a repository variable. Never use an expiring interactive OAuth token as a CI credential.
+## Domain and DNS
 
-The Pages advanced-mode Worker runs Blume's built-in read-only MCP handler at `/docs-mcp`, with the same generated documentation corpus. Device controls use a separate authenticated service. Both Pages environments have fail-open disabled.
+`www.openlaunch.dev` is served from Cloudflare Pages. Vercel nameservers remain authoritative and continue to manage DNS. The apex `openlaunch.dev` redirects to `www` through Vercel. Preserve Clerk production records and unrelated verification records when managing the domain.
 
-## Domain
+For a deployment review, confirm the `www` HTTPS response, apex redirect, Pages source commit, site pages and static metadata, and the documentation MCP endpoint. Use normal certificate validation.
 
-Vercel nameservers are authoritative. Add `www.openlaunch.dev` with `cf pages domains create openlaunch-site --name www.openlaunch.dev`, inspect the returned Pages target, then add only the required `www` CNAME through Vercel. Preserve Clerk production records and unrelated verification records. Do not change nameservers.
+## Hosted device service
 
-Verify authoritative DNS, normal HTTPS certificate checks, documentation, MCP discovery, Markdown pages, and both source commit stamps. Apex HTTPS redirection requires a separate redirect deployment at Vercel; an external Pages CNAME alone does not configure the apex.
+Clerk handles hosted owner sign-in and agent OAuth. Google is the configured sign-in provider; email/password sign-in is disabled. OAuth uses PKCE and resource audiences. ChatGPT and Codex are admitted through their configured client identities. The hosted service verifies owner session JWTs and verifies opaque agent tokens online. Workspace data is stored in SQLite-backed Durable Objects keyed from the verified Clerk issuer and user identity.
 
-## Hosted bridge acceptance
+The owner login and agent OAuth consent flow have been exercised successfully. Approving OAuth scopes does not grant device access: the owner must separately approve device capabilities, and the service checks those grants on every action. Workspace isolation, pairing and action persistence are part of service acceptance. This hosted acceptance does not establish that physical Pi or Uno hardware has passed its own network, TLS, provisioning, power-loss or reconnect checks.
 
-Clerk is the hosted identity provider. PKCE is required, OAuth access tokens are opaque and verified online, resource audiences are enabled, and unknown clients cannot self-register. ChatGPT and Codex use their admitted CIMD identities. Owner sessions and agent OAuth identities stay separate; OAuth scope approval does not create device capability grants.
-
-Before enabling hosted linking, test real owner login, consent, audience binding, refresh/revocation, workspace separation, pairing, receipt/result persistence and grant revocation. Hardware acceptance remains separate: follow `MAC-HANDOFF.md` and `UNO-R4-PROFILES.md`, keeping custom ESP firmware and private repair assets untouched.
+For firmware and device acceptance, use [MAC-HANDOFF.md](MAC-HANDOFF.md) and [UNO-R4-PROFILES.md](UNO-R4-PROFILES.md). Private repair assets are isolated from the public site and should not be published.

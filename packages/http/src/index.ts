@@ -1,8 +1,14 @@
 import { z } from "zod";
-import { Hub, Fault, kinds, type Principal } from "../../core/src/index.ts";
+import {
+  Hub,
+  Fault,
+  kinds,
+  capabilityName,
+  type Principal,
+} from "../../core/src/index.ts";
 import { createMcp } from "../../mcp/src/index.ts";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-const caps = z.enum(["device.health", "display.text", "led.set"]);
+const caps = capabilityName;
 const bearer = (r: Request) =>
   /^Bearer ([^\s]+)$/.exec(r.headers.get("authorization") ?? "")?.[1] ?? "";
 const json = (data: unknown, status = 200) =>
@@ -97,7 +103,7 @@ export async function handle(
         .object({
           principal: z.string().min(1).max(128),
           deviceId: z.string().uuid(),
-          capabilities: z.array(caps).min(1).max(3),
+          capabilities: z.array(caps).min(1).max(16),
           ttlSeconds: z.number().int().min(1).max(86400).default(3600),
         })
         .strict()
@@ -112,6 +118,29 @@ export async function handle(
         .strict()
         .parse(await body(request));
       return json(hub.revokeGrant(p, b.principal, b.deviceId));
+    }
+    if (path === "/v1/broadcasts" && method === "POST") {
+      const b = z
+        .object({
+          deviceIds: z.array(z.string().uuid()).min(1).max(20),
+          capability: caps,
+          arguments: z.record(z.string(), z.unknown()),
+          idempotencyKey: z.string().min(1).max(64),
+          ttlSeconds: z.number().int().min(1).max(300).default(30),
+        })
+        .strict()
+        .parse(await body(request));
+      return json(
+        hub.broadcast(
+          p,
+          b.deviceIds,
+          b.capability,
+          b.arguments,
+          b.idempotencyKey,
+          b.ttlSeconds,
+        ),
+        202,
+      );
     }
     const revoke = /^\/v1\/devices\/([a-f0-9-]{36})\/revoke$/.exec(path);
     if (revoke && method === "POST") return json(hub.revoke(p, revoke[1]!));

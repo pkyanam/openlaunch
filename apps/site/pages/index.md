@@ -4,7 +4,9 @@ Connect your agents to your hardware. openlaunch is an open source bridge for Ch
 
 ## Get started
 
-Install Node 24+ and Git, then run:
+[Open your console](/console/) and sign in with Google. Pair a board using its setup guide, choose the functions your agent may use, and connect ChatGPT or Codex.
+
+For a local development bridge, install Node 24+ and Git, then run:
 
 ```sh
 curl -fsSL https://www.openlaunch.dev/install.sh | bash

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { cpSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -12,8 +14,24 @@ for (const [source, destination] of [
   mkdirSync(dirname(destination), { recursive: true });
   writeFileSync(destination, readFileSync(source));
 }
+// Publish standalone Pi binaries alongside the site, with a checksum manifest.
+const piArtifacts = {};
+for (const architecture of ["arm64", "arm"]) {
+  const source = `../../dist/openlaunch-device-linux-${architecture}`;
+  if (!existsSync(source))
+    throw new Error(`Build Pi downloads first: npm run build:pi (${source})`);
+  const destination = `dist/client/downloads/pi/openlaunch-device-linux-${architecture}`;
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync("dist/client/downloads/pi", { recursive: true });
+  cpSync(source, destination);
+}
+if (existsSync("../../scripts/install-pi.sh")) {
+  cpSync("../../scripts/install-pi.sh", "dist/client/install-pi.sh");
+  cpSync("../../scripts/install-pi.sh", "dist/client/downloads/pi/install.sh");
+}
 const origin =
   process.env.OPENLAUNCH_SITE_ORIGIN || "https://www.openlaunch.dev";
+execFileSync(process.execPath, ["../../scripts/package-plugin.mjs"], { stdio: "inherit" });
 // Bundle the shared console for the hosted route, with only its public Clerk key.
 if (process.env.CLERK_PUBLISHABLE_KEY) {
   execFileSync(
@@ -52,6 +70,75 @@ writeFileSync("dist/client/index.mdx", homeMarkdown);
 const commit = execFileSync("git", ["rev-parse", "HEAD"], {
   encoding: "utf8",
 }).trim();
+// Pin GitHub backup links to the deployed commit, never the moving main branch.
+const pinInstallerBackup = (text) => {
+  for (const filename of ["install.sh", "install-pi.sh", "provision-uno.py"])
+    text = text.replaceAll(
+      `https://raw.githubusercontent.com/pkyanam/openlaunch/main/scripts/${filename}`,
+      `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/${filename}`,
+    );
+  return text;
+};
+function pinGeneratedLinks(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) pinGeneratedLinks(path);
+    else if (/\.(html|md|mdx|txt|json)$/.test(entry.name)) {
+      const original = readFileSync(path, "utf8"),
+        pinned = pinInstallerBackup(original);
+      if (pinned !== original) writeFileSync(path, pinned);
+    }
+  }
+}
+pinGeneratedLinks("dist/client");
+writeFileSync(
+  "dist/client/downloads/installers.json",
+  JSON.stringify(
+    {
+      commit,
+      installers: [
+        {
+          url: `${origin}/install.sh`,
+          sha256: createHash("sha256")
+            .update(readFileSync("../../scripts/install.sh"))
+            .digest("hex"),
+          backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/install.sh`,
+        },
+        {
+          url: `${origin}/downloads/provision-uno.py`,
+          sha256: createHash("sha256")
+            .update(readFileSync("../../scripts/provision-uno.py"))
+            .digest("hex"),
+          backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/provision-uno.py`,
+        },
+        {
+          url: `${origin}/install-pi.sh`,
+          sha256: createHash("sha256").update(readFileSync("../../scripts/install-pi.sh")).digest("hex"),
+          backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/install-pi.sh`,
+        },
+      ],
+    },
+    null,
+    2,
+  ) + "\n",
+);
+for (const architecture of ["arm64", "arm"]) {
+  const name = `openlaunch-device-linux-${architecture}`;
+  piArtifacts[`linux-${architecture}`] = {
+    url: `${origin}/downloads/pi/${name}`,
+    sha256: createHash("sha256")
+      .update(readFileSync(`dist/client/downloads/pi/${name}`))
+      .digest("hex"),
+  };
+}
+writeFileSync(
+  "dist/client/downloads/pi/manifest.json",
+  JSON.stringify(
+    { version: commit.slice(0, 12), commit, artifacts: piArtifacts },
+    null,
+    2,
+  ) + "\n",
+);
 const dirty = Boolean(
   execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim(),
 );
@@ -64,7 +151,7 @@ writeFileSync(
       dirty,
       site: origin,
       builtAt: new Date().toISOString(),
-      surface: "website-and-read-only-docs-mcp",
+      surface: "website-docs-and-authenticated-console",
     },
     null,
     2,
@@ -75,7 +162,7 @@ writeFileSync(
   (existsSync("dist/client/_headers")
     ? readFileSync("dist/client/_headers", "utf8")
     : "") +
-    "\n/install.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-uno.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
+    "\n/install-pi.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/install.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-uno.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
 );
 // Blume 2.1.1's generated 404 ignores the custom Logo slot and omits raster dimensions.
 const notFoundPath = "dist/client/404.html";
@@ -115,7 +202,7 @@ corpus.documents.push({
   locale: "en",
   version: "",
 });
-writeFileSync("dist/mcp-data.json", JSON.stringify(corpus));
+writeFileSync("dist/mcp-data.json", pinInstallerBackup(JSON.stringify(corpus)));
 await build({
   entryPoints: ["server/pages-worker.ts"],
   outfile: "dist/client/_worker.js",

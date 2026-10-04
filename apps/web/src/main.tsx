@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { ClerkProvider, SignIn, UserButton, useAuth } from "@clerk/react";
+import {
+  ClerkProvider,
+  SignIn,
+  UserButton,
+  useAuth,
+  useSignIn,
+  HandleSSOCallback,
+} from "@clerk/react";
+import type { FunctionDefinition } from "../../../packages/core/src/functions.ts";
 type Device = {
   id: string;
   name: string;
@@ -9,6 +17,7 @@ type Device = {
   capabilities: string[];
   online: boolean;
   lastSeen: number;
+  functions?: FunctionDefinition[];
 };
 function App({ session }: { session?: () => Promise<string | null> }) {
   const [token, setToken] = useState(""),
@@ -18,7 +27,16 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [enrollment, setEnrollment] = useState<any>(null),
     [action, setAction] = useState<any>(null),
     [text, setText] = useState("hello openlaunch"),
-    [principal, setPrincipal] = useState("local-agent");
+    [principal, setPrincipal] = useState(
+      session ? "https://chatgpt.com/oauth/codex/client.json" : "local-agent",
+    ),
+    [grantCapabilities, setGrantCapabilities] = useState<
+      Record<string, string[]>
+    >({}),
+    [grantLifetime, setGrantLifetime] = useState(3600),
+    [broadcastDevices, setBroadcastDevices] = useState<string[]>([]),
+    [broadcastFunction, setBroadcastFunction] = useState("device.health"),
+    [broadcastResults, setBroadcastResults] = useState<any[]>([]);
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -77,6 +95,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         "Queued. This is not yet a device success. Refresh the action result after the device polls.",
       );
     });
+  const chosenDevices = devices.filter((device) =>
+    broadcastDevices.includes(device.id),
+  );
+  const commonFunctions = chosenDevices.length
+    ? chosenDevices[0]!.capabilities.filter((name) =>
+        chosenDevices.every((device) => device.capabilities.includes(name)),
+      )
+    : [];
+  const broadcastDefinition =
+    chosenDevices[0]?.functions?.find((fn) => fn.name === broadcastFunction) ??
+    builtInFunctions.find((fn) => fn.name === broadcastFunction);
   return (
     <>
       <header>
@@ -248,38 +277,99 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     </button>
                   </div>
                 )}
+                {d.functions?.map((fn) => (
+                  <FunctionForm
+                    key={fn.name}
+                    definition={fn}
+                    disabled={busy || !d.online}
+                    onRequest={(args) => request(d, fn.name, args)}
+                  />
+                ))}
                 <details>
                   <summary>Agent permission</summary>
                   <p>
-                    One-hour grant to this device’s displayed capabilities.
-                    Owner approval only.
+                    Choose the functions this agent can use and when access
+                    expires.
                   </p>
-                  <input
-                    aria-label="Agent principal"
-                    value={principal}
-                    onChange={(e) => setPrincipal(e.target.value)}
-                  />
+                  {session ? (
+                    <label>
+                      Agent
+                      <select
+                        value={principal}
+                        onChange={(e) => setPrincipal(e.target.value)}
+                      >
+                        <option value="https://chatgpt.com/oauth/codex/client.json">
+                          Codex
+                        </option>
+                        <option value="https://chatgpt.com/oauth/client.json">
+                          ChatGPT
+                        </option>
+                      </select>
+                    </label>
+                  ) : (
+                    <input
+                      aria-label="Agent principal"
+                      value={principal}
+                      onChange={(e) => setPrincipal(e.target.value)}
+                    />
+                  )}
+                  <fieldset>
+                    <legend>Allowed functions</legend>
+                    {d.capabilities.map((capability) => (
+                      <label key={capability} className="permission">
+                        <input
+                          type="checkbox"
+                          checked={(grantCapabilities[d.id] ?? []).includes(
+                            capability,
+                          )}
+                          onChange={(e) =>
+                            setGrantCapabilities((current) => ({
+                              ...current,
+                              [d.id]: e.target.checked
+                                ? [...(current[d.id] ?? []), capability]
+                                : (current[d.id] ?? []).filter(
+                                    (c) => c !== capability,
+                                  ),
+                            }))
+                          }
+                        />
+                        {d.functions?.find((fn) => fn.name === capability)
+                          ?.title ?? capability}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <label>
+                    Access expires
+                    <select
+                      value={grantLifetime}
+                      onChange={(e) => setGrantLifetime(Number(e.target.value))}
+                    >
+                      <option value={900}>In 15 minutes</option>
+                      <option value={3600}>In one hour</option>
+                      <option value={86400}>In 24 hours</option>
+                    </select>
+                  </label>
                   <button
-                    disabled={busy}
+                    disabled={busy || !(grantCapabilities[d.id] ?? []).length}
                     onClick={() =>
                       run(async () => {
                         if (
                           !confirm(
-                            `Grant ${principal} these capabilities for one hour?`,
+                            `Allow ${principal} to use ${(grantCapabilities[d.id] ?? []).join(", ")} for ${grantLifetime / 60} minutes?`,
                           )
                         )
                           return;
                         await api("/v1/grants", "POST", {
                           principal,
                           deviceId: d.id,
-                          capabilities: d.capabilities,
-                          ttlSeconds: 3600,
+                          capabilities: grantCapabilities[d.id] ?? [],
+                          ttlSeconds: grantLifetime,
                         });
-                        setNotice("Grant saved for one hour.");
+                        setNotice("Agent permission saved.");
                       })
                     }
                   >
-                    Grant for 1 hour
+                    Save permission
                   </button>
                   <button
                     className="secondary"
@@ -322,6 +412,98 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             ))
           )}
         </div>
+        {devices.length > 1 && (
+          <section className="panel result">
+            <h2>Broadcast a function</h2>
+            <p>
+              Choose devices and send the same request to each. Every device has
+              its own action and result.
+            </p>
+            <fieldset>
+              <legend>Devices</legend>
+              {devices.map((device) => (
+                <label className="permission" key={device.id}>
+                  <input
+                    type="checkbox"
+                    checked={broadcastDevices.includes(device.id)}
+                    onChange={(event) =>
+                      setBroadcastDevices((current) =>
+                        event.target.checked
+                          ? [...current, device.id]
+                          : current.filter((id) => id !== device.id),
+                      )
+                    }
+                  />
+                  {device.name}
+                </label>
+              ))}
+            </fieldset>
+            <label>
+              Function
+              <select
+                value={broadcastFunction}
+                onChange={(event) => setBroadcastFunction(event.target.value)}
+              >
+                <option value="">Choose a function</option>
+                {commonFunctions.map((name) => (
+                  <option key={name} value={name}>
+                    {chosenDevices[0]?.functions?.find((fn) => fn.name === name)
+                      ?.title ?? name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {broadcastDefinition &&
+              commonFunctions.includes(broadcastFunction) && (
+                <FunctionForm
+                  key={broadcastFunction}
+                  definition={broadcastDefinition}
+                  disabled={busy || !chosenDevices.length}
+                  onRequest={(args) =>
+                    run(async () => {
+                      if (
+                        !confirm(
+                          `Send ${broadcastDefinition.title} to ${chosenDevices.length} devices?`,
+                        )
+                      )
+                        return;
+                      setBroadcastResults(
+                        await api("/v1/broadcasts", "POST", {
+                          deviceIds: broadcastDevices,
+                          capability: broadcastFunction,
+                          arguments: args,
+                          idempotencyKey: crypto.randomUUID(),
+                          ttlSeconds: 60,
+                        }),
+                      );
+                    })
+                  }
+                />
+              )}
+            {broadcastResults.map((result) => (
+              <div className="row" key={result.deviceId}>
+                <span>
+                  {devices.find((device) => device.id === result.deviceId)
+                    ?.name ?? result.deviceId}
+                  : {result.error?.message ?? result.action.status}
+                </span>
+                {result.action && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () =>
+                        setAction(await api(`/v1/actions/${result.action.id}`)),
+                      )
+                    }
+                  >
+                    Inspect result
+                  </button>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
         {action && (
           <section className="panel result">
             <div className="section-head">
@@ -364,6 +546,209 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     </>
   );
 }
+const builtInFunctions: FunctionDefinition[] = [
+  {
+    name: "device.health",
+    title: "Read health",
+    description: "Ask the device for a fresh health result.",
+    access: "read",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "led.set",
+    title: "Set LED",
+    description: "Choose whether the built-in LED is on.",
+    access: "write",
+    inputSchema: {
+      type: "object",
+      properties: { on: { type: "boolean" } },
+      required: ["on"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "display.text",
+    title: "Show text",
+    description: "Send text to the device display.",
+    access: "write",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string", maxLength: 96 } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+];
+function FunctionForm({
+  definition,
+  disabled,
+  onRequest,
+}: {
+  definition: FunctionDefinition;
+  disabled: boolean;
+  onRequest: (args: Record<string, unknown>) => void;
+}) {
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+    Object.fromEntries(
+      Object.entries(definition.inputSchema.properties)
+        .filter(([, schema]) => schema.type === "boolean")
+        .map(([name]) => [name, false]),
+    ),
+  );
+  const required = definition.inputSchema.required;
+  return (
+    <form
+      className="function-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onRequest(values);
+      }}
+    >
+      <h4>{definition.title}</h4>
+      <p>{definition.description}</p>
+      {Object.entries(definition.inputSchema.properties).map(
+        ([name, schema]) => (
+          <label key={name}>
+            {schema.description ?? name}
+            {schema.type === "boolean" ? (
+              <input
+                type="checkbox"
+                checked={values[name] === true}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    [name]: event.target.checked,
+                  }))
+                }
+              />
+            ) : schema.type === "string" && schema.enum ? (
+              <select
+                required={required.includes(name)}
+                value={String(values[name] ?? "")}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    [name]: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Choose a value</option>
+                {schema.enum.map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                required={required.includes(name)}
+                type={schema.type === "string" ? "text" : "number"}
+                min={schema.type !== "string" ? schema.minimum : undefined}
+                max={schema.type !== "string" ? schema.maximum : undefined}
+                step={schema.type === "integer" ? 1 : "any"}
+                minLength={
+                  schema.type === "string" ? schema.minLength : undefined
+                }
+                maxLength={
+                  schema.type === "string" ? schema.maxLength : undefined
+                }
+                value={String(values[name] ?? "")}
+                onChange={(event) =>
+                  setValues((current) => {
+                    const next = { ...current };
+                    if (event.target.value === "") delete next[name];
+                    else
+                      next[name] =
+                        schema.type === "string"
+                          ? event.target.value
+                          : Number(event.target.value);
+                    return next;
+                  })
+                }
+              />
+            )}
+          </label>
+        ),
+      )}
+      <button disabled={disabled}>Run {definition.title}</button>
+    </form>
+  );
+}
+function GoogleSignIn() {
+  const { signIn, fetchStatus } = useSignIn();
+  const [error, setError] = useState("");
+  const callback = new URLSearchParams(window.location.search).get("sso");
+  if (callback === "callback")
+    return (
+      <main className="auth-screen">
+        <div className="auth-card">
+          <p>Finishing your sign-in…</p>
+          <HandleSSOCallback
+            navigateToApp={({ decorateUrl }) => {
+              window.location.assign(decorateUrl("/console/"));
+            }}
+            navigateToSignIn={() =>
+              window.location.assign("/console/?sso=verify")
+            }
+            navigateToSignUp={() =>
+              window.location.assign("/console/?sso=verify")
+            }
+          />
+        </div>
+      </main>
+    );
+  return (
+    <main className="auth-screen">
+      <section className="auth-card">
+        <a className="auth-brand" href="/">
+          <img src="/icon.svg" width="48" height="42" alt="ol" />
+          <span>openlaunch</span>
+        </a>
+        <h1>Sign in to openlaunch</h1>
+        <p>Sign in to connect a device and choose what your agents can do.</p>
+        {callback === "verify" ? (
+          <SignIn
+            routing="hash"
+            fallbackRedirectUrl="/console/"
+            signUpFallbackRedirectUrl="/console/"
+          />
+        ) : (
+          <button
+            className="google-sign-in"
+            disabled={fetchStatus === "fetching"}
+            onClick={async () => {
+              setError("");
+              try {
+                const result = await signIn.sso({
+                  strategy: "oauth_google",
+                  redirectUrl: "/console/",
+                  redirectCallbackUrl: "/console/?sso=callback",
+                });
+                if (result.error)
+                  setError(
+                    result.error.longMessage ??
+                      result.error.message ??
+                      "Google sign-in could not start.",
+                  );
+              } catch {
+                setError("Google sign-in could not start. Please try again.");
+              }
+            }}
+          >
+            Continue with Google
+          </button>
+        )}
+        {error && <p role="alert">{error}</p>}
+        <a className="auth-docs" href="/docs">
+          Read the docs
+        </a>
+      </section>
+    </main>
+  );
+}
 function HostedApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const [account, setAccount] = useState<{
@@ -395,13 +780,7 @@ function HostedApp() {
     };
   }, [isLoaded, isSignedIn, getToken]);
   if (!isLoaded) return <main>Loading your account…</main>;
-  if (!isSignedIn)
-    return (
-      <main>
-        <h1>Sign in to openlaunch</h1>
-        <SignIn routing="hash" />
-      </main>
-    );
+  if (!isSignedIn) return <GoogleSignIn />;
   if (accountError)
     return (
       <main>
@@ -438,6 +817,10 @@ createRoot(document.getElementById("root")!).render(
   publishableKey ? (
     <ClerkProvider
       publishableKey={publishableKey}
+      signInUrl="/console/"
+      signUpUrl="/console/"
+      signInFallbackRedirectUrl="/console/"
+      signUpFallbackRedirectUrl="/console/"
       appearance={{ variables: { colorPrimary: "#111111" } }}
     >
       <HostedApp />

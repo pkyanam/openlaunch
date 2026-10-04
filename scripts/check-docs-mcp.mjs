@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,6 +17,36 @@ const assets = {
     }
   },
 };
+const installerManifest = JSON.parse(
+  await readFile(new URL("downloads/installers.json", root), "utf8"),
+);
+const deployment = JSON.parse(
+  await readFile(new URL("deployment.json", root), "utf8"),
+);
+assert.equal(installerManifest.commit, deployment.commit);
+for (const [index, source] of [
+  "../scripts/install.sh",
+  "../scripts/provision-uno.py",
+  "../scripts/install-pi.sh",
+].entries()) {
+  const original = await readFile(new URL(source, import.meta.url));
+  const hosted = await readFile(
+    new URL(["install.sh", "downloads/provision-uno.py", "install-pi.sh"][index], root),
+  );
+  assert.deepEqual(hosted, original);
+  assert.equal(installerManifest.installers[index].sha256, createHash("sha256").update(hosted).digest("hex"));
+  assert(
+    installerManifest.installers[index].backup.includes(
+      `/${deployment.commit}/scripts/`,
+    ),
+  );
+}
+const piManifest = JSON.parse(await readFile(new URL("downloads/pi/manifest.json", root), "utf8"));
+assert.equal(piManifest.commit, deployment.commit);
+for (const artifact of Object.values(piManifest.artifacts)) {
+  const bytes = await readFile(new URL("." + new URL(artifact.url).pathname, root));
+  assert.equal(artifact.sha256, createHash("sha256").update(bytes).digest("hex"));
+}
 const client = new Client({
   name: "openlaunch-docs-acceptance",
   version: "1.0",

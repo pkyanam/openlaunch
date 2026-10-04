@@ -1,0 +1,37 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "openlaunch",
+  "version": "0.1.0",
+  "description": "Connect agents to openlaunch devices through explicit, per-device grants and inspect device action results.",
+  "homepage": "https://www.openlaunch.dev/",
+  "repository": "https://github.com/pkyanam/openlaunch",
+  "keywords": [
+    "devices",
+    "iot",
+    "mcp",
+    "hardware"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "openlaunch",
+        "shortDescription": "Connect to granted devices.",
+        "longDescription": "Use openlaunch to inspect devices and request approved device functions. Owners grant each agent access to specific functions on specific devices. Check every action receipt for its final outcome.",
+        "developerName": "openlaunch",
+        "category": "Developer tools",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://www.openlaunch.dev/",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "List my openlaunch devices and report their connection status.",
+          "Check the result of this openlaunch action receipt."
+        ],
+        "brandColor": "#f5f5f5",
+        "logo": "./assets/icon.png"
+      }
+    }
+  }
+}

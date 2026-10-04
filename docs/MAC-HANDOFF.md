@@ -1,7 +1,7 @@
 # openlaunch Mac handoff
 
 ## State of the implementation
-This is a developer alpha, not a public service ready for launch. The local bridge, typed protocol, capability grants, action lifecycle, SQLite persistence and official-SDK MCP interface work with an actual Go client in simulated-hardware mode. Uno R4 firmware compiles. Real hardware and hosted OAuth are not verified.
+This is a developer alpha, not a public service ready for launch. The local bridge, typed protocol, capability grants, action lifecycle, SQLite persistence and official-SDK MCP interface work with an actual Go client in simulated-hardware mode. Uno R4 firmware compiles. The live `www.openlaunch.dev` Pages site, apex redirect to `www`, Google Clerk owner sign-in and real Codex OAuth approval have been verified. Device-control acceptance remains gated: `OPENLAUNCH_CONTROLS_ENABLED` stays false pending final authenticated device-flow tests. Physical Pi and Uno R4 testing has not been verified.
 
 ## Install/build
 Use Node 24+, Go 1.27.1 and Arduino CLI 1.5.1. No Docker is needed. Do not source scripts/env.sh on your Mac: it is the cloud staging wrapper.
@@ -37,22 +37,11 @@ Local endpoint: http://127.0.0.1:8788/mcp with Authorization: Bearer supplied fr
 
 Six tools: list_devices, request_device_health, show_text, set_led, get_action, cancel_action. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Real ChatGPT connection requires a public HTTPS endpoint and complete OAuth first; localhost is for local Codex/Inspector testing only.
 
-## Cloudflare: original handoff and current website work
+## Hosted deployment
 
-October 4 update: the Mac cf login now verifies the intended account. The owner authorized removal of the old Worker/Vercel website and obsolete Clerk DNS entries. New static website deployment is prepared, but Cloudflare Pages Git authorization needs repair. Credit eligibility remains unverified (billing API 403); owner approved up to $10/month and Vercel DNS with www first. See [current website deployment](WEBSITE-DEPLOYMENT.md) before acting on the historical instructions below. Hosted device authentication and real hardware acceptance are still unfinished.
+The live website, DNS routing, hosted device service, authentication status, deployment checks and approved budget are documented in [current website deployment](WEBSITE-DEPLOYMENT.md). The apex `openlaunch.dev` redirects to `www.openlaunch.dev`. The site is live; the native `/install-pi.sh` installer is staged and its CI deployment is pending, so do not treat that installer route as live until the workflow completes. The approved Cloudflare spending ceiling is $10/month. Cloud credits remain unverified.
 
-### Original cloud workspace handoff
-The cloud cf device-code exchange was blocked by network policy. Do not reuse old codes.
-
-    npx cf auth login
-    npx cf auth whoami
-    npx cf zones list --name openlaunch.dev
-
-Use preetham@belweave.com's intended account. Verify account/zone and credit eligibility, then choose an explicit spending budget before provisioning services. Pin the account in the project configuration. No Cloudflare resources or DNS records have been created by this implementation.
-
-apps/cloud/cloudflare.config.ts builds a Worker plus SQLite-backed WorkspaceHub Durable Object. The API fails closed until CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, CLERK_ISSUER and API_ORIGIN are supplied. Owner access requires a verified Clerk session from the expected issuer and authorized origin. Agent access requires an opaque Clerk OAuth token, online verification including audience API_ORIGIN + /mcp, an admitted CLERK_AGENT_CLIENT_IDS identity, and openlaunch:read. Action requests additionally require openlaunch:act and a separate per-device capability grant. Agent scopes never create ownership. Hosted deployment and real consent require acceptance before release.
-
-IMPORTANT: OAuth authorization/login/consent/refresh endpoints are NOT implemented yet. Build the maintained Cloudflare OAuth provider integration and a real user-login provider, test it end to end, then connect ChatGPT. Do not point the verifier at an arbitrary provider and call OAuth complete. Device clients send x-openlaunch-workspace, obtained from an authenticated response. Public device authentication is per-device, not the workspace id.
+Google Clerk owner sign-in and real Codex OAuth approval have been exercised. Keep `OPENLAUNCH_CONTROLS_ENABLED` false until the final authenticated device-flow tests pass. OAuth approval does not grant device capabilities; the owner must separately grant capabilities. No physical Pi or Uno R4 acceptance has been verified.
 
 ## Uno R4 WiFi
 
@@ -71,7 +60,7 @@ The default `stock` profile stages stock WiFiS3 from the pinned core. It exclude
 Upload only after identifying the actual connected board/port. Firmware requires an HTTPS bridge, verified TLS and a valid clock before acting. Provision through USB serial JSON at 115200 using the documented fields in the sketch. Do not commit Wi-Fi passwords, enrollment tokens or device credentials. EEPROM storage is plaintext; physical access can expose credentials. Only built-in LED, ASCII text matrix and health are implemented. No arbitrary pin control. No OTA updates are implemented.
 
 ## Remaining acceptance work
-- Complete/test browser OAuth, refresh/revocation and reviewer access without inbox dependence
+- Complete final authenticated device-flow tests before enabling controls; test OAuth refresh/revocation and reviewer access without inbox dependence
 - Replace prototype 10-second polling with tested hibernating WebSockets before broad scale; current polling can be costly and has latency
 - Add edge rate limits, robust account-level enrollment abuse protection, quota metering, retention/export and durable event subscriptions
 - Verify Cloudflare Durable Object persistence and tenant isolation on a real deployment
@@ -98,7 +87,7 @@ Run from the repository root after `npm ci`:
 
 `build` builds both JS applications and native Go/ARM64/ARMv7 device binaries. `verify` additionally checks TypeScript, Node/Python/Go tests, the firmware compile and simulated E2E. `doctor` reports missing tools; it does not install packages, log in or read credentials. Install the pinned Arduino prerequisites listed above before firmware/verify.
 
-## Secure real-board test connection before hosted OAuth
+## Secure real-board test connection
 
 The local server remains bound to 127.0.0.1. A board cannot connect to your Mac's loopback address. Supply a trusted HTTPS reverse proxy/tunnel that you control, then start the server with `OPENLAUNCH_PUBLIC_ORIGIN` set to that exact HTTPS origin. Use disposable development owner/agent tokens, never production tokens. This explicitly exposes the development API at that origin, so only enable it for the test window and shut down the proxy afterward.
 
@@ -148,4 +137,4 @@ Do not pass `--simulate` on real hardware acceptance. This implementation advert
 - Revoke device identity and confirm it can no longer poll or execute
 - Never count queued, simulated, or uncertain receipts as real hardware success
 
-Hosted OAuth and openlaunch.dev deployment remain separate acceptance gates. The above path makes real-board testing possible without pretending hosted onboarding is finished.
+Hosted owner sign-in and Codex OAuth approval are verified, while controls remain disabled pending final authenticated device-flow tests. The above path makes real-board testing possible; physical acceptance remains unverified.
