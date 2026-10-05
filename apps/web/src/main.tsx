@@ -223,7 +223,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [deviceSetupName, setDeviceSetupName] = useState("Device setup token");
   const [deviceSetupLifetime, setDeviceSetupLifetime] = useState(600);
   const [deviceSetupKind, setDeviceSetupKind] = useState<
-    "custom" | "pi" | "uno" | "esp32" | null
+    "custom" | "pi" | "linux" | "uno" | "esp32" | null
   >(null);
   const [deviceSetupPort, setDeviceSetupPort] = useState("");
   const [legacyKind, setLegacyKind] = useState("custom.device");
@@ -250,13 +250,15 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     ` --port ${quoteShellValue(deviceSetupPort)}${setupOriginOption}`,
   );
   const deviceSetupCommand =
-    deviceSetupKind === "pi"
-      ? hostedSetupCommand("pi")
-      : deviceSetupKind === "uno"
-        ? unoSetupCommand
-        : deviceSetupKind === "esp32"
-          ? esp32SetupCommand
-          : adapterSetupCommand;
+    deviceSetupKind === "linux"
+      ? hostedSetupCommand("linux")
+      : deviceSetupKind === "pi"
+        ? hostedSetupCommand("pi")
+        : deviceSetupKind === "uno"
+          ? unoSetupCommand
+          : deviceSetupKind === "esp32"
+            ? esp32SetupCommand
+            : adapterSetupCommand;
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -2019,7 +2021,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           <div>
             <h2 id="connect-title">
               {setupConnection
-                ? `Set up ${deviceSetupKind === "pi" ? "Raspberry Pi 4" : deviceSetupKind === "uno" ? "Uno R4 WiFi" : deviceSetupKind === "esp32" ? "ESP32" : "Node adapter"}`
+                ? `Set up ${deviceSetupKind === "linux" ? "Linux host" : deviceSetupKind === "pi" ? "Raspberry Pi 4" : deviceSetupKind === "uno" ? "Uno R4 WiFi" : deviceSetupKind === "esp32" ? "ESP32" : "Node adapter"}`
                 : enrollment
                   ? "Legacy enrollment"
                   : "Add a device"}
@@ -2047,15 +2049,25 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         {setupConnection ? (
           <div className="enrollment-steps">
             <h3>
-              {deviceSetupKind === "pi"
-                ? "Raspberry Pi 4"
-                : deviceSetupKind === "uno"
-                  ? "Arduino Uno R4 WiFi"
-                  : deviceSetupKind === "esp32"
-                    ? "Standalone ESP32"
-                    : "Linux / desktop Node adapter"}
+              {deviceSetupKind === "linux"
+                ? "Linux host harness"
+                : deviceSetupKind === "pi"
+                  ? "Raspberry Pi 4"
+                  : deviceSetupKind === "uno"
+                    ? "Arduino Uno R4 WiFi"
+                    : deviceSetupKind === "esp32"
+                      ? "Standalone ESP32"
+                      : "Linux / desktop Node adapter"}
             </h3>
-            {deviceSetupKind === "pi" ? (
+            {deviceSetupKind === "linux" ? (
+              <p>
+                Run this installer as your normal Linux user. It installs the
+                native host harness, prompts for the setup token privately, and
+                starts with one dedicated file workspace. Configure additional
+                directories, commands and user services locally, then grant
+                agent functions separately.
+              </p>
+            ) : deviceSetupKind === "pi" ? (
               <p>
                 Run this installer on Raspberry Pi OS. It prompts for the SDK
                 token privately, downloads the matching runtime, and attaches
@@ -2152,11 +2164,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </button>
               <a
                 href={
-                  deviceSetupKind === "uno"
-                    ? "/docs/uno-r4"
-                    : deviceSetupKind === "pi"
-                      ? "/docs/pi"
-                      : "/docs/sdk"
+                  deviceSetupKind === "linux"
+                    ? "/docs/linux"
+                    : deviceSetupKind === "uno"
+                      ? "/docs/uno-r4"
+                      : deviceSetupKind === "pi"
+                        ? "/docs/pi"
+                        : "/docs/sdk"
                 }
               >
                 Setup guide
@@ -2238,6 +2252,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       "custom",
                       "Linux / desktop Node adapter",
                       "Run the Node SDK beside your hardware or service.",
+                    ],
+                    [
+                      "linux",
+                      "Linux host",
+                      "Native host controls on ARM64, ARMv7 or x86-64 Linux.",
                     ],
                     [
                       "pi",

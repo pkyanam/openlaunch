@@ -7,8 +7,8 @@ const property = z.discriminatedUnion("type", [
     .object({
       type: z.literal("string"),
       ...label,
-      minLength: z.number().int().min(0).max(1024).optional(),
-      maxLength: z.number().int().min(0).max(1024),
+      minLength: z.number().int().min(0).max(8192).optional(),
+      maxLength: z.number().int().min(0).max(8192),
       enum: z.array(z.string().max(1024)).min(1).max(32).optional(),
     })
     .strict(),

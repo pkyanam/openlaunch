@@ -170,15 +170,16 @@ class SetupTests(unittest.TestCase):
                     if not chunk:
                         break
                     output += chunk
-                    if b'Choose setup [1-7]:' in output and not sent:
+                    if b'Choose setup [1-8]:' in output and not sent:
                         os.write(fd, b'0\n')
                         sent = True
-                    if b'Choose a number from 1 to 7.' in output:
+                    if b'Choose a number from 1 to 8.' in output:
                         break
             self.assertIn(b'1. Uno R4 WiFi USB setup', output)
             self.assertIn(b'6. Local developer console', output)
             self.assertIn(b'7. Install ol CLI on PATH', output)
-            self.assertIn(b'Choose a number from 1 to 7.', output)
+            self.assertIn(b'8. Linux host control harness', output)
+            self.assertIn(b'Choose a number from 1 to 8.', output)
         finally:
             os.close(fd)
             try:

@@ -220,6 +220,36 @@ test("published manifest schema carries real function parameter bounds", () => {
   );
   const functionSchema =
     doc.components.schemas.Manifest.properties.functions.items;
+  const linuxChunk = {
+    ...manifest,
+    kind: "linux",
+    functions: [
+      {
+        ...manifest.functions[0],
+        inputSchema: {
+          ...manifest.functions[0].inputSchema,
+          properties: { text: { type: "string", maxLength: 8192 } },
+        },
+      },
+    ],
+  };
+  assert.equal(validate(linuxChunk), true);
+  assert.equal(validate({ ...linuxChunk, kind: "uno-r4-wifi" }), false);
+  assert.equal(
+    validate({
+      ...linuxChunk,
+      functions: [
+        {
+          ...linuxChunk.functions[0],
+          inputSchema: {
+            ...linuxChunk.functions[0].inputSchema,
+            properties: { text: { type: "string", maxLength: 8193 } },
+          },
+        },
+      ],
+    }),
+    false,
+  );
   assert.equal(
     functionSchema.properties.inputSchema.properties.additionalProperties.const,
     false,

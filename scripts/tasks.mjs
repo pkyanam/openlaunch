@@ -34,7 +34,7 @@ function host() {
 }
 function pi() {
   mkdirSync(`${root}/dist`, { recursive: true });
-  for (const arch of ["arm64", "arm"])
+  for (const arch of ["arm64", "arm", "amd64"])
     go(
       [
         "build",
@@ -80,7 +80,10 @@ if (command === "doctor") {
 else if (command === "pi") pi();
 else if (command === "firmware") firmware();
 else if (command === "device-test") go(["test", "./..."]);
-else if (command === "e2e") {
+else if (command === "linux-e2e") {
+  host();
+  run(process.execPath, ["scripts/linux-e2e.mjs"]);
+} else if (command === "e2e") {
   host();
   run(process.execPath, ["scripts/e2e.mjs"]);
 } else if (command === "verify") {

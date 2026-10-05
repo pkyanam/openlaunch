@@ -12,6 +12,7 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 for (const [source, destination] of [
   ["../../scripts/setup.sh", "dist/client/setup.sh"],
   ["../../scripts/install-cli.sh", "dist/client/install-cli.sh"],
+  ["../../scripts/install-linux.sh", "dist/client/install-linux.sh"],
   ["../../scripts/setup.py", "dist/client/downloads/setup.py"],
   ["../../scripts/install.sh", "dist/client/install.sh"],
   ["../../scripts/setup-uno.sh", "dist/client/setup-uno.sh"],
@@ -32,7 +33,7 @@ for (const [source, destination] of [
 }
 // Publish standalone Pi binaries alongside the site, with a checksum manifest.
 const piArtifacts = {};
-for (const architecture of ["arm64", "arm"]) {
+for (const architecture of ["arm64", "arm", "amd64"]) {
   const source = `../../dist/openlaunch-device-linux-${architecture}`;
   if (!existsSync(source))
     throw new Error(`Build Pi downloads first: npm run build:pi (${source})`);
@@ -75,6 +76,27 @@ if (process.env.CLERK_PUBLISHABLE_KEY) {
   );
   cpSync("public/icon.svg", "dist/client/console/icon.svg");
 }
+// Linux host profile uses the same tested transport binary, under its own CLI name.
+const linuxArtifacts = {};
+const { mkdirSync } = await import("node:fs");
+mkdirSync("dist/client/downloads/linux", { recursive: true });
+for (const architecture of ["arm64", "arm", "amd64"]) {
+  const name = `openlaunch-host-linux-${architecture}`;
+  const source = `../../dist/openlaunch-device-linux-${architecture}`;
+  cpSync(source, `dist/client/downloads/linux/${name}`);
+  linuxArtifacts[`linux-${architecture}`] = {
+    url: `${origin}/downloads/linux/${name}`,
+    sha256: createHash("sha256").update(readFileSync(source)).digest("hex"),
+  };
+}
+writeFileSync(
+  "dist/client/downloads/linux/manifest.json",
+  JSON.stringify(
+    { version: commit.slice(0, 12), commit, artifacts: linuxArtifacts },
+    null,
+    2,
+  ) + "\n",
+);
 // Blume's custom homepage is indexable but is omitted from its generated llms index.
 const homepage = `## Website\n\n- [openlaunch home](${origin}/): Connect your agents to your hardware. Setup, hardware, source links and documentation.\n\n`;
 const indexPath = "dist/client/llms.txt";
@@ -91,6 +113,7 @@ const pinInstallerBackup = (text) => {
   for (const filename of [
     "install.sh",
     "install-pi.sh",
+    "install-linux.sh",
     "provision-uno.py",
     "provision-esp32.py",
   ])
@@ -132,7 +155,7 @@ writeFileSync(
   JSON.stringify(installerManifest("dist/client/downloads", origin), null, 2) +
     "\n",
 );
-for (const architecture of ["arm64", "arm"]) {
+for (const architecture of ["arm64", "arm", "amd64"]) {
   const name = `openlaunch-device-linux-${architecture}`;
   piArtifacts[`linux-${architecture}`] = {
     url: `${origin}/downloads/pi/${name}`,

@@ -19,6 +19,7 @@ export function installerManifest(downloadDirectory, origin) {
       "install-cli.sh",
       "install.sh",
       "install-pi.sh",
+      "install-linux.sh",
       "setup-uno.sh",
       "provision-uno.py",
       "provision-roomba.py",

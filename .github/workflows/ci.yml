@@ -60,6 +60,7 @@ jobs:
       - run: npm run build --workspace @openlaunch/web
       - run: cd devices/pi && go test ./... && go build -o ../../dist/openlaunch-device-host ./cmd/openlaunch-device
       - run: node scripts/e2e.mjs
+      - run: node scripts/linux-e2e.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: openlaunch-website

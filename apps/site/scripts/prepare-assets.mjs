@@ -11,6 +11,7 @@ copyFileSync("../../scripts/install-cli.sh", "public/install-cli.sh");
 copyFileSync("../../scripts/setup.py", "public/downloads/setup.py");
 copyFileSync("../../scripts/install.sh", "public/install.sh");
 copyFileSync("../../scripts/install-pi.sh", "public/install-pi.sh");
+copyFileSync("../../scripts/install-linux.sh", "public/install-linux.sh");
 copyFileSync("../../scripts/setup-uno.sh", "public/setup-uno.sh");
 execFileSync(
   process.execPath,

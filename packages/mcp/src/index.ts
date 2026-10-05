@@ -77,7 +77,7 @@ export function createToolCatalog(hub: Hub, p: Principal) {
       capability: capabilityName,
       arguments: z.record(
         z.string(),
-        z.union([z.string().max(1024), z.number().finite(), z.boolean()]),
+        z.union([z.string().max(8192), z.number().finite(), z.boolean()]),
       ),
     },
     false,

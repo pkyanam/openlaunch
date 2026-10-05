@@ -351,3 +351,72 @@ test("agent device inventory exposes only granted function metadata", async () =
   hub.revokeGrant(owner, agent.id, device.deviceId);
   assert.deepEqual(hub.list(agent), []);
 });
+
+test("Linux chunk schemas accept bounded larger strings without widening embedded manifests", async () => {
+  const chunk = {
+    ...definition,
+    name: "file.write",
+    inputSchema: {
+      type: "object",
+      properties: { dataBase64: { type: "string", maxLength: 8192 } },
+      required: ["dataBase64"],
+      additionalProperties: false,
+    },
+  };
+  const linux = {
+    name: "test Linux host",
+    kind: "linux",
+    capabilities: [chunk.name],
+    functions: [chunk],
+  };
+  assert.equal(manifestSchema.safeParse(linux).success, true);
+  assert.equal(
+    manifestSchema.safeParse({ ...linux, kind: "raspberry-pi-4" }).success,
+    false,
+  );
+  assert.equal(
+    manifestSchema.safeParse({ ...linux, kind: "uno-r4-wifi" }).success,
+    false,
+  );
+  const hub = new Hub();
+  const enrollment = await hub.enrollment(owner, "linux");
+  const device = await hub.enroll(enrollment.token, linux);
+  hub.grant(owner, agent.id, device.deviceId, [chunk.name]);
+  const server = createMcp(hub, agent);
+  const client = new Client({ name: "linux-test", version: "1" });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st);
+  await client.connect(ct);
+  try {
+    const args = {
+      deviceId: device.deviceId,
+      capability: chunk.name,
+      arguments: { dataBase64: "A".repeat(8192) },
+      idempotencyKey: "linux-chunk",
+    };
+    const result = await client.callTool({
+      name: "invoke_device_function",
+      arguments: args,
+    });
+    assert.equal(result.structuredContent.data.status, "queued");
+    const denied = await client.callTool({
+      name: "invoke_device_function",
+      arguments: {
+        ...args,
+        arguments: { dataBase64: "A".repeat(8193) },
+        idempotencyKey: "bad-chunk",
+      },
+    });
+    assert.equal(denied.isError, true);
+    const updated = {
+      ...linux,
+      functions: [{ ...chunk, description: "Changed owner policy." }],
+    };
+    hub.publishManifest(device.deviceId, updated);
+    assert.deepEqual(hub.functionCatalog(agent), []);
+    assert.equal(hub.state.actions[0].status, "cancelled");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});

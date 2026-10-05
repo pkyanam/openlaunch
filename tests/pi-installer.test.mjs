@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -11,7 +19,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const installer = join(root, "scripts/install-pi.sh");
 const workspace = "a".repeat(64);
 const sdkToken = `ol_sdk_${workspace}_${"b".repeat(64)}`;
-const artifactUrl = "https://www.openlaunch.dev/downloads/pi/openlaunch-device-linux-arm64";
+const artifactUrl =
+  "https://www.openlaunch.dev/downloads/pi/openlaunch-device-linux-arm64";
 
 const mockCurl = `#!/usr/bin/env python3
 import os, shutil, sys
@@ -34,6 +43,14 @@ esac
 
 const mockDevice = `#!/usr/bin/env bash
 set -eu
+if [[ " $* " == *" --linux-init "* ]]; then
+  while (($#)); do
+    if [[ "$1" == --config ]]; then config="$2"; shift 2; else shift; fi
+  done
+  umask 077
+  printf '{"version":1}' > "$(dirname "$config")/policy.json"
+  exit 0
+fi
 [[ "\${OPENLAUNCH_SDK_TOKEN:-}" == "$TEST_EXPECT_TOKEN" ]] || exit 71
 for arg in "$@"; do [[ "$arg" != "$TEST_EXPECT_TOKEN" ]] || exit 72; done
 [[ " $* " == *" --attach "* ]] || exit 73
@@ -57,7 +74,7 @@ cat > "$config" <<'JSON'
 JSON
 `;
 
-async function fixture() {
+async function fixture(linux = false) {
   const base = await mkdtemp(join(tmpdir(), "openlaunch-pi-installer-"));
   const home = join(base, "home");
   const bin = join(base, "mock-bin");
@@ -67,6 +84,8 @@ async function fixture() {
   const artifactPath = join(base, "artifact");
   await writeFile(join(bin, "curl"), mockCurl);
   await writeFile(join(bin, "uname"), mockUname);
+  await writeFile(join(bin, "id"), "#!/bin/sh\nprintf '1000\\n'\n");
+  await chmod(join(bin, "id"), 0o755);
   await writeFile(join(bin, "openlaunch-device"), mockDevice);
   await Promise.all([
     chmod(join(bin, "curl"), 0o755),
@@ -78,7 +97,15 @@ async function fixture() {
   const digest = await import("node:crypto").then(({ createHash }) =>
     createHash("sha256").update(artifact).digest("hex"),
   );
-  const writeManifest = async (url = artifactUrl, sha256 = digest) => {
+  const writeManifest = async (
+    url = linux
+      ? artifactUrl.replace(
+          "/downloads/pi/openlaunch-device-",
+          "/downloads/linux/openlaunch-host-",
+        )
+      : artifactUrl,
+    sha256 = digest,
+  ) => {
     await writeFile(
       manifestPath,
       JSON.stringify({
@@ -86,7 +113,14 @@ async function fixture() {
         commit: "1234567890abcdef1234567890abcdef12345678",
         artifacts: {
           "linux-arm64": { url, sha256 },
-          "linux-arm": { url: "https://www.openlaunch.dev/downloads/pi/openlaunch-device-linux-arm", sha256: digest },
+          "linux-arm": {
+            url: "https://www.openlaunch.dev/downloads/pi/openlaunch-device-linux-arm",
+            sha256: digest,
+          },
+          "linux-amd64": {
+            url: "https://www.openlaunch.dev/downloads/linux/openlaunch-host-linux-amd64",
+            sha256: digest,
+          },
         },
       }),
     );
@@ -105,10 +139,74 @@ async function fixture() {
       TEST_UNAME_M: "aarch64",
       ...overrides,
     };
-    return spawnSync(installer, [], { cwd: root, env, encoding: "utf8" });
+    return spawnSync(
+      linux ? join(root, "scripts/install-linux.sh") : installer,
+      [],
+      { cwd: root, env, encoding: "utf8" },
+    );
   };
   return { base, home, manifestPath, writeManifest, run };
 }
+
+test("Linux installer supports x86-64, keeps Node CLI names separate and configures PATH", async () => {
+  const current = await fixture(true);
+  try {
+    const { home, run } = current;
+    await mkdir(join(home, ".local/bin"), { recursive: true });
+    await writeFile(
+      join(home, ".local/bin/openlaunch-device"),
+      "existing Node adapter",
+    );
+    const result = run({ TEST_UNAME_M: "x86_64", SHELL: "/bin/bash" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(
+      await readFile(join(home, ".local/bin/openlaunch-device"), "utf8"),
+      "existing Node adapter",
+    );
+    assert.equal(
+      (await stat(join(home, ".local/bin/openlaunch-host"))).mode & 0o777,
+      0o700,
+    );
+    const privateDir = join(home, ".config/openlaunch/host");
+    assert.equal((await stat(privateDir)).mode & 0o777, 0o700);
+    assert.equal(
+      (await stat(join(privateDir, "policy.json"))).mode & 0o777,
+      0o600,
+    );
+    assert.match(
+      await readFile(join(home, ".profile"), "utf8"),
+      /openlaunch Linux host PATH/,
+    );
+    assert.match(result.stdout, /openlaunch-host service install/);
+    assert.doesNotMatch(result.stdout + result.stderr, /ol_sdk_|bbbbbbbb/);
+  } finally {
+    await rm(current.base, { recursive: true, force: true });
+  }
+});
+
+test("Linux installer rejects checksum failure and protects existing host identity", async () => {
+  const current = await fixture(true);
+  try {
+    await current.writeManifest(
+      "https://www.openlaunch.dev/downloads/linux/openlaunch-host-linux-arm64",
+      "0".repeat(64),
+    );
+    assert.notEqual(current.run().status, 0);
+    const identity = join(current.home, ".config/openlaunch/host/device.json");
+    await mkdir(join(current.home, ".config/openlaunch/host"), {
+      recursive: true,
+      mode: 0o700,
+    });
+    await writeFile(identity, "existing identity", { mode: 0o600 });
+    assert.match(
+      current.run().stderr,
+      /refusing to overwrite existing device identity/,
+    );
+    assert.equal(await readFile(identity, "utf8"), "existing identity");
+  } finally {
+    await rm(current.base, { recursive: true, force: true });
+  }
+});
 
 async function withFixture(run) {
   const current = await fixture();
@@ -127,7 +225,10 @@ test("Pi installer asks for one SDK token and installs only the child credential
     const config = join(home, ".config/openlaunch/device.json");
     assert.equal((await stat(binary)).mode & 0o777, 0o700);
     assert.equal((await stat(config)).mode & 0o777, 0o600);
-    assert.equal((await stat(join(home, ".config/openlaunch"))).mode & 0o777, 0o700);
+    assert.equal(
+      (await stat(join(home, ".config/openlaunch"))).mode & 0o777,
+      0o700,
+    );
     const saved = await readFile(config, "utf8");
     assert.match(saved, /child-device-credential/);
     assert.doesNotMatch(saved, /ol_sdk_|bbbbbbbb/);
@@ -146,7 +247,10 @@ test("Pi installer keeps a pending SDK attachment after a lost-response failure"
     assert.match(result.stderr, /check device inventory/);
     assert.equal((await stat(pending)).mode & 0o777, 0o600);
     assert.equal(await readFile(pending, "utf8"), '{"version":1}');
-    assert.equal(await exists(join(home, ".local/bin/openlaunch-device")), false);
+    assert.equal(
+      await exists(join(home, ".local/bin/openlaunch-device")),
+      false,
+    );
     assert.doesNotMatch(result.stdout + result.stderr, /ol_sdk_|bbbbbbbb/);
   });
 });
@@ -156,11 +260,16 @@ test("Pi installer resumes a private pending request and refuses pending symlink
     const configDir = join(home, ".config/openlaunch");
     const pending = join(configDir, "device.json.attach-pending");
     await mkdir(configDir, { recursive: true, mode: 0o700 });
-    await writeFile(pending, '{"requestId":"preserve-this-request"}', { mode: 0o600 });
+    await writeFile(pending, '{"requestId":"preserve-this-request"}', {
+      mode: 0o600,
+    });
     let result = run({ TEST_ATTACH_FAIL: "1" });
     assert.notEqual(result.status, 0);
     assert.match(result.stdout, /Resuming the saved attachment request/);
-    assert.equal(await readFile(pending, "utf8"), '{"requestId":"preserve-this-request"}');
+    assert.equal(
+      await readFile(pending, "utf8"),
+      '{"requestId":"preserve-this-request"}',
+    );
 
     await rm(pending);
     await writeFile(join(configDir, "some-other-file"), "do not follow");
@@ -180,17 +289,25 @@ test("Pi installer resumes a private pending request and refuses pending symlink
 
 test("Pi installer rejects untrusted artifacts and digest mismatches", async () => {
   await withFixture(async ({ home, writeManifest, run }) => {
-    await writeManifest("https://attacker.example/downloads/pi/openlaunch-device");
+    await writeManifest(
+      "https://attacker.example/downloads/pi/openlaunch-device",
+    );
     let result = run();
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /artifact URL must be HTTPS/);
-    assert.equal(await exists(join(home, ".local/bin/openlaunch-device")), false);
+    assert.equal(
+      await exists(join(home, ".local/bin/openlaunch-device")),
+      false,
+    );
 
     await writeManifest(artifactUrl, "0".repeat(64));
     result = run();
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /SHA-256/);
-    assert.equal(await exists(join(home, ".config/openlaunch/device.json")), false);
+    assert.equal(
+      await exists(join(home, ".config/openlaunch/device.json")),
+      false,
+    );
   });
 });
 
@@ -201,7 +318,10 @@ test("Pi installer refuses to overwrite an existing identity", async () => {
     await writeFile(config, '{"existing":true}');
     const result = run();
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /refusing to overwrite existing device identity/);
+    assert.match(
+      result.stderr,
+      /refusing to overwrite existing device identity/,
+    );
     assert.equal(await readFile(config, "utf8"), '{"existing":true}');
   });
 });

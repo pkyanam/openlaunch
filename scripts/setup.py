@@ -21,6 +21,7 @@ MODES = {
     'adapter': ('Custom Node device adapter', None),
     'local': ('Local developer console', 'install.sh'),
     'cli': ('Install ol CLI on PATH', None),
+    'linux': ('Linux host control harness', 'install-linux.sh'),
 }
 
 
@@ -135,7 +136,7 @@ def install_cli(manifest, temporary, user_directory=None, environment=None):
 
 def main(args):
     if args and args[0] in ('--help', '-h'):
-        print('openlaunch setup: uno | roomba | pi | esp32 | adapter | local | cli')
+        print('openlaunch setup: uno | roomba | pi | esp32 | adapter | local | cli | linux')
         print('No option opens a menu. USB setup configures already-flashed firmware.')
         print('Examples: setup.sh roomba; setup.sh adapter run; setup.sh uno --status')
         return 0
@@ -157,8 +158,8 @@ def main(args):
             args = [list(MODES)[int(choice) - 1]]
         mode, *forwarded = args
         if mode not in MODES:
-            raise ValueError('Choose uno, roomba, pi, esp32, adapter, local, or cli.')
-        if mode in ('pi', 'local', 'cli') and forwarded:
+            raise ValueError('Choose uno, roomba, pi, esp32, adapter, local, cli, or linux.')
+        if mode in ('pi', 'local', 'cli', 'linux') and forwarded:
             if forwarded == ['--help']:
                 print(MODES[mode][0] + ': rerun without --help to install.')
                 return 0

@@ -444,6 +444,43 @@ schemas.DeviceNext = {
     { type: "null" },
   ],
 };
+// Zod refinements are runtime-only. Encode the Linux-only string ceiling in
+// OpenAPI too, so clients cannot publish wider schemas for embedded devices.
+Object.assign(schemas.Manifest, {
+  allOf: [
+    {
+      if: { properties: { kind: { const: "linux" } }, required: ["kind"] },
+      else: {
+        properties: {
+          functions: {
+            items: {
+              properties: {
+                inputSchema: {
+                  properties: {
+                    properties: {
+                      additionalProperties: {
+                        if: {
+                          properties: { type: { const: "string" } },
+                          required: ["type"],
+                        },
+                        then: {
+                          properties: {
+                            maxLength: { maximum: 1024 },
+                            minLength: { maximum: 1024 },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  ],
+});
 schemas.ManifestUpdate = {
   type: "object",
   properties: {

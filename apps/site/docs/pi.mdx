@@ -19,6 +19,10 @@ After installation, start the agent with the command printed by the installer. I
 
 When the Pi appears in the console, open its **Access** view and grant an agent connection only the functions it needs. A grant can expire or remain active until revoked. Create a separate `ol_agent_` API connection or use OAuth for agent access; see [Pairing and permissions](/pairing).
 
+## Host control profile
+
+For scoped file management, system metrics, named commands, process/network inspection and systemd user services, use the [Linux host harness](/linux) on the Pi. Choose **Linux host** in Add device and run `curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash`. It creates a separate device identity; the existing Pi health profile and installer remain compatible.
+
 ## Current capability
 
 The Pi runtime reports process health only. GPIO and display control are not implemented. Pairing and a successful software result do not prove physical hardware behavior; see [Verification](/status).

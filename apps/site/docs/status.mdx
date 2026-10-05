@@ -29,7 +29,7 @@ The public Node installer and official Codex OAuth client were exercised togethe
 ## Software and firmware behavior
 
 - SDK attachment, scoped grants, action expiry, revocation and queued/received/terminal command outcomes are implemented. The Go Pi and Uno runtimes have durable result journals; tested software behavior does not establish physical hardware operation.
-- The Go Pi runtime reports process health. GPIO and display control are not implemented.
+- The Go Pi health profile reports process health. The opt-in [Linux host profile](/linux) implements up to 15 locally configured host functions, including real filesystem and subprocess operations. Its software acceptance is separate from physical Pi testing. GPIO and display control are not implemented.
 - Uno R4 firmware supports health, the built-in LED and matrix text.
 - WebSocket notifications are payload-free wake hints for the Node adapter. The ticket is short-lived and used in the authenticated handshake; the adapter fetches queued work over HTTPS. A 10-second HTTP polling fallback remains in place. Go, Uno and ESP32 adapters continue to poll over HTTP every 10 seconds.
 - Simulated device results are identified as simulated; they do not demonstrate a physical action.

@@ -55,6 +55,7 @@ def verify(commit):
     assert contract.get('openapi') == '3.1.0' and contract['servers'][0]['url'] == ORIGIN, 'device API contract mismatch'
     assert '/v1/functions' in contract['paths'] and '/v1/device/{deviceId}/result' in contract['paths'], 'device API routes missing'
     for public, expected in [('/docs/cli.md', b'ol login'),
+                             ('/docs/linux.md', b'openlaunch-host start'),
                              ('/docs/reference/agent/post-v1-devices-device-id-actions.md', b'requestAction'),
                              ('/changelog/rss.xml', b'2026')]:
         status, _, body = response(ORIGIN + public)
@@ -65,6 +66,7 @@ def verify(commit):
         ('scripts/setup.py', '/downloads/setup.py'),
         ('scripts/install.sh', '/install.sh'),
         ('scripts/install-pi.sh', '/install-pi.sh'),
+        ('scripts/install-linux.sh', '/install-linux.sh'),
         ('scripts/install-pi.sh', '/downloads/pi/install.sh'),
         ('scripts/provision-uno.py', '/downloads/provision-uno.py'),
         ('scripts/provision-roomba.py', '/downloads/provision-roomba.py'),

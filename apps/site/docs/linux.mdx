@@ -1,0 +1,116 @@
+---
+title: Linux host control
+description: Install a native Linux harness, configure local host access, and let approved agents use files, commands, metrics and user services.
+---
+
+## Install and pair
+
+In the [console](https://www.openlaunch.dev/console/), choose **Devices → Add device → Linux host**, then create a device setup token. On the target Linux machine, run as your normal user:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
+```
+
+Enter the setup token at the hidden prompt. The installer downloads a SHA-256-verified native binary for ARM64, ARMv7 or x86-64 Linux. It needs Bash, curl and Python 3, with no Go, Node.js, sudo or incoming network port. The downloads and checksum manifest are published by the same CI deployment as the website.
+
+Open a new terminal and start it:
+
+```sh
+openlaunch-host start
+```
+
+For a persistent systemd **user** service:
+
+```sh
+openlaunch-host service install
+```
+
+The service starts with your user session and restarts after failures. Boot without a login requires the owner to enable lingering for that user; the installer does not change that setting. Hosts without systemd can run the foreground command under their existing supervisor. Stop or inspect the service with `openlaunch-host service stop`, `status` or `logs`. Use `service uninstall` to remove the service; it keeps your device identity and policy.
+
+The executable is `~/.local/bin/openlaunch-host`, which avoids collisions with the Node SDK's `openlaunch-device` command. The installer adds that directory to your shell PATH. The private child credential, policy, result journal and unfinished uploads live in `~/.config/openlaunch/host/`. It refuses to overwrite an existing executable or device identity. Interrupted pairing retains the same pending request for a retry with the same setup token within 10 minutes; after that, inspect device inventory before attempting another attachment.
+
+## Configure local access
+
+The initial file root is named `workspace`, at `~/.local/share/openlaunch/workspace`. No commands or services are allowed initially. Inspect the owner policy and the exact proposed function schemas:
+
+```sh
+openlaunch-host policy
+openlaunch-host manifest
+```
+
+Add only the access this device needs, using existing absolute paths:
+
+```sh
+openlaunch-host allow-dir projects /srv/projects
+openlaunch-host allow-dir reference /srv/reference --read-only
+openlaunch-host allow-command uptime /usr/bin/uptime
+openlaunch-host allow-service worker worker.service restart
+```
+
+A command has an owner-chosen, fixed executable and argument list. Agents select its name; they cannot supply a shell command, extra arguments or a different working directory. Edit the private `policy.json` to set an optional absolute `directory` or a `timeoutSeconds` between 1 and 120. A service without actions allows status and logs only. Services are systemd user units, never system services or sudo operations.
+
+Remove access with `openlaunch-host remove root NAME`, `remove command NAME` or `remove service NAME`. Restart the runtime to apply changes:
+
+```sh
+openlaunch-host service restart
+```
+
+For a foreground runtime, stop it with Ctrl-C and run `openlaunch-host start` again. Every policy change updates the published manifest revision, revokes previous device grants and cancels queued work. Reapprove the device's functions in its **Access** view after the restart. Changing a path behind an existing root alias also requires reapproval.
+
+## Connect an agent
+
+Create a separate OAuth connection or agent API credential in **Connections**, then grant this Linux device's functions in **Devices → Access**. The setup token only attaches the device. The device's private credential only polls and reports results. Neither credential authorizes an agent.
+
+API, MCP and `ol` discover the same live, grant-filtered definitions. The MCP `invoke_device_function` tool invokes these functions even when a client caches its initial tools. With the [ol CLI](/cli):
+
+```sh
+ol devices list
+ol functions list
+ol call DEVICE_ID system.info
+ol call DEVICE_ID system.run '{"command":"uptime"}'
+ol actions watch ACTION_ID
+```
+
+A queued request is not a completed host operation. Inspect its final result. For `system.run` and service operations, a successful action means the program ran; check `exitCode`, `timedOut` and `interrupted` to assess the program's outcome.
+
+## Functions
+
+The manifest includes only the functions enabled by local policy. Each input object rejects extra fields. Root, command and service names are constrained to configured aliases.
+
+| Function             | Access | Behavior                                                                                                                          |
+| -------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `device.health`      | Read   | Host uptime, load, memory, disk, kernel, distribution, model and temperature where the OS exposes them; adapter uptime separately |
+| `system.info`        | Read   | The same host inventory and metrics                                                                                               |
+| `network.interfaces` | Read   | Up to 12 interfaces, link flags, MTU and addresses; reports truncation                                                            |
+| `process.list`       | Read   | Up to 12 process IDs, names and states; paginate with `afterPid`; excludes command lines and environment                          |
+| `file.list`          | Read   | Paginated directory entries within `root` and relative `path`; continue with `nextOffset`                                         |
+| `file.stat`          | Read   | Size, modification time, directory flag and revision                                                                              |
+| `file.read`          | Read   | Base64 chunks up to 2048 bytes, offset, EOF and revision                                                                          |
+| `file.write`         | Write  | Ordered base64 upload chunks, SHA-256-checked publication and optional revision-checked replacement                               |
+| `file.mkdir`         | Write  | Create one directory within a writable root                                                                                       |
+| `file.remove`        | Write  | Remove one regular file or empty directory; no recursive delete                                                                   |
+| `file.upload_abort`  | Write  | Discard an unfinished upload by UUID                                                                                              |
+| `system.run`         | Write  | Run a named, fixed command with a locally capped timeout                                                                          |
+| `service.status`     | Read   | Inspect an allowed systemd user unit                                                                                              |
+| `service.logs`       | Read   | Read bounded recent journal output for an allowed user unit                                                                       |
+| `service.control`    | Write  | Start, stop or restart when that unit's local action list permits it                                                              |
+
+## File transfer and output limits
+
+`file.read` requires `root`, relative `path` and `offset`; `limit` defaults to 2048 bytes. Decode `dataBase64`, continue from `nextOffset`, and check the revision stays constant between chunks. Revisions detect inode, size and modification-time changes; they are not content hashes.
+
+`file.write` requires `root`, `path`, a caller-created UUID `uploadId`, byte `offset`, `dataBase64` and boolean `final`. Each chunk contains at most 6144 decoded bytes, represented by at most 8192 base64 characters. Start at offset zero and follow the returned `nextOffset`. On the final chunk, provide the lowercase SHA-256 of the entire file as `sha256`. Empty files use an empty chunk and the SHA-256 of empty content. A chunk action retry must reuse its original idempotency key and identical arguments.
+
+Uploads create a file only if the destination is absent. To replace an existing file, first call `file.stat`, then include its `revision` as `replaceRevision` on every upload chunk. The revision is checked immediately before atomic replacement; coordinate with other local writers because this is not a filesystem transaction across competing writers. Parent directories must already exist. Uploads use private staging, expire after one hour, and have a total unfinished-data budget of 2 MiB across at most four uploads. One file cannot exceed 2 MiB. Use `file.upload_abort` after an integrity, ordering or publication error before restarting the transfer.
+
+Commands and service logs retain the first 768 bytes of each output stream and report byte counts and truncation. Output is rendered as safe text. Commands run for the shorter of their configured deadline, the requested deadline and the action's remaining TTL, leaving up to two seconds for reporting the result. Timeout or shutdown kills the command process group. These limits preserve the existing 16 KiB request and bounded action-result envelopes. Transfers consume action history and workspace quota; this harness is intended for configuration and small artifacts, not bulk storage.
+
+## Host boundary and verification
+
+The harness runs with the installing user's OS permissions and refuses runtime execution as root. File roots use Go's rooted filesystem API; escaping paths, symlink escapes, special files and multiply linked regular files are rejected. A file root cannot include the harness's private state. Configure roots that stay separate from device credentials and secret stores. Root mounts remain an owner responsibility.
+
+Named programs are trusted owner configuration and run as that OS user. This is not a general operating-system sandbox: a configured program can access everything its user can, and an agent with write access to program code could change what that program does. Use a dedicated account and keep trusted executables outside writable roots. The child process environment excludes setup tokens and inherited provider credentials. Detached processes that escape the command's process group require an external supervisor to control them.
+
+The same durable journal used by the Pi adapter prevents re-executing an action whose saved outcome needs retransmission. An interrupted unknown outcome blocks new work for owner review; exactly-once side effects are not promised. Only one harness process can own a device journal at a time. Cloud grants, expiry and revocation remain enforced for every action.
+
+Software tests exercise actual filesystem and subprocess operations. Physical Pi acceptance, target-specific services and GPIO remain separate checks on the owner's hardware. See [verification status](/status) and [the Muse comparison](https://github.com/pkyanam/openlaunch/blob/main/docs/LINUX-HARNESS.md).

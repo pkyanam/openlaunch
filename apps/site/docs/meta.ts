@@ -9,6 +9,7 @@ export default defineMeta({
     "sdk",
     "uno-r4",
     "pi",
+    "linux",
     "pairing",
     "api",
     "architecture",

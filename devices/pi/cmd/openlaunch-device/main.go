@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -28,11 +29,14 @@ type Config struct {
 	DeviceID  string `json:"deviceId"`
 	Token     string `json:"token"`
 	Simulate  bool   `json:"simulate"`
+	Profile   string `json:"profile,omitempty"`
+	Policy    string `json:"policy,omitempty"`
 }
 type Manifest struct {
-	Name         string   `json:"name"`
-	Kind         string   `json:"kind"`
-	Capabilities []string `json:"capabilities"`
+	Name         string               `json:"name"`
+	Kind         string               `json:"kind"`
+	Capabilities []string             `json:"capabilities"`
+	Functions    []FunctionDefinition `json:"functions,omitempty"`
 }
 
 // AttachPending contains only retry metadata. In particular, it never contains
@@ -576,6 +580,10 @@ func readAttachPending(path string) (AttachPending, error) {
 	if pending.Simulate {
 		expected = append(expected, "display.text", "led.set")
 	}
+	if pending.Manifest.Kind == "linux" && !pending.Simulate {
+		// The caller also compares this saved manifest with the current local policy.
+		return pending, nil
+	}
 	if pending.Manifest.Name != "pi-4" || pending.Manifest.Kind != "raspberry-pi-4" || len(pending.Manifest.Capabilities) != len(expected) {
 		return AttachPending{}, errors.New("invalid pending Pi manifest; refusing to continue")
 	}
@@ -602,7 +610,27 @@ func isUUID(value string) bool {
 	return true
 }
 
-func attachDevice(base, configPath, token string, simulate bool) error {
+func attachDevice(base, configPath, token string, simulate bool, linuxPolicy ...string) error {
+	var hostManifest *Manifest
+	policyPath := ""
+	if len(linuxPolicy) > 0 {
+		if simulate {
+			return errors.New("Linux host controls cannot be simulated")
+		}
+		policyPath = linuxPolicy[0]
+		var pathErr error
+		policyPath, pathErr = filepath.Abs(policyPath)
+		if pathErr != nil {
+			return pathErr
+		}
+		h, e := newLinuxHarness(policyPath, configPath)
+		if e != nil {
+			return e
+		}
+		defer h.Close()
+		m := h.Manifest()
+		hostManifest = &m
+	}
 	workspace, err := sdkTokenWorkspace(token)
 	if err != nil {
 		return err
@@ -633,6 +661,15 @@ func attachDevice(base, configPath, token string, simulate bool) error {
 		if pending.URL != base || pending.Workspace != workspace || pending.Simulate != simulate {
 			return errors.New("pending attachment belongs to a different URL, workspace or mode")
 		}
+		if hostManifest != nil {
+			old, _ := json.Marshal(pending.Manifest)
+			current, _ := json.Marshal(hostManifest)
+			if !bytes.Equal(old, current) {
+				return errors.New("pending attachment policy changed; restore the original policy before retrying")
+			}
+		} else if pending.Manifest.Kind == "linux" {
+			return errors.New("pending attachment uses the Linux profile")
+		}
 	} else {
 		caps := []string{"device.health"}
 		if simulate {
@@ -646,6 +683,9 @@ func attachDevice(base, configPath, token string, simulate bool) error {
 			Version: 1, URL: base, Workspace: workspace, RequestID: requestID,
 			Manifest: Manifest{Name: "pi-4", Kind: "raspberry-pi-4", Capabilities: caps}, Simulate: simulate,
 		}
+		if hostManifest != nil {
+			pending.Manifest = *hostManifest
+		}
 		if err := atomic(pendingPath, pending); err != nil {
 			return fmt.Errorf("could not save private attachment retry metadata: %w", err)
 		}
@@ -654,6 +694,10 @@ func attachDevice(base, configPath, token string, simulate bool) error {
 	// The shared HTTP helper uses Config.Token for the bearer header. This
 	// in-memory value is replaced with the child credential before persistence.
 	c := Config{URL: pending.URL, Workspace: pending.Workspace, Token: token, Simulate: pending.Simulate}
+	if hostManifest != nil {
+		c.Profile = "linux"
+		c.Policy = policyPath
+	}
 	var identity struct {
 		DeviceID string `json:"deviceId"`
 		Token    string `json:"token"`
@@ -697,7 +741,17 @@ func execute(c Config, cmd Command, started time.Time) Outcome {
 	return Outcome{"failed", map[string]any{"error": "unsupported_capability"}}
 }
 func main() {
-	configPath := flag.String("config", "./device.json", "credential file (keep outside Git)")
+	defaultConfig := "./device.json"
+	if filepath.Base(os.Args[0]) == "openlaunch-host" {
+		defaultConfig = hostConfigPath()
+		if hostCLI(os.Args[1:], defaultConfig) {
+			return
+		}
+	}
+	configPath := flag.String("config", defaultConfig, "credential file (keep outside Git)")
+	profile := flag.String("profile", "", "linux enables locally configured host functions")
+	policy := flag.String("policy", "", "private Linux policy file; defaults alongside config")
+	initHost := flag.Bool("linux-init", false, "create a private default Linux policy and workspace")
 	base := flag.String("url", "", "HTTPS server origin for enrollment")
 	workspace := flag.String("workspace", "", "cloud workspace id for enrollment")
 	attach := flag.Bool("attach", false, "attach with OPENLAUNCH_SDK_TOKEN")
@@ -705,11 +759,30 @@ func main() {
 	simulate := flag.Bool("simulate", false, "explicitly simulated display and LED")
 	once := flag.Bool("once", false, "poll once")
 	flag.Parse()
+	if *policy == "" {
+		*policy = filepath.Join(filepath.Dir(*configPath), "policy.json")
+	}
+	if *initHost {
+		if e := initLinuxPolicy(*policy, *configPath); e != nil {
+			fatal(e)
+		}
+		return
+	}
+	if *profile != "" && *profile != "linux" {
+		fatal(errors.New("unknown profile"))
+	}
+	if *profile == "linux" && (runtime.GOOS != "linux" || *simulate || *enroll) {
+		fatal(errors.New("Linux profile requires Linux and SDK attachment; simulation is unsupported"))
+	}
 	if *attach && *enroll {
 		fatal(errors.New("choose either --attach or legacy --enroll"))
 	}
 	if *attach {
-		if e := attachDevice(*base, *configPath, os.Getenv("OPENLAUNCH_SDK_TOKEN"), *simulate); e != nil {
+		var policies []string
+		if *profile == "linux" {
+			policies = []string{*policy}
+		}
+		if e := attachDevice(*base, *configPath, os.Getenv("OPENLAUNCH_SDK_TOKEN"), *simulate, policies...); e != nil {
 			fatal(e)
 		}
 		b, e := os.ReadFile(*configPath)
@@ -770,6 +843,29 @@ func main() {
 	if c.DeviceID == "" || c.Token == "" {
 		fatal(errors.New("invalid config"))
 	}
+	run := execute
+	var harness *LinuxHarness
+	if c.Profile == "linux" {
+		if runtime.GOOS != "linux" || os.Geteuid() == 0 {
+			fatal(errors.New("run the Linux harness as an unprivileged Linux user"))
+		}
+		harness, e = newLinuxHarness(c.Policy, *configPath)
+		if e != nil {
+			fatal(e)
+		}
+		defer harness.Close()
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer cancel()
+		harness.Context = ctx
+		lock, lockErr := acquireHostLock(harness.State)
+		if lockErr != nil {
+			fatal(lockErr)
+		}
+		defer lock.Close()
+		run = harness.Execute
+	} else if c.Profile != "" {
+		fatal(errors.New("unknown saved profile"))
+	}
 	journalPath := *configPath + ".journal"
 	journal, migrated, e := loadJournal(journalPath)
 	if e != nil {
@@ -778,6 +874,20 @@ func main() {
 	if migrated {
 		if e = saveJournal(journalPath, journal); e != nil {
 			fatal(fmt.Errorf("could not safely migrate device journal: %w", e))
+		}
+	}
+	if harness != nil {
+		if e = reconcileResults(c, journal, journalPath, time.Now().UnixMilli()); e != nil {
+			fatal(e)
+		}
+		var receipt struct {
+			GrantsRevoked bool `json:"grantsRevoked"`
+		}
+		if e = call(c, "/v1/device/"+c.DeviceID+"/manifest", map[string]any{"manifest": harness.Manifest()}, &receipt); e != nil {
+			fatal(e)
+		}
+		if receipt.GrantsRevoked {
+			fmt.Println("Local policy changed. Reapprove this device's function grants in the console.")
 		}
 	}
 	started := time.Now()
@@ -805,7 +915,7 @@ func main() {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "poll:", e)
 		} else if cmd != nil {
-			if e = processCommand(c, *cmd, started, journal, journalPath, execute); e != nil {
+			if e = processCommand(c, *cmd, started, journal, journalPath, run); e != nil {
 				fatal(e)
 			}
 			if e = reconcileResults(c, journal, journalPath, time.Now().UnixMilli()); e != nil {

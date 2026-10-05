@@ -8,13 +8,13 @@ Let agents use the functions you approve on your hardware. openlaunch connects d
 
 1. Open the console and sign in with Google.
 2. Choose **Devices → Add device** and create a device setup token.
-3. On the computer connected to your board, or on your Pi, run:
+3. On the computer connected to your board, or on your Linux device, run:
 
    ```sh
    curl -fsSL https://www.openlaunch.dev/setup.sh | bash
    ```
 
-   Choose Uno, ArduRoomba, Pi, ESP32, a custom adapter, or a local developer console. The helper prompts for the settings it needs. You need curl and Python 3; custom Node adapters and local development also need Node 24+. USB setup configures firmware you have already flashed.
+   Choose Uno, ArduRoomba, Pi, Linux host, ESP32, a custom adapter, or a local developer console. The helper prompts for the settings it needs. You need curl and Python 3; custom Node adapters and local development also need Node 24+. USB setup configures firmware you have already flashed.
 
 4. Connect your agent in **Connections**, then open **Devices → your device → Access**. Choose that connection, select its functions, and **Save grant**.
 5. Ask the agent to list devices and functions. When it invokes a function, check the action's final status and result.
@@ -65,9 +65,18 @@ ol functions list
 | ---------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Uno R4 WiFi            | Health, built-in LED, matrix text                                                   | Matching RA sketch already flashed; Arduino CLI for USB detection |
 | Uno + ArduRoomba       | Model 551 cleaning, docking, pause/stop, bounded movement, sensors, LEDs and sounds | Roomba sketch already flashed; Serial1 D0/D1, BRC D5, VIN/GND     |
-| Raspberry Pi 4 Model B | Process health                                                                      | ARM64 or ARMv7 Linux; installer verifies the binary checksum      |
+| Raspberry Pi 4 Model B | Health profile, or opt-in Linux host controls                                       | ARM64 or ARMv7 Linux; installer verifies the binary checksum      |
+| Linux host             | Files, metrics, named commands, processes, network and user services                | ARM64/ARMv7/x86-64; normal user; Bash, curl and Python 3          |
 | Standalone ESP32       | Portable embedded SDK and health example                                            | Firmware already flashed; confirmed USB port                      |
 | Custom Node adapter    | Functions you implement and publish                                                 | Node 24+ and your hardware library                                |
+
+For native Linux host control, choose **Linux host** in the console and run:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
+```
+
+Open a new terminal, then run `openlaunch-host start` or `openlaunch-host service install`. The default file workspace is isolated from private device state. Allow additional directories, fixed commands or user services with short local `openlaunch-host` commands, then grant those functions to agents in the console. Policy changes require reapproval. See the [Linux guide](https://www.openlaunch.dev/docs/linux) for the 15 available functions and limits, and [Muse comparison](docs/LINUX-HARNESS.md) for the baseline and differences.
 
 For Uno firmware builds from a checkout, install Arduino CLI and run:
 

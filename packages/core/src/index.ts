@@ -93,6 +93,17 @@ export const manifestSchema = z
       ctx.addIssue({ code: "custom", message: "Duplicate device functions" });
     for (const definition of definitions) {
       if (
+        manifest.kind !== "linux" &&
+        Object.values(definition.inputSchema.properties).some(
+          (property) => property.type === "string" && property.maxLength > 1024,
+        )
+      )
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Only Linux host functions support strings above 1024 characters",
+        });
+      if (
         Object.hasOwn(capabilitySchemas, definition.name) ||
         !manifest.capabilities.includes(definition.name)
       )
