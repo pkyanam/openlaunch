@@ -47,6 +47,7 @@ test("Arduino ZIP is sanitized, reproducible, and contains a standalone library"
       .split("\n");
     assert.ok(entries.length > 0);
     assert.deepEqual(entries, [
+      "openlaunch/LICENSE",
       "openlaunch/README.md",
       "openlaunch/examples/esp32_health/esp32_health.ino",
       "openlaunch/library.properties",
@@ -72,6 +73,11 @@ test("Arduino ZIP is sanitized, reproducible, and contains a standalone library"
     const extracted = join(temp, "extracted");
     execFileSync("unzip", ["-q", output, "-d", extracted]);
     const library = join(extracted, "openlaunch");
+    assert.deepEqual(
+      readFileSync(join(library, "LICENSE")),
+      readFileSync(join(root, "LICENSE")),
+      "archive includes the canonical MIT license",
+    );
     assert.deepEqual(
       readFileSync(join(library, "src/openlaunch/embedded.hpp")),
       readFileSync(canonicalCore),
