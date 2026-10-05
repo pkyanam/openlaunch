@@ -580,7 +580,10 @@ bool queueResult(JsonDocument& ack) {
     Serial.println("openlaunch: could not persist action result; hardware locked; USB reset required");
     return false;
   }
-  tryDeliverPendingResult();
+  // Upload on the next loop after the command, feature result and ack JSON
+  // documents have been destroyed. Keeping those allocations alive across
+  // TLS/response parsing can exhaust the Uno's RAM. The durable journal is
+  // already saved, so this never delays persistence or permits another action.
   return true;
 }
 

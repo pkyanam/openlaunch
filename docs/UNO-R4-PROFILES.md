@@ -92,6 +92,10 @@ include `resultReceivedAt`; Activity shows queue, dispatch-to-receipt and total
 receipt time. Identical result retries retain the original server timestamp.
 Routine successful receipt/manifest updates do not print unsolicited messages
 on the shared USB/modem UART; explicit USB status retains delivery diagnostics.
+Receipts are persisted before returning from action handling and uploaded on
+the next loop, after command/result JSON allocations are released. New actions
+remain blocked until the saved result is acknowledged; hardware is never
+replayed as part of result delivery.
 
 USB status and health expose `roombaUartInitialized`, `roombaLinkVerified`,
 `oiMode` (255 means unknown), `linkCheckedAtMs`, `linkError`, and
