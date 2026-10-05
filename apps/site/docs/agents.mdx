@@ -16,13 +16,13 @@ codex mcp add openlaunch --url https://www.openlaunch.dev/mcp --oauth-client-reg
 codex mcp login openlaunch --scopes openid,openlaunch:read,openlaunch:act --oauth-client-registration cimd
 ```
 
-OAuth consent and device grants are separate. Reconnect your MCP client after granting newly published custom functions so it refreshes tool discovery.
+OAuth consent and device grants are separate. Call `list_functions` for the current grants and schemas, then `invoke_device_function` to use a granted function. These tools are available even before any device grants, so newly approved functions remain callable when the client caches its tool list. Clients connected before these tools were added need to refresh their MCP tools once.
 
 ## Any agent with the API connection
 
 In **Connections**, create a named agent API connection and choose read or action access. Set a finite expiry or choose until revoked. Its credential uses the `ol_agent_` prefix and is shown once. Provide it to your agent through a secret environment variable; never put it in a prompt, source file, shell command, or log. Revoke it in Connections to stop agent requests and remove its grants.
 
-Install the SDK archive and use `createClient({ url, token })`. The client lists devices visible to that connection and `listFunctions()` returns the currently granted custom functions with their advertised input schemas and bounded `guide` text. The schema is authoritative; guide text does not grant access or add device behavior. The client can request approved functions and read or cancel actions. The owner grants functions for each device; a grant may expire or remain active until revoked. Without a grant, the agent cannot operate that device.
+Install the SDK archive and use `createClient({ url, token })`. The client lists devices visible to that connection and `listFunctions()` returns the currently granted built-in and custom functions with their advertised input schemas and bounded `guide` text. The schema is authoritative; guide text does not grant access or add device behavior. The client can request approved functions and read or cancel actions. The owner grants functions for each device; a grant may expire or remain active until revoked. Without a grant, the agent cannot operate that device.
 
 ```sh
 npm install 'https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz'
@@ -44,7 +44,7 @@ ol actions get ACTION_ID
 ol actions watch ACTION_ID
 ```
 
-`functions list` returns only custom functions this connection may currently use, with the device's advertised input schema and guide. Use that schema for `ARGUMENTS_JSON`; guide text cannot add arguments or permission. `call` generates a key and includes it in success or error output. Reuse it with `--key KEY` (1–128 characters) for an exact retry; `--ttl SECONDS` is optional and ranges from 1–300. The command prints the action receipt. Use `actions watch` to follow status to a terminal result; `queued` is pending, and a successful receipt does not by itself verify physical hardware.
+`functions list` returns built-in and custom functions this connection may currently use, with the device's advertised input schema and guide. Use that schema for `ARGUMENTS_JSON`; guide text cannot add arguments or permission. `call` generates a key and includes it in success or error output. Reuse it with `--key KEY` (1–128 characters) for an exact retry; `--ttl SECONDS` is optional and ranges from 1–300. The command prints the action receipt. Use `actions watch` to follow status to a terminal result; `queued` is pending, and a successful receipt does not by itself verify physical hardware.
 
 ## Codex on your computer
 
@@ -62,16 +62,32 @@ Hosted MCP uses OAuth. Other agents can use an `ol_agent_` API connection. Keep 
 
 ## Device tools
 
-Custom functions published by an adapter appear after the owner grants them to a connection. Their tools include the device name and function schema. Standard functions available on the maintained hardware integrations are:
+Call `list_functions` to read the current built-in and custom function catalog, including each device ID, capability name, exact input schema and guide. Call `invoke_device_function` with that device ID, capability, arguments, a fresh idempotency key and an optional TTL. It can invoke every granted function, including `roomba.clean`, even if a device-specific tool is absent from the client's cached tools. Revoking access takes effect on the next call. Device-specific tools remain available when the client discovers them.
 
-| Tool                    | Purpose                                             |
-| ----------------------- | --------------------------------------------------- |
-| `list_devices`          | List devices visible to this connection             |
-| `request_device_health` | Ask a device for a fresh health result              |
-| `set_led`               | Set the Uno's built-in LED                          |
-| `show_text`             | Display up to 96 ASCII characters on the Uno matrix |
-| `get_action`            | Read the actual action outcome                      |
-| `cancel_action`         | Cancel an action that has not been delivered        |
+For example, after an explicit cleaning request and a live `roomba.clean` grant:
+
+```json
+{
+  "deviceId": "YOUR_DEVICE_ID",
+  "capability": "roomba.clean",
+  "arguments": { "mode": "standard" },
+  "idempotencyKey": "YOUR_FRESH_REQUEST_KEY",
+  "ttlSeconds": 30
+}
+```
+
+Pass this object to `invoke_device_function`. The board's local interlocks still apply, and a Roomba success receipt confirms serial transmission rather than physical cleaning. The stable device tools are:
+
+| Tool                     | Purpose                                             |
+| ------------------------ | --------------------------------------------------- |
+| `list_functions`         | Read current granted functions and exact schemas    |
+| `invoke_device_function` | Queue any granted built-in or custom function       |
+| `list_devices`           | List devices visible to this connection             |
+| `request_device_health`  | Ask a device for a fresh health result              |
+| `set_led`                | Set the Uno's built-in LED                          |
+| `show_text`              | Display up to 96 ASCII characters on the Uno matrix |
+| `get_action`             | Read the actual action outcome                      |
+| `cancel_action`          | Cancel an action that has not been delivered        |
 
 An action ID is a receipt number, not proof that the board acted. Ask the agent to check `get_action` until it reaches a terminal result.
 

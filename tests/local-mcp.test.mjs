@@ -49,7 +49,7 @@ test("local stdio adapter connects using only agent credentials and observes gra
       }),
     );
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 6);
+    assert.equal(tools.tools.length, 8);
     const list = await client.callTool({ name: "list_devices", arguments: {} });
     assert.deepEqual(list.structuredContent.data, []);
     assert(!tools.tools.some((x) => /grant|enroll/.test(x.name)));

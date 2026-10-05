@@ -19,6 +19,10 @@ If device setup loses its response, rerun the same setup command with the same `
 
 Device attachment and agent access are separate. Use OAuth or an `ol_agent_` API connection for the agent, then open the device's **Access** view and grant that connection its functions. Check that the grant has not expired or been revoked; grants can also remain active until explicitly revoked. For the local adapter, the agent is `local-agent`.
 
+## My agent sees a function but has no tool to call it
+
+Call `list_functions` to get the current schemas, then `invoke_device_function` with the device ID, capability and matching arguments. This stable invocation path works when a client caches its tool list before a new grant. If the connection still shows only the original six tools, refresh its MCP tools once to obtain these two new tools. A function visible in the current agent catalog already has a grant; changing permissions will not refresh a cached tool list.
+
 ## My action stays queued
 
 Devices poll every 10 seconds. Check power, Wi-Fi, the bridge address and the board's last-seen time. An expired queued action did not execute. A delivered action without a result can have an uncertain outcome: inspect the board before repeating it.

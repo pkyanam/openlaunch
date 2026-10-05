@@ -48,7 +48,7 @@ Without --simulate the Pi advertises real process-health only. It does not prete
 
 Local endpoint: http://127.0.0.1:8788/mcp with Authorization: Bearer supplied from OPENLAUNCH_AGENT_TOKEN. Configure the host's supported environment-variable bearer-token setting; do not paste credentials into prompts or commit them to a plugin.
 
-Built-in tools include list_devices, request_device_health, show_text, set_led, get_action and cancel_action. Granted custom functions also become device-specific MCP tools. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Hosted ChatGPT and Codex connections use https://www.openlaunch.dev/mcp with Clerk OAuth. Localhost remains available for local developer testing.
+Stable tools include list_devices, list_functions, invoke_device_function, request_device_health, show_text, set_led, get_action and cancel_action. list_functions reads the current granted built-in and custom schemas; invoke_device_function calls any granted function even when a host retains its initial tool list. Granted functions also become device-specific MCP tools during discovery. Older connections need one tool refresh to pick up the two new stable tools. Jobs return queued/received before terminal status; a queued result is not success. Each device capability needs an owner-approved grant. Hosted ChatGPT and Codex connections use https://www.openlaunch.dev/mcp with Clerk OAuth. Localhost remains available for local developer testing.
 
 ## Hosted deployment
 
