@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { assertWorkspaceStorageBudget } from "./storage-budget.ts";
+import {
+  deviceFunctionLimit,
+  DESKTOP_RESULT_BYTES,
+  isDesktopScreenshot,
+} from "./limits.ts";
 import type { ActionEnvelope, ActionState } from "../../protocol/src/index.ts";
 import {
   capabilityName,
@@ -80,12 +85,20 @@ export const manifestSchema = z
   .object({
     name: z.string().min(1).max(64),
     kind: deviceKind,
-    capabilities: z.array(capabilityName).min(1).max(16),
-    functions: z.array(functionDefinition).max(16).optional(),
+    capabilities: z.array(capabilityName).min(1).max(24),
+    functions: z.array(functionDefinition).max(24).optional(),
   })
   .strict()
   .superRefine((manifest, ctx) => {
     const definitions = manifest.functions ?? [];
+    if (
+      manifest.capabilities.length > deviceFunctionLimit(manifest.kind) ||
+      definitions.length > deviceFunctionLimit(manifest.kind)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Device function limit exceeded",
+      });
     if (
       new Set(manifest.capabilities).size !== manifest.capabilities.length ||
       new Set(definitions.map((f) => f.name)).size !== definitions.length
@@ -921,7 +934,7 @@ export class Hub {
       !principal ||
       principal.length > 128 ||
       capabilities.length < 1 ||
-      capabilities.length > 16 ||
+      capabilities.length > deviceFunctionLimit(d.kind) ||
       new Set(capabilities).size !== capabilities.length ||
       !capabilities.every((c) => d.capabilities.includes(c)) ||
       (ttlSeconds !== null &&
@@ -1183,7 +1196,11 @@ export class Hub {
     const encoded = JSON.stringify(result);
     if (encoded === undefined)
       throw new Fault("invalid", 400, "JSON result required");
-    if (encoded.length > 4096)
+    if (
+      isDesktopScreenshot(device.kind, a.capability)
+        ? new TextEncoder().encode(encoded).byteLength > DESKTOP_RESULT_BYTES
+        : encoded.length > 4096
+    )
       throw new Fault("too_large", 413, "Result too large");
     const resultReceivedAt = this.now();
     this.capacity(

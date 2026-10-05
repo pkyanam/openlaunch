@@ -154,6 +154,7 @@ try {
     "/bin/echo",
     "openlaunch Linux round trip",
   ]);
+  await host(["allow-shell"]);
   await startServer();
   const setup = await call(
     "/v1/device-setup-tokens",
@@ -235,6 +236,16 @@ try {
   );
   assert.equal(command.result.exitCode, 0);
   assert.match(command.result.stdout, /Linux round trip/);
+  const shell = await perform(
+    "system.exec",
+    {
+      command: "printf 'agent shell pipeline\\n' | tr a-z A-Z",
+    },
+    "shell-command",
+  );
+  assert.equal(shell.result.exitCode, 0);
+  assert.match(shell.result.stdout, /AGENT SHELL PIPELINE/);
+
   const duplicate = (
     await mcp(
       "invoke_device_function",
@@ -248,6 +259,25 @@ try {
     )
   ).structuredContent.data;
   assert.equal(duplicate.id, command.id);
+  const rootInfo = await perform("file.root_info", { root: "workspace" });
+  assert.equal(
+    rootInfo.result.path,
+    join(home, ".local/share/openlaunch/workspace"),
+  );
+  const story = "Once upon a time, a Raspberry Pi wrote a story. 🐧\n";
+  const written = await perform("file.write_text", {
+    root: "workspace",
+    path: "story.txt",
+    text: story,
+  });
+  assert.equal(
+    written.result.sha256,
+    createHash("sha256").update(story).digest("hex"),
+  );
+  assert.equal(
+    await readFile(join(rootInfo.result.path, "story.txt"), "utf8"),
+    story,
+  );
   const data = Buffer.from("actual Linux file transfer\n".repeat(360));
   const digest = createHash("sha256").update(data).digest("hex"),
     uploadId = randomUUID();

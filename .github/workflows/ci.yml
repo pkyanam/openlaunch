@@ -61,6 +61,10 @@ jobs:
       - run: cd devices/pi && go test ./... && go build -o ../../dist/openlaunch-device-host ./cmd/openlaunch-device
       - run: node scripts/e2e.mjs
       - run: node scripts/linux-e2e.mjs
+      - run: cd devices/pi && go test -c -o ../../dist/desktop-tests ./cmd/openlaunch-device
+      - run: docker build -t openlaunch-desktop-test tests/desktop
+      - run: docker run --rm -v "$PWD:/work:ro" openlaunch-desktop-test
+
       - uses: actions/upload-artifact@v4
         with:
           name: openlaunch-website

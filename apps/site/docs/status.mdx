@@ -29,14 +29,14 @@ The public Node installer and official Codex OAuth client were exercised togethe
 ## Software and firmware behavior
 
 - SDK attachment, scoped grants, action expiry, revocation and queued/received/terminal command outcomes are implemented. The Go Pi and Uno runtimes have durable result journals; tested software behavior does not establish physical hardware operation.
-- The Go Pi health profile reports process health. The opt-in [Linux host profile](/linux) implements up to 15 locally configured host functions, including real filesystem and subprocess operations. Its software acceptance is separate from physical Pi testing. GPIO and display control are not implemented.
+- The Go Pi health profile reports process health. The opt-in [Linux host profile](/linux) implements up to 22 locally configured host functions, including owner-enabled shell and desktop control, including real filesystem and subprocess operations. Its software acceptance is separate from physical Pi testing. GPIO control is not implemented. Desktop capture/input has software acceptance; the owner's Pi desktop still requires the updated install.
 - Uno R4 firmware supports health, the built-in LED and matrix text.
 - WebSocket notifications are payload-free wake hints for the Node and native Go adapters. The ticket is short-lived and used in the authenticated handshake; the adapter fetches queued work over HTTPS. A 10-second HTTP polling fallback remains. Generic Uno and ESP32 adapters use HTTP polling; the Roomba sketch polls every second and drains pending work promptly.
 - Simulated device results are identified as simulated; they do not demonstrate a physical action.
 
 ## Physical device acceptance
 
-On October 5, the owner's Pi 4 returned a real cloud `system.info` result with model, four CPU cores, approximately 4 GB OS-visible RAM and 37°C. The older polling runtime took 8.4 seconds end to end, including 8.3 seconds queued. Basic Pi inventory is verified; the updated installer and native wake path still need acceptance on that Pi. File transfers, named commands, target user services, reboot and revocation remain separate target checks.
+On October 5, the owner's Pi 4 returned a real cloud `system.info` result with model, four CPU cores, approximately 4 GB OS-visible RAM and 37°C. The older polling runtime took 8.4 seconds end to end, including 8.3 seconds queued. Basic Pi inventory and the updated native wake path are verified: a later real inventory receipt completed in 170 ms (76 ms queued, 94 ms dispatch-to-receipt). Desktop operation still needs the updated installation and target acceptance. File transfers, named commands, target user services, reboot and revocation remain separate target checks.
 
 The repaired Uno has completed pairing, hosted health, reconnection and real Roomba serial sensor reads. The owner confirmed that a requested cleaning cycle physically started on October 5. Docking, separate manual wheel/brush controls, stopping distance and power-loss acceptance remain unverified. The WebSocket wake path has software fixture coverage. Durable result journals reduce duplicate work after interrupted result uploads, but neither device promises exactly-once physical execution.
 

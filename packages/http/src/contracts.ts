@@ -44,7 +44,7 @@ export const grantRequestSchema = z
   .object({
     principal: z.string().min(1).max(128),
     deviceId: z.string().uuid(),
-    capabilities: z.array(capabilityName).min(1).max(16),
+    capabilities: z.array(capabilityName).min(1).max(24),
     ttlSeconds: z.number().int().min(1).max(86400).nullable().default(3600),
   })
   .strict();
@@ -458,7 +458,9 @@ Object.assign(schemas.Manifest, {
       if: { properties: { kind: { const: "linux" } }, required: ["kind"] },
       else: {
         properties: {
+          capabilities: { maxItems: 16 },
           functions: {
+            maxItems: 16,
             items: {
               properties: {
                 inputSchema: {
@@ -924,7 +926,7 @@ export function buildOpenApi() {
       {
         ...body(grantRequestSchema),
         description:
-          "Only an owner can grant. Grants are per principal and device, limited to 16 capabilities, default to one hour and may be made persistent with null expiry.",
+          "Only an owner can grant. Grants are per principal and device, limited to 24 capabilities for Linux and 16 for other kinds, default to one hour and may be made persistent with null expiry.",
       },
     ),
   });
@@ -1123,7 +1125,7 @@ export function buildOpenApi() {
           { name: "deviceId", in: "path", required: true, schema: uuid },
         ],
         description:
-          "Correlated outcome can be succeeded or failed. Request bodies are limited to 16 KiB and results must fit the workspace's 16 MiB logical storage budget. Reposting the same status and result is idempotent; a conflicting repeat is rejected. Delivery does not guarantee exactly-once physical execution.",
+          "Correlated outcome can be succeeded or failed. Request bodies are limited to 16 KiB, except authenticated Linux result uploads up to 64 KiB. Only desktop.screenshot may return up to 48 KiB of UTF-8 JSON; other results retain their 4096-character limit. Results must fit the workspace's 16 MiB logical storage budget. Exact repeats are idempotent; conflicting repeats are rejected. Delivery does not guarantee exactly-once physical execution.",
       },
     ),
   });

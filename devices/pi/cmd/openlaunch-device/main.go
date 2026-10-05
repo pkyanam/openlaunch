@@ -499,6 +499,15 @@ func reconcileResults(c Config, journal map[string]JournalEntry, journalPath str
 		}
 		previous := entry
 		entry.State = journalAcked
+		// The server now owns the complete image receipt. Keep a deduplication
+		// tombstone locally rather than retaining tens of KiB per screenshot.
+		if c.Profile == "linux" {
+			if result, ok := entry.Outcome.Result.(map[string]any); ok && result["mimeType"] == "image/jpeg" {
+				if _, image := result["imageBase64"].(string); image {
+					entry.Outcome.Result = map[string]any{"receiptStored": true}
+				}
+			}
+		}
 		entry.RetryCount = 0
 		entry.NextAttemptAt = 0
 		journal[id] = entry

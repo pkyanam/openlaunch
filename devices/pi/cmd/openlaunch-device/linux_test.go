@@ -55,7 +55,7 @@ func hostFixture(t *testing.T, write bool) (*LinuxHarness, string, string) {
 	if e := os.Mkdir(root, 0700); e != nil {
 		t.Fatal(e)
 	}
-	p := HostPolicy{1, "test-host", map[string]HostRoot{"workspace": {root, write}}, map[string]HostCommand{}, map[string]HostService{}}
+	p := HostPolicy{1, "test-host", map[string]HostRoot{"workspace": {root, write}}, map[string]HostCommand{}, map[string]HostService{}, nil}
 	config := filepath.Join(state, "device.json")
 	policy := filepath.Join(state, "policy.json")
 	if e := atomic(policy, p); e != nil {
@@ -87,7 +87,7 @@ func writeArgs(path, data string, offset int64, final bool) map[string]any {
 func TestLinuxManifestAndPolicyRevision(t *testing.T) {
 	h, _, config := hostFixture(t, true)
 	first := h.Manifest()
-	if first.Kind != "linux" || len(first.Capabilities) != 11 {
+	if first.Kind != "linux" || len(first.Capabilities) != 13 {
 		t.Fatalf("unexpected default manifest: %+v", first)
 	}
 	for _, f := range first.Functions {
@@ -110,7 +110,7 @@ func TestLinuxManifestAndPolicyRevision(t *testing.T) {
 	}
 	defer next.Close()
 	m := next.Manifest()
-	if len(m.Capabilities) != 15 || next.Revision == h.Revision {
+	if len(m.Capabilities) != 17 || next.Revision == h.Revision {
 		t.Fatalf("policy change did not revise manifest: %+v", m)
 	}
 	b, _ := json.Marshal(m)

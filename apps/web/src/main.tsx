@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { screenshotSource } from "./receipt";
 import logoUrl from "../../site/public/icon.svg?url";
 import { OAuthClients, type OAuthConnection } from "./OAuthClients";
 import {
@@ -163,6 +164,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [receipts, setReceipts] = useState<any[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
+  const receiptImage = screenshotSource(selectedReceipt);
   const [pairingBaseline, setPairingBaseline] = useState<string[] | null>(null);
   const [enrollmentRevealed, setEnrollmentRevealed] = useState(false);
   const [confirmation, setConfirmation] = useState<{
@@ -1917,12 +1919,22 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   {selectedReceipt.result !== undefined && (
                     <div className="receipt-result">
                       <h3>Device result</h3>
+                      {receiptImage && (
+                        <img
+                          className="desktop-preview"
+                          src={receiptImage}
+                          alt="Captured device desktop"
+                        />
+                      )}
                       {selectedReceipt.result !== null &&
                       typeof selectedReceipt.result === "object" &&
                       !Array.isArray(selectedReceipt.result) ? (
                         <dl>
-                          {Object.entries(selectedReceipt.result).map(
-                            ([key, value]) => (
+                          {Object.entries(selectedReceipt.result)
+                            .filter(
+                              ([key]) => !receiptImage || key !== "imageBase64",
+                            )
+                            .map(([key, value]) => (
                               <React.Fragment key={key}>
                                 <dt>
                                   {key
@@ -1940,8 +1952,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                       : JSON.stringify(value)}
                                 </dd>
                               </React.Fragment>
-                            ),
-                          )}
+                            ))}
                         </dl>
                       ) : (
                         <p>
@@ -2116,8 +2127,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 Run this installer as your normal Linux user. It installs the
                 native host harness, prompts for the setup token privately, and
                 starts with one dedicated file workspace. Configure additional
-                directories, commands and user services locally, then grant
-                agent functions separately.
+                directories, commands and user services locally. For shell,
+                screenshots, mouse and keyboard, run openlaunch-host
+                enable-control on the active desktop, then restart and approve
+                agent functions in Access.
               </p>
             ) : deviceSetupKind === "pi" ? (
               <p>

@@ -60,7 +60,9 @@ func hostCLI(args []string, config string) bool {
 	}
 	policy := filepath.Join(filepath.Dir(config), "policy.json")
 	if args[0] == "help" {
-		fmt.Println("openlaunch-host start | policy | manifest | allow-dir | allow-command | allow-service | remove | service")
+		fmt.Println("openlaunch-host start | policy | manifest | enable-control | allow-shell | disable-control | allow-dir | allow-command | allow-service | remove | service")
+		fmt.Println("openlaunch-host enable-control  (shell, browser, screenshots, mouse and keyboard as your user)")
+		fmt.Println("openlaunch-host allow-shell     (shell only); disable-control removes broad control")
 		fmt.Println("openlaunch-host allow-dir projects /absolute/path [--read-only]")
 		fmt.Println("openlaunch-host allow-command uptime /usr/bin/uptime")
 		fmt.Println("openlaunch-host allow-service worker worker.service [start stop restart]")
@@ -93,6 +95,26 @@ func hostCLI(args []string, config string) bool {
 	}
 	p := h.Policy
 	switch args[0] {
+	case "enable-control", "allow-shell":
+		if len(args) != 1 {
+			fatal(errors.New("this command takes no arguments"))
+		}
+		p.Control, e = enableHostControl(args[0] == "allow-shell")
+		if e != nil {
+			fatal(e)
+		}
+		if args[0] == "enable-control" {
+			if _, exists := p.Roots["desktop"]; !exists {
+				if path := desktopDirectory(); path != "" && !containsPath(path, h.State) && !containsPath(h.State, path) {
+					p.Roots["desktop"] = HostRoot{path, true}
+				}
+			}
+		}
+	case "disable-control":
+		if len(args) != 1 {
+			fatal(errors.New("disable-control takes no arguments"))
+		}
+		p.Control = nil
 	case "allow-dir":
 		if len(args) < 3 || len(args) > 4 || (len(args) == 4 && args[3] != "--read-only") {
 			fatal(errors.New("use: openlaunch-host allow-dir NAME /absolute/path [--read-only]"))

@@ -128,9 +128,12 @@ func (h *LinuxHarness) Execute(c Config, cmd Command, started time.Time) Outcome
 	if e != nil {
 		return Outcome{"failed", map[string]any{"error": "host_operation_failed", "message": cleanText(e.Error(), 256)}}
 	}
-	// All functions use the existing bounded result envelope; no MCU limits change.
+	limit := 4096
+	if cmd.Capability == "desktop.screenshot" {
+		limit = 48 * 1024
+	}
 	b, e := json.Marshal(result)
-	if e != nil || len(b) > 4096 {
+	if e != nil || len(b) > limit {
 		return Outcome{"failed", map[string]any{"error": "result_limit_exceeded"}}
 	}
 	return Outcome{"succeeded", result}
@@ -173,6 +176,15 @@ func (h *LinuxHarness) perform(cmd Command, started time.Time) (any, error) {
 		return hostProcesses(intArg(cmd.Args, "afterPid", 0))
 	case strings.HasPrefix(cmd.Capability, "file."):
 		return h.files(cmd)
+	case cmd.Capability == "system.exec":
+		directory, _ := cmd.Args["directory"].(string)
+		if directory != "" && !filepath.IsAbs(directory) {
+			return nil, errors.New("directory must be absolute")
+		}
+		command, _ := cmd.Args["command"].(string)
+		return h.runProgram(cmd, []string{"/bin/sh", "-c", command}, directory, time.Duration(intArg(cmd.Args, "timeoutSeconds", 30))*time.Second)
+	case strings.HasPrefix(cmd.Capability, "desktop."):
+		return h.desktop(cmd)
 	case cmd.Capability == "system.run":
 		name, _ := cmd.Args["command"].(string)
 		spec := h.Policy.Commands[name]
@@ -250,6 +262,9 @@ func (w *limitedOutput) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 func (h *LinuxHarness) runProgram(action Command, argv []string, directory string, timeout time.Duration) (any, error) {
+	return h.runProgramInput(action, argv, directory, timeout, "")
+}
+func (h *LinuxHarness) runProgramInput(action Command, argv []string, directory string, timeout time.Duration, input string) (any, error) {
 	remaining := time.Until(time.UnixMilli(action.ExpiresAt))
 	if remaining <= 0 {
 		return nil, errors.New("expired before command start")
@@ -260,9 +275,8 @@ func (h *LinuxHarness) runProgram(action Command, argv []string, directory strin
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = directory
-	home, _ := os.UserHomeDir()
-	runtimeDir := fmt.Sprintf("/run/user/%d", os.Getuid())
-	cmd.Env = []string{"HOME=" + home, "USER=" + strconv.Itoa(os.Getuid()), "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "XDG_RUNTIME_DIR=" + runtimeDir, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + runtimeDir + "/bus"}
+	cmd.Env = h.childEnvironment()
+	cmd.Stdin = strings.NewReader(input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {

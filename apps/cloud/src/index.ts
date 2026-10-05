@@ -209,7 +209,14 @@ export default {
         { error: { code: "origin", message: "Cross-origin request rejected" } },
         { status: 403 },
       );
-    if (Number(request.headers.get("content-length") ?? "0") > 16384)
+    // The authenticated device handler checks kind/action before admitting a
+    // screenshot. Never widen agent requests or embedded result envelopes.
+    const requestLimit = /^\/v1\/device\/[a-f0-9-]{36}\/result$/.test(
+      url.pathname,
+    )
+      ? 65536
+      : 16384;
+    if (Number(request.headers.get("content-length") ?? "0") > requestLimit)
       return Response.json(
         { error: { code: "too_large", message: "Request too large" } },
         { status: 413 },

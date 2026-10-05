@@ -36,6 +36,7 @@ type HostPolicy struct {
 	Roots    map[string]HostRoot    `json:"roots"`
 	Commands map[string]HostCommand `json:"commands"`
 	Services map[string]HostService `json:"services"`
+	Control  *HostControl           `json:"control,omitempty"`
 }
 type FunctionDefinition struct {
 	Name        string         `json:"name"`
@@ -117,7 +118,7 @@ func initLinuxPolicy(path, config string) error {
 	if len(name) > 64 {
 		name = name[:64]
 	}
-	p := HostPolicy{1, name, map[string]HostRoot{"workspace": {workspace, true}}, map[string]HostCommand{}, map[string]HostService{}}
+	p := HostPolicy{1, name, map[string]HostRoot{"workspace": {workspace, true}}, map[string]HostCommand{}, map[string]HostService{}, nil}
 	if e = atomic(path, p); e != nil {
 		return e
 	}
@@ -223,6 +224,9 @@ func newLinuxHarness(policy, config string) (*LinuxHarness, error) {
 			seen[action] = true
 		}
 	}
+	if e = validateHostControl(p.Control); e != nil {
+		return nil, e
+	}
 	b, _ := json.Marshal(p)
 	digest := sha256.Sum256(b)
 	h.Revision = hex.EncodeToString(digest[:])[:16]
@@ -275,6 +279,7 @@ func (h *LinuxHarness) Manifest() Manifest {
 	pathProps := func() map[string]any {
 		return map[string]any{"root": textProperty(32, sortedNames(h.Policy.Roots)...), "path": textProperty(256)}
 	}
+	add("file.root_info", "Locate allowed file root", "Return the real absolute path and write policy for one allowed root alias. workspace is separate from the user's Desktop.", "read", map[string]any{"root": textProperty(32, sortedNames(h.Policy.Roots)...)}, "root")
 	add("system.info", "Inspect Linux system", "OS, kernel, CPU, memory, disk and adapter information.", "read", nil)
 	add("network.interfaces", "Inspect network interfaces", "Interface names, addresses, MTU and link flags. Does not connect to other hosts.", "read", nil)
 	add("process.list", "Inspect processes", "Paginated process IDs, names and state; excludes environment and command lines.", "read", map[string]any{"afterPid": numberProperty(0, 1<<31-1)})
@@ -297,6 +302,10 @@ func (h *LinuxHarness) Manifest() Manifest {
 			return map[string]any{"root": textProperty(32, sortedNames(writable)...), "path": textProperty(256)}
 		}
 		add("file.mkdir", "Create directory", "Create a directory inside a writable root. No recursive deletion is available.", "write", writeProps(), "root", "path")
+		props = writeProps()
+		props["text"] = map[string]any{"type": "string", "maxLength": 8192}
+		props["replaceRevision"] = textProperty(64)
+		add("file.write_text", "Write text file", "Atomically create a UTF-8 file, up to 8192 bytes. Supply literal text; the device computes SHA-256. Overwrite requires file.stat replaceRevision. Parents must exist.", "write", props, "root", "path", "text")
 		add("file.remove", "Remove file or empty directory", "Remove one regular file or empty directory inside a writable root.", "write", writeProps(), "root", "path")
 		props = writeProps()
 		props["uploadId"] = textProperty(36)
@@ -319,5 +328,6 @@ func (h *LinuxHarness) Manifest() Manifest {
 		props = map[string]any{"service": textProperty(32, sortedNames(h.Policy.Services)...), "action": textProperty(7, "start", "stop", "restart")}
 		add("service.control", "Control user service", "Start, stop or restart a named user service when its local action list permits it.", "write", props, "service", "action")
 	}
+	h.controlManifest(add)
 	return m
 }

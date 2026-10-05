@@ -66,7 +66,7 @@ ol functions list
 | Uno R4 WiFi            | Health, built-in LED, matrix text                                                   | Matching RA sketch already flashed; Arduino CLI for USB detection |
 | Uno + ArduRoomba       | Model 551 cleaning, docking, pause/stop, bounded movement, sensors, LEDs and sounds | Roomba sketch already flashed; Serial1 D0/D1, BRC D5, VIN/GND     |
 | Raspberry Pi 4 Model B | Health profile, or opt-in Linux host controls                                       | ARM64 or ARMv7 Linux; installer verifies the binary checksum      |
-| Linux host             | Files, metrics, named commands, processes, network and user services                | ARM64/ARMv7/x86-64; normal user; Bash, curl and Python 3          |
+| Linux host             | Files, metrics, commands, user services and optional desktop control                | ARM64/ARMv7/x86-64; normal user; Bash, curl and Python 3          |
 | Standalone ESP32       | Portable embedded SDK and health example                                            | Firmware already flashed; confirmed USB port                      |
 | Custom Node adapter    | Functions you implement and publish                                                 | Node 24+ and your hardware library                                |
 
@@ -76,9 +76,9 @@ For native Linux host control, choose **Linux host** in the console and run:
 curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
 ```
 
-Open a new terminal, then run `openlaunch-host start` or `openlaunch-host service install`. The default file workspace is isolated from private device state. Allow additional directories, fixed commands or user services with short local `openlaunch-host` commands, then grant those functions to agents in the console. Policy changes require reapproval. See the [Linux guide](https://www.openlaunch.dev/docs/linux) for the 15 available functions and limits, and [Muse comparison](docs/LINUX-HARNESS.md) for the baseline and differences.
+Open a new terminal, then run `openlaunch-host start` or `openlaunch-host service install`. The default file workspace is isolated from private device state. Allow additional directories, fixed commands or user services with short local `openlaunch-host` commands, then grant those functions to agents in the console. Policy changes require reapproval. See the [Linux guide](https://www.openlaunch.dev/docs/linux) for the 22 available functions and limits, and [Muse comparison](docs/LINUX-HARNESS.md) for the baseline and differences.
 
-To update, rerun the same installer. It preserves the device token, policy, journal, uploads and grants without pairing again. An active user service restarts automatically; stop a foreground runner with Ctrl-C first and start it again afterward. Native work notifications reduce delivery delay, with ten-second polling as a fallback. `system.info` includes model, memory and optional temperature. Agents should keep checking the same action receipt until it finishes.
+To update, rerun the same installer. It preserves the device token, policy, journal and uploads without pairing again. Unchanged manifests retain their grants; new functions require reapproval. An active user service restarts automatically; stop a foreground runner with Ctrl-C first and start it again afterward. Native work notifications reduce delivery delay, with ten-second polling as a fallback. `system.info` includes model, memory and optional temperature. Agents should keep checking the same action receipt until it finishes.
 
 For Uno firmware builds from a checkout, install Arduino CLI and run:
 
@@ -90,7 +90,18 @@ The interactive helper asks for the application and transport, installs pinned d
 
 After flashing, the hosted setup menu pairs the board. From a checkout, the short equivalents are `npm run provision:uno` and `npm run provision:roomba`.
 
-A compile, an online indicator, or a successful health result does not verify physical operation. Roomba operation remains unverified; the owner must flash the prepared application and test the actual robot. See [verification status](https://www.openlaunch.dev/docs/status).
+A compile, an online indicator, or a successful health result does not verify physical operation. The owner confirmed a real Roomba cleaning start; docking, bounded manual movement and long-running reliability remain separate acceptance. See [verification status](https://www.openlaunch.dev/docs/status).
+
+## Pi shell and desktop control
+
+After installing the Linux host, run these in the Pi's desktop terminal:
+
+```sh
+sudo apt install grim wtype
+openlaunch-host enable-control
+```
+
+Restart the runner and approve its new functions in the device's **Access** tab. Your agent can then run shell commands, launch a browser, see real screenshots, and use mouse/keyboard through MCP, API or `ol`. Controls use the Pi user's permissions and require its active desktop. X11 and shell-only setup are documented in [Linux control](https://www.openlaunch.dev/docs/linux). Re-running the installer updates the binary while preserving your paired identity and local policy.
 
 ## Credentials and permissions
 

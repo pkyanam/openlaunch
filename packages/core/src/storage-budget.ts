@@ -1,4 +1,5 @@
 import { Fault, type State } from "./index.ts";
+import { DESKTOP_RESULT_BYTES, isDesktopScreenshot } from "./limits.ts";
 
 /** Logical encoded-workspace ceiling; independent of SQLite/KV implementation. */
 export const WORKSPACE_STORAGE_BUDGET_BYTES = 16 * 1024 * 1024;
@@ -72,7 +73,15 @@ export function workspaceStorageCharge(state: State): number {
       jsonBytes(immutableAction),
     );
     if (status === "queued" || status === "received") {
-      actionCharge = add(actionCharge, PENDING_RESULT_RESERVE_BYTES);
+      const kind =
+        state.devices.find((device) => device.id === action.deviceId)?.kind ??
+        "";
+      actionCharge = add(
+        actionCharge,
+        isDesktopScreenshot(kind, action.capability)
+          ? DESKTOP_RESULT_BYTES
+          : PENDING_RESULT_RESERVE_BYTES,
+      );
     } else if (result !== undefined) {
       actionCharge = add(actionCharge, jsonBytes(result));
     }

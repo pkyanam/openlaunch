@@ -357,5 +357,6 @@ PY_PATH
 printf 'Open a new terminal, then run: openlaunch-host start\n'
 printf 'Or install a persistent user service: openlaunch-host service install\n'
 printf 'Inspect local access: openlaunch-host policy\n'
+printf 'Optional shell and desktop control: openlaunch-host enable-control\n'
 printf 'File access starts with ~/.local/share/openlaunch/workspace only. Commands and services require local configuration.\n'
 printf 'Grant agent functions separately in the console. Installation does not grant an agent access.\n'

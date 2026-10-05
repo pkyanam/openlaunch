@@ -48,7 +48,7 @@ const json = (data: unknown, status = 200) => {
     },
   });
 };
-const body = async (r: Request) => {
+const body = async (r: Request, limit = 16384) => {
   const reader = r.body?.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -58,7 +58,7 @@ const body = async (r: Request) => {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > 16384) {
+        if (size > limit) {
           await reader.cancel();
           throw new Fault("too_large", 413, "Request too large");
         }
@@ -129,7 +129,14 @@ export async function handle(
       if (deviceRoute[2] === "next" && method === "POST")
         return json(hub.next(id));
       if (deviceRoute[2] === "result" && method === "POST") {
-        const b = resultRequestSchema.parse(await body(request));
+        // Authentication precedes the host-only larger envelope. The Hub
+        // permits larger results only for the dispatched screenshot action.
+        const host =
+          hub.state.devices.find((device) => device.id === id)?.kind ===
+          "linux";
+        const b = resultRequestSchema.parse(
+          await body(request, host ? 65536 : 16384),
+        );
         return json(hub.result(id, b.actionId, b.status, b.result));
       }
       throw new Fault("method", 405, "Method not allowed");

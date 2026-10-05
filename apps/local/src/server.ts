@@ -38,9 +38,13 @@ const server = createServer((req, res) => {
       try {
         const bytes: Buffer[] = [];
         let length = 0;
+        const requestLimit =
+          /^\/v1\/device\/[a-f0-9-]{36}\/result(?:\?|$)/.test(req.url ?? "")
+            ? 65536
+            : 16384;
         for await (const chunk of req) {
           length += chunk.length;
-          if (length > 16384) {
+          if (length > requestLimit) {
             res.writeHead(413).end();
             return;
           }

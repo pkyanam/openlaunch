@@ -2219,3 +2219,11 @@ button {
   color: inherit;
   text-underline-offset: 3px;
 }
+
+.desktop-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border: 1px solid var(--border);
+}

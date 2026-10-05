@@ -68,15 +68,25 @@ func (h *LinuxHarness) fileRoot(args map[string]any, write bool) (*os.Root, stri
 	return r, path, nil
 }
 func (h *LinuxHarness) files(cmd Command) (any, error) {
+	if cmd.Capability == "file.root_info" {
+		alias, _ := cmd.Args["root"].(string)
+		root := h.Roots[alias]
+		if root == nil {
+			return nil, errors.New("root access denied")
+		}
+		return map[string]any{"root": alias, "path": root.Name(), "write": h.Policy.Roots[alias].Write}, nil
+	}
 	if cmd.Capability == "file.upload_abort" {
 		return h.abortUpload(cmd.Args)
 	}
-	write := cmd.Capability == "file.write" || cmd.Capability == "file.remove" || cmd.Capability == "file.mkdir"
+	write := cmd.Capability == "file.write" || cmd.Capability == "file.write_text" || cmd.Capability == "file.remove" || cmd.Capability == "file.mkdir"
 	r, path, e := h.fileRoot(cmd.Args, write)
 	if e != nil {
 		return nil, e
 	}
 	switch cmd.Capability {
+	case "file.write_text":
+		return h.writeText(r, path, cmd)
 	case "file.stat":
 		st, e := r.Lstat(path)
 		if e != nil {
@@ -174,6 +184,43 @@ func (h *LinuxHarness) files(cmd Command) (any, error) {
 		return h.writeChunk(r, path, cmd)
 	}
 	return nil, errors.New("unsupported file function")
+}
+
+func (h *LinuxHarness) writeText(root *os.Root, path string, cmd Command) (any, error) {
+	text, _ := cmd.Args["text"].(string)
+	data := []byte(text)
+	if len(data) > 8192 {
+		return nil, errors.New("text exceeds 8192 UTF-8 bytes; use a chunked transfer")
+	}
+	meta, _, e := h.uploadPaths(cmd.ID)
+	if e != nil {
+		return nil, e
+	}
+	if _, e = os.Lstat(meta); !errors.Is(e, os.ErrNotExist) {
+		return nil, errors.New("text action upload identity is already in use")
+	}
+	defer h.abortUpload(map[string]any{"uploadId": cmd.ID})
+	sum := sha256.Sum256(data)
+	for offset := 0; ; {
+		if h.Context.Err() != nil || time.Now().UnixMilli() >= cmd.ExpiresAt {
+			return nil, errors.New("expired before text publication")
+		}
+		end := min(offset+6144, len(data))
+		args := map[string]any{"root": cmd.Args["root"], "path": path, "uploadId": cmd.ID, "offset": int64(offset), "dataBase64": base64.StdEncoding.EncodeToString(data[offset:end]), "final": end == len(data), "sha256": hex.EncodeToString(sum[:])}
+		if revision, ok := cmd.Args["replaceRevision"]; ok {
+			args["replaceRevision"] = revision
+		}
+		chunk := cmd
+		chunk.Args = args
+		result, e := h.writeChunk(root, path, chunk)
+		if e != nil {
+			return nil, e
+		}
+		if end == len(data) {
+			return result, nil
+		}
+		offset = end
+	}
 }
 
 type Upload struct {

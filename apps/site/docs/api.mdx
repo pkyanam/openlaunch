@@ -177,7 +177,7 @@ The Node adapter can request a one-use ticket with its per-device credential fro
 
 ## Custom device functions
 
-A device can advertise custom functions in its manifest with a name, title, description and input schema. Schemas accept a root object with bounded string, number, integer or boolean fields. Additional root properties and external schema references are rejected. Each manifest supports up to 16 functions and each function up to 16 parameters; a custom function cannot replace a built-in capability.
+A device can advertise custom functions in its manifest with a name, title, description and input schema. Schemas accept a root object with bounded string, number, integer or boolean fields. Additional root properties and external schema references are rejected. Each manifest supports up to 24 functions for Linux or 16 for other kinds, and each function up to 16 parameters; a custom function cannot replace a built-in capability.
 
 The owner grants each custom function to an agent through the console. Granted functions appear as device-specific MCP tools. The service checks the current grant each time one is called, so a previously discovered tool stops working after its grant is revoked.
 

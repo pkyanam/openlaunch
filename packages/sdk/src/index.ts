@@ -85,8 +85,9 @@ export function createAdapter(input: {
   handlers: Record<string, AdapterHandler>;
 } {
   const entries = Object.entries(input.tools);
-  if (entries.length < 1 || entries.length > 16)
-    throw new TypeError("tools must contain 1–16 explicit function definitions");
+  const limit = input.kind === "linux" ? 24 : 16;
+  if (entries.length < 1 || entries.length > limit)
+    throw new TypeError(`tools must contain 1–${limit} explicit function definitions`);
   if (!input.name || input.name.length > 64 || !input.kind || input.kind.length > 64)
     throw new TypeError("adapter name and kind must be 1–64 characters");
   const functions = entries.map(([name, tool]) => {
