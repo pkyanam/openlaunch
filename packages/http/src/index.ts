@@ -34,17 +34,20 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 const caps = capabilityName;
 const bearer = (r: Request) =>
   /^Bearer ([^\s]+)$/.exec(r.headers.get("authorization") ?? "")?.[1] ?? "";
-const json = (data: unknown, status = 200) =>
-  Response.json(
-    { data },
-    {
-      status,
-      headers: {
-        "cache-control": "no-store",
-        "x-content-type-options": "nosniff",
-      },
+const json = (data: unknown, status = 200) => {
+  // Explicit byte framing lets embedded HTTP/1.1 clients finish a response
+  // without waiting for an idle timeout and safely reuse the TLS connection.
+  const payload = new TextEncoder().encode(JSON.stringify({ data }));
+  return new Response(payload, {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(payload.byteLength),
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
     },
-  );
+  });
+};
 const body = async (r: Request) => {
   const reader = r.body?.getReader();
   const chunks: Uint8Array[] = [];

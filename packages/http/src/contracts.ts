@@ -131,6 +131,11 @@ const Action = {
     createdAt: { type: "integer" },
     expiresAt: { type: "integer" },
     dispatchedAt: { type: "integer" },
+    resultReceivedAt: {
+      type: "integer",
+      description:
+        "Server time in Unix milliseconds when the first terminal device result was saved. Preserved on identical retries; absent for older receipts. This is receipt delivery, not physical completion.",
+    },
     result: {},
     clientKey: {
       type: "string",

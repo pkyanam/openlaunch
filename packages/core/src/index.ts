@@ -135,6 +135,7 @@ export interface Device extends Manifest {
 }
 export interface Action extends ActionEnvelope {
   dispatchedAt?: number;
+  resultReceivedAt?: number;
   result?: unknown;
   clientKey: string;
   fingerprint: string;
@@ -1184,10 +1185,13 @@ export class Hub {
       throw new Fault("invalid", 400, "JSON result required");
     if (encoded.length > 4096)
       throw new Fault("too_large", 413, "Result too large");
+    const resultReceivedAt = this.now();
     this.capacity(
       {
         actions: this.state.actions.map((action) =>
-          action.id === id ? { ...action, status, result } : action,
+          action.id === id
+            ? { ...action, status, result, resultReceivedAt }
+            : action,
         ),
       },
       "drain",
@@ -1195,6 +1199,7 @@ export class Hub {
     device.lastSeen = this.now();
     a.status = status;
     a.result = result;
+    a.resultReceivedAt = resultReceivedAt;
     this.audit("action." + status, a.id, "device");
     return a;
   }

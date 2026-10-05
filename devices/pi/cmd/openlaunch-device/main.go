@@ -928,6 +928,10 @@ func main() {
 				}
 				fmt.Fprintln(os.Stderr, "result delivery retry pending:", e)
 				waitBeforeNextPoll = resultRetryWait(e)
+			} else {
+				// Drain queued work promptly after its durable result is acknowledged.
+				// Idle/error polling stays at ten seconds; do not amplify idle cost.
+				waitBeforeNextPoll = 100 * time.Millisecond
 			}
 		}
 		if *once {

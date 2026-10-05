@@ -521,6 +521,18 @@ test("migrated device credentials, grants, idempotency and correlated outcomes r
     assert.equal(exported.actions.length, 1);
     assert.deepEqual(exported.actions[0].result, { processHealth: true });
     assert.equal(exported.actions[0].status, "succeeded");
+    assert.equal(typeof exported.actions[0].resultReceivedAt, "number");
+    const receiptTime = exported.actions[0].resultReceivedAt;
+    await run((hub) =>
+      hub.result(enrolled.deviceId, queued.id, "succeeded", {
+        processHealth: true,
+      }),
+    );
+    assert.equal(
+      (await run((hub) => hub.exportHistory(owner))).actions[0]
+        .resultReceivedAt,
+      receiptTime,
+    );
     await run((hub) => hub.revoke(owner, enrolled.deviceId));
     await assert.rejects(
       run((hub) => hub.authenticateDevice(enrolled.deviceId, enrolled.token)),

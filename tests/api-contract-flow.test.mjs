@@ -45,7 +45,13 @@ test("documented response schemas match a real local attach, grant, dispatch, re
         "application/json"
       ].schema;
     const validate = ajv.compile({ ...schema, components: doc.components });
-    const value = await response.json();
+    const payload = await response.text();
+    if (expected >= 200 && expected < 300)
+      assert.equal(
+        Number(response.headers.get("content-length")),
+        Buffer.byteLength(payload),
+      );
+    const value = JSON.parse(payload);
     assert(
       validate(value),
       `${method} ${template}: ${JSON.stringify(validate.errors)}`,
@@ -71,7 +77,7 @@ test("documented response schemas match a real local attach, grant, dispatch, re
   await request("/v1/device-setup-tokens", "get");
   await request("/v1/agent-connections", "get");
   const manifest = {
-    name: "software contract fixture",
+    name: "software contract fixture • café",
     kind: "custom.fixture",
     capabilities: ["device.health"],
   };

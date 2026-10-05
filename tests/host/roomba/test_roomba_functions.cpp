@@ -9,14 +9,20 @@ class TestIO : public RoombaDriveIO {
   uint32_t now = 0;
   uint32_t disarmAt = 0;
   bool armed = true;
-  bool budget = true, expireDuringWake = false;
+  bool budget = true, expireDuringWake = false, expireDuringCheck = false;
+  int checks = 0;
+  uint16_t reservedMs = 0;
   int wakes = 0;
   uint32_t nowMs() override { return now++; }
   bool locallyArmed() override { return armed && (!disarmAt || now < disarmAt); }
   void drive(int16_t, int16_t) override {}
   void stop() override {}
   void wakeForControl() override { ++wakes; if (expireDuringWake) budget = false; }
-  bool controlWindowAvailable(uint16_t) override { return budget; }
+  bool controlWindowAvailable(uint16_t ms) override {
+    reservedMs = ms;
+    if (expireDuringCheck && ++checks > 1) budget = false;
+    return budget;
+  }
 };
 
 static JsonObjectConst argsWith(JsonDocument& doc, const char* key, int value) {
@@ -57,6 +63,16 @@ int main() {
   assert(roombaPacketLength(43) == 0);
 
   ArduRoomba roomba;
+  // Only a recent verified Passive/Safe reply skips wake. Unsigned elapsed
+  // time handles millis wrap, and neither Off nor Full mode qualifies.
+  roombaLinkVerified = true; roombaOiMode = 1;
+  roombaLinkCheckedAtMs = UINT32_MAX - 10;
+  assert(!roombaNeedsWake(10));
+  assert(roombaNeedsWake(ROOMBA_AWAKE_CACHE_MS));
+  roombaOiMode = 0; assert(roombaNeedsWake(10));
+  roombaOiMode = 3; assert(roombaNeedsWake(10));
+  roombaLinkVerified = false; roombaOiMode = 2;
+  assert(roombaNeedsWake(10));
   returnRoombaToPassiveIdle(roomba);
   assert(roomba.serialPort.writes == 1 && roomba.serialPort.lastWrite == 128);
   assert(roomba.actuatorInterface.cleanCount == 0 && roomba.movementInterface.directCount == 0);
@@ -158,6 +174,35 @@ int main() {
       resultDoc.to<JsonObject>(), error));
   assert(strcmp(error, "clock_unavailable_or_expired") == 0 && io.wakes == wakesBeforeExpired);
   io.budget = true;
+
+  // Warm commands still require a new OI query, local permit, and enough
+  // time after preparation. A missing reply cannot use the cached success.
+  roombaLinkVerified = true; roombaOiMode = 2;
+  roombaLinkCheckedAtMs = millis();
+  const int warmWakes = io.wakes;
+  const int warmQueries = roomba.sensorInterface.queries;
+  io.expireDuringCheck = true; io.checks = 0;
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "clock_unavailable_or_expired") == 0);
+  assert(io.wakes == warmWakes && roomba.sensorInterface.queries == warmQueries + 1);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  io.expireDuringCheck = false; io.budget = true;
+  io.armed = false;
+  assert(!prepareRoombaControl(roomba, io, true, 0, error));
+  assert(strcmp(error, "control_not_ready") == 0);
+  assert(roomba.sensorInterface.queries == warmQueries + 1);
+  io.armed = true; roomba.sensorInterface.reply = false;
+  assert(!prepareRoombaControl(roomba, io, true, 0, error));
+  assert(strcmp(error, "serial_timeout") == 0 && roombaSensorLinkDesynced);
+  assert(io.wakes == warmWakes && roomba.actuatorInterface.cleanCount == 0);
+  roombaSensorLinkDesynced = false; roomba.sensorInterface.reply = true;
+  roombaLinkVerified = true; roombaOiMode = 2; roombaLinkCheckedAtMs = millis();
+  assert(prepareRoombaControl(roomba, io, true, 1000, error));
+  assert(io.wakes == warmWakes && io.reservedMs == 1000);
+  testMillis += ROOMBA_AWAKE_CACHE_MS;
+  assert(prepareRoombaControl(roomba, io, true, 0, error));
+  assert(io.wakes == warmWakes + 1);
 
   argsDoc.clear(); resultDoc.clear();
   roomba.sensorInterface.reply = true;

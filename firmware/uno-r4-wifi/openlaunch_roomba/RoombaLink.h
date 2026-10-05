@@ -19,6 +19,22 @@ static uint32_t roombaLinkCheckedAtMs = 0;
 static uint16_t roombaLinkDiscardedBytes = 0;
 static const char* roombaLinkError = "not_checked";
 static const uint16_t ROOMBA_CONTROL_PREPARE_MS = 3200;
+static const uint16_t ROOMBA_WARM_CONTROL_PREPARE_MS = 400;
+static const uint32_t ROOMBA_AWAKE_CACHE_MS = 60000;
+
+// This cache only avoids repeated BRC wake/baud delays. Every control still
+// requests a fresh OI reply before sending outputs. Never retry a timed-out
+// unframed query, even if the cached reply was recent.
+inline bool roombaNeedsWake(uint32_t nowMs) {
+  return roombaSensorLinkDesynced || !roombaLinkVerified ||
+      (roombaOiMode != 1 && roombaOiMode != 2) ||
+      static_cast<uint32_t>(nowMs - roombaLinkCheckedAtMs) >= ROOMBA_AWAKE_CACHE_MS;
+}
+
+inline uint16_t roombaControlPrepareMs() {
+  return roombaNeedsWake(millis()) ? ROOMBA_CONTROL_PREPARE_MS
+                                 : ROOMBA_WARM_CONTROL_PREPARE_MS;
+}
 
 inline void returnRoombaToPassiveIdle(ArduRoomba& roomba) {
   // Call only after sending zero wheel/brush outputs. Start (128) enables
@@ -81,11 +97,15 @@ inline bool prepareRoombaControl(ArduRoomba& roomba, RoombaDriveIO& io,
     error = "serial_link_desynced";
     return false;
   }
-  if (!io.controlWindowAvailable(ROOMBA_CONTROL_PREPARE_MS + outputMs)) {
+  const bool needsWake = roombaNeedsWake(millis());
+  const uint16_t prepareMs = needsWake ? ROOMBA_CONTROL_PREPARE_MS
+                                      : ROOMBA_WARM_CONTROL_PREPARE_MS;
+  if (!io.controlWindowAvailable(prepareMs + outputMs)) {
     error = "clock_unavailable_or_expired";
     return false;
   }
-  io.wakeForControl();
+  if (!io.locallyArmed()) { error = "control_not_ready"; return false; }
+  if (needsWake) io.wakeForControl();
   if (!io.locallyArmed()) { error = "control_not_ready"; return false; }
   if (!roomba.resumeControl()) { roombaLinkVerified = false; error = "resume_failed"; return false; }
   if (!verifyRoombaLink(roomba)) { error = roombaLinkError; return false; }

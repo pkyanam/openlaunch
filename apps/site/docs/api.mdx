@@ -19,6 +19,12 @@ The hosted base URL is `{{api-url}}`. The reference's **Try it** panel sends a r
 5. Request `/v1/devices/{id}/actions` with a new idempotency key and bounded TTL. HTTP 202 means queued.
 6. Read `/v1/actions/{id}` until terminal status. Inspect the result; a firmware acknowledgment does not independently prove physical operation.
 
+New terminal receipts include `resultReceivedAt`, the server timestamp of the
+first saved device result. Compare it with `createdAt` and `dispatchedAt` to
+measure queue and processing/delivery delays. Identical result retries preserve
+this timestamp; older receipts can omit it. Activity displays these timings.
+Roomba `executionMs` excludes network result delivery and the autonomous cycle.
+
 The [ol CLI](/cli) follows this flow with `ol login`, `ol functions list`, `ol call` and `ol actions watch`. The [SDK guide](/sdk) shows the equivalent typed client. MCP's stable `list_functions` and `invoke_device_function` use the same catalog and authorization.
 
 ## Authentication
@@ -167,7 +173,7 @@ TTL is 1–300 seconds. Reuse an idempotency key only for an identical request. 
 
 ## Device wake hints
 
-The Node adapter can request a one-use ticket with its per-device credential from `/v1/device/{id}/events-ticket`. The ticket expires after 30 seconds and is offered in the WebSocket `Sec-WebSocket-Protocol` header for `/v1/device/{id}/events`; it is not sent in the URL. The WebSocket sends only a small work hint, never action arguments or results. On a hint, the adapter checks for the action through the normal HTTPS poll endpoint. The Node runner keeps its 10-second HTTP polling fallback. Go, Uno and ESP32 continue to use HTTP polling every 10 seconds.
+The Node adapter can request a one-use ticket with its per-device credential from `/v1/device/{id}/events-ticket`. The ticket expires after 30 seconds and is offered in the WebSocket `Sec-WebSocket-Protocol` header for `/v1/device/{id}/events`; it is not sent in the URL. The WebSocket sends only a small work hint, never action arguments or results. On a hint, the adapter checks for the action through the normal HTTPS poll endpoint. The Node runner keeps its 10-second HTTP polling fallback. Go polls every 10 seconds when idle, then drains queued work with a 100 ms wait after each acknowledged result. Generic Uno and ESP32 adapters poll every 10 seconds; the Roomba sketch polls every second. JSON responses include their UTF-8 byte length for embedded HTTP/1.1 connection reuse. Network, agent planning and approval delays still contribute to the time you observe.
 
 ## Custom device functions
 

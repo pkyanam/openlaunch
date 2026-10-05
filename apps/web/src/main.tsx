@@ -1871,6 +1871,49 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       Close
                     </button>
                   </div>
+                  {typeof selectedReceipt.dispatchedAt === "number" && (
+                    <div className="receipt-result">
+                      <h3>Timing</h3>
+                      <dl>
+                        <dt>Queue to dispatch</dt>
+                        <dd>
+                          {Math.max(
+                            0,
+                            selectedReceipt.dispatchedAt -
+                              selectedReceipt.createdAt,
+                          )}{" "}
+                          ms
+                        </dd>
+                        {typeof selectedReceipt.resultReceivedAt ===
+                          "number" && (
+                          <>
+                            <dt>Dispatch to result received</dt>
+                            <dd>
+                              {Math.max(
+                                0,
+                                selectedReceipt.resultReceivedAt -
+                                  selectedReceipt.dispatchedAt,
+                              )}{" "}
+                              ms
+                            </dd>
+                            <dt>Total to result received</dt>
+                            <dd>
+                              {Math.max(
+                                0,
+                                selectedReceipt.resultReceivedAt -
+                                  selectedReceipt.createdAt,
+                              )}{" "}
+                              ms
+                            </dd>
+                          </>
+                        )}
+                      </dl>
+                      <p>
+                        Receipt timing includes processing and delivery. It does
+                        not confirm physical completion.
+                      </p>
+                    </div>
+                  )}
                   {selectedReceipt.result !== undefined && (
                     <div className="receipt-result">
                       <h3>Device result</h3>

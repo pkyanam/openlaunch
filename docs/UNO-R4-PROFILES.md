@@ -71,12 +71,27 @@ stopping outputs at boot, it returns to Passive mode so idle initialization
 does not leave charging disabled. Packet 35 must return a valid OI mode; the
 library's `isConnected()` flag alone only establishes local UART initialization.
 
-Before cleaning, docking, recovery, wheel or brush commands, the adapter repeats
-the bounded wake/baud sequence, sends Start/Safe, and reads OI mode. Manual
+Before cleaning, docking, recovery, wheel or brush commands, the adapter sends
+Start/Safe and reads a fresh OI mode. It skips the 2.8-second wake/baud sequence
+only when a verified Passive/Safe reply is less than 60 seconds old. Cold,
+stale, Off or Full-mode links retain the complete wake sequence. A warm cache
+never authorizes outputs or retries an ambiguous query. Manual
 outputs require a confirmed Safe response; cleaning/docking accept Passive or
 Safe because the native autonomous routines enter Passive mode. Full mode is
 not enabled. Expiry includes initialization time and is checked again before
 outputs. Per-function grants and the persistent write journal remain required.
+
+Cloud polling reuses a single TLS connection for the same configured host and
+coalesces request headers to reduce modem round trips. Failed or partial
+responses close the socket; unknown-length responses close it after decoding.
+A request is never automatically replayed on a stale connection. Polling stays
+at one second, preserving the idle request rate. Roomba results include
+`executionMs`, measured from action handling to receipt persistence, excluding
+network receipt delivery and autonomous cleaning duration. New API receipts
+include `resultReceivedAt`; Activity shows queue, dispatch-to-receipt and total
+receipt time. Identical result retries retain the original server timestamp.
+Routine successful receipt/manifest updates do not print unsolicited messages
+on the shared USB/modem UART; explicit USB status retains delivery diagnostics.
 
 USB status and health expose `roombaUartInitialized`, `roombaLinkVerified`,
 `oiMode` (255 means unknown), `linkCheckedAtMs`, `linkError`, and

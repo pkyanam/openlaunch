@@ -149,6 +149,8 @@ export interface Action {
     | "unknown";
   createdAt: number;
   expiresAt: number;
+  dispatchedAt?: number;
+  resultReceivedAt?: number;
   result?: unknown;
   [key: string]: unknown;
 }

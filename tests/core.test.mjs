@@ -118,7 +118,11 @@ test("a saved receipt can be reconciled after TTL without admitting a late new o
     nested: { value: 2 },
     accepted: true,
   };
-  h.result(d.deviceId, action.id, "succeeded", result);
+  setTime(1250);
+  assert.equal(
+    h.result(d.deviceId, action.id, "succeeded", result).resultReceivedAt,
+    1250,
+  );
   setTime(5000);
   assert.equal(
     h.result(d.deviceId, action.id, "succeeded", {
@@ -128,6 +132,7 @@ test("a saved receipt can be reconciled after TTL without admitting a late new o
     }).status,
     "succeeded",
   );
+  assert.equal(h.get(owner, action.id).resultReceivedAt, 1250);
   assert.throws(() => h.result(d.deviceId, action.id, "failed", result));
   assert.throws(() =>
     h.result(d.deviceId, action.id, "succeeded", {

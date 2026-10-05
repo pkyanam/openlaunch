@@ -84,6 +84,7 @@ unsigned long nextManifestPublishMs = 0;
 unsigned long manifestPublishDelayMs = 5000;
 unsigned long lastWifiAttempt = 0;
 uint64_t activeActionExpiresAt = 0;
+uint32_t activeActionStartedAtMs = 0;
 bool configStorageFault = false;
 int lastAttachHttpStatus = 0;
 char lastAttachErrorCode[48] = {};
@@ -398,10 +399,21 @@ class RoombaHttpBodyWriter {
   bool ok_ = true;
 };
 
+// Reuse one TLS connection rather than allocating a new modem socket and
+// handshaking on every one-second poll. Partial/error responses close it;
+// requests are never automatically replayed on a stale connection.
+WiFiSSLClient bridgeTls;
+String bridgeTlsHost;
+
 bool post(const String& path, JsonDocument& data, JsonDocument& response,
           int* responseStatus = nullptr, const char* bearerOverride = nullptr) {
-  WiFiSSLClient tls;
-  HttpClient client(tls, cfg.host, 443);
+  if (bridgeTlsHost != cfg.host) {
+    bridgeTls.stop();
+    bridgeTlsHost = cfg.host;
+  }
+  bridgeTls.setConnectionTimeout(5000);
+  HttpClient client(bridgeTls, cfg.host, 443);
+  client.connectionKeepAlive();
   client.setHttpResponseTimeout(12000);
   if (data.overflowed()) {
     if (responseStatus) *responseStatus = -5;
@@ -409,15 +421,20 @@ bool post(const String& path, JsonDocument& data, JsonDocument& response,
   }
   const size_t bodyLength = measureJson(data);
   client.beginRequest();
-  client.post(path);
-  client.sendHeader("User-Agent", "openlaunch-device/1");
-  client.sendHeader("Content-Type", "application/json");
-  client.sendHeader("Content-Length", bodyLength);
-  client.sendHeader("x-openlaunch-workspace", cfg.workspace);
+  if (client.post(path) != HTTP_SUCCESS) {
+    if (responseStatus) *responseStatus = HTTP_ERROR_CONNECTION_FAILED;
+    client.stop();
+    return false;
+  }
+  // Each write is an ESP modem round trip. Send our validated configuration
+  // headers together, while retaining ArduinoHttpClient's HTTP framing.
+  String headers = String("User-Agent: openlaunch-device/1\r\nContent-Type: application/json\r\nContent-Length: ") +
+      bodyLength + "\r\nx-openlaunch-workspace: " + cfg.workspace;
   if (bearerOverride && bearerOverride[0])
-    client.sendHeader("Authorization", String("Bearer ") + bearerOverride);
+    headers += String("\r\nAuthorization: Bearer ") + bearerOverride;
   else if (cfg.token[0])
-    client.sendHeader("Authorization", String("Bearer ") + cfg.token);
+    headers += String("\r\nAuthorization: Bearer ") + cfg.token;
+  client.sendHeader(headers.c_str());
   client.beginBody();
   RoombaHttpBodyWriter writer(client);
   const size_t written = serializeJson(data, writer);
@@ -461,9 +478,13 @@ bool post(const String& path, JsonDocument& data, JsonDocument& response,
     return false;
   }
   String payload = client.responseBody();
-  client.stop();
-  if (payload.length() > 8192) return false;
-  return !deserializeJson(response, payload);
+  const bool complete = length >= 0 && payload.length() == static_cast<size_t>(length) &&
+      client.endOfBodyReached();
+  const bool valid = payload.length() <= 8192 && !deserializeJson(response, payload);
+  // Unknown-length/chunked responses can still be decoded, but must not
+  // leave framing bytes for the next request on this socket.
+  if (!complete || !valid) client.stop();
+  return valid;
 }
 
 bool writePendingResult(const RoombaPendingResult& next) {
@@ -533,7 +554,8 @@ bool tryDeliverPendingResult() {
     if (clearPendingResult()) {
       resultRetryDelayMs = 1000;
       resultExpiryReported = false;
-      Serial.println("openlaunch: result delivery confirmed by service");
+      // Routine successes stay silent on the shared modem/USB UART. The
+      // explicitly requested USB status reports delivery counters instead.
       return true;
     }
     Serial.println("openlaunch: result confirmed but journal clear failed; hardware locked");
@@ -546,6 +568,7 @@ bool tryDeliverPendingResult() {
 }
 
 bool queueResult(JsonDocument& ack) {
+  ack["result"]["executionMs"] = static_cast<uint32_t>(millis() - activeActionStartedAtMs);
   String payload;
   serializeJson(ack, payload);
   RoombaPendingResult next = makeRoombaPendingResult(
@@ -884,9 +907,8 @@ bool publishPairedManifest() {
     manifestPublished = true;
     manifestPublishDelayMs = 5000;
     const bool grantsRevoked = response["data"]["grantsRevoked"].as<bool>();
-    Serial.println(grantsRevoked
-        ? "openlaunch: manifest updated; device grants revoked and require owner regrant"
-        : "openlaunch: manifest confirmed; existing device grants retained");
+    if (grantsRevoked)
+      Serial.println("openlaunch: manifest updated; device grants revoked and require owner regrant");
     return true;
   }
   if (status >= 400 && status < 500 && status != 429) {
@@ -924,8 +946,8 @@ bool requiresLocalInterlock(const char* capability) {
 }
 
 uint16_t requiredActionTimeMs(const char* capability) {
-  if (isRoombaMotionFeature(capability)) return ROOMBA_CONTROL_PREPARE_MS + 1000;
-  if (requiresLocalInterlock(capability)) return ROOMBA_CONTROL_PREPARE_MS;
+  if (isRoombaMotionFeature(capability)) return roombaControlPrepareMs() + 1000;
+  if (requiresLocalInterlock(capability)) return roombaControlPrepareMs();
   if (strcmp(capability, "roomba.sensor.read") == 0) return 225;
   if (strcmp(capability, "roomba.tone.play") == 0) return 512;
   if (strcmp(capability, "roomba.song.play") == 0) return 1600;
@@ -976,6 +998,7 @@ bool validDriveArguments(JsonObjectConst args) {
 }
 
 void handleAction(JsonObject cmd) {
+  activeActionStartedAtMs = millis();
   if (!resultJournalReady || resultJournalFault || pendingResult.pending) {
     driveAdapter.stop();
     return;

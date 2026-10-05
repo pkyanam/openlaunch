@@ -2,6 +2,23 @@
 
 ## State of the implementation
 
+Latest hardware evidence (October 5): the owner confirmed that their 09:10
+standard cleaning request physically started the wired Roomba 551. Its receipt
+had a real Safe-mode preflight reply; the firmware still correctly reports
+`physicalVerified: false` because it cannot observe the cleaning cycle. Real
+cloud health and packet-35 sensor reads also completed. Docking, bounded wheel
+and brush operation, stopping distance and long-running reconnect acceptance
+remain unverified. The repaired ESP image and pinned ArduRoomba library remain
+unchanged. Repeated read-only checks initially reproduced a stall affecting
+cloud and USB after successful receipts. The latency firmware coalesces headers,
+reuses TLS and removes unsolicited success logs from the shared modem/console
+UART. Its final acceptance passed 12 consecutive real cloud health checks in
+0.88–1.87 seconds, with 17–18 ms spent handling each health command. That is a
+bounded test, not long-running reliability qualification or ChatGPT planning
+time. The private isolated diagnostic records the latest uploaded binary and
+acceptance evidence. Earlier verification claims below
+describe their respective historical releases.
+
 The hosted website, Google-only Clerk owner sign-in, Codex OAuth approval, device API and workspace persistence are verified. On deployed commit `6e317a0`, the then-current legacy combined SDK-token acceptance confirmed stable attachment retry after a deliberately lost response, no master token in device identity, no default grants, 403 for ungranted actions and self-grants, 429 at the attachment limit, owner health and custom `custom.echo` grants, and grant removal after a manifest change. Authenticated Node WebSocket wake hints then triggered HTTPS rechecks; software-fixture results were health in 601 ms and `custom.echo` in 508 ms. The Node, Go Pi and Uno runtimes have durable result journals. On deployed commit `873f82900d99125782e7e9347753e6ee675ee90e`, the public, commit-selected `npx` installer paired a software adapter. The official Codex client discovered its approved custom function over Clerk OAuth, invoked it, and followed the action to completion. The adapter verified the matching server receipt before acknowledging its durable journal entry. Both acceptance fixtures, SDK tokens and device identities were revoked and removed afterward. These are software checks only; physical Pi, Uno and Roomba operation remains unverified.
 
 The native SQLite migration deployed on commit `c4f34da7e4569864e8d8a8320c006eaf4d981554`; owner refresh and full-history download preserved all saved receipts. Commit `bf90990f6c29fd1a5da5eb10a65b141afded0206` added shared byte admission and result reservations, passed 111 tests and all deployment CI jobs, and retained the same owner history after deployment. These checks do not substitute for physical board acceptance.
