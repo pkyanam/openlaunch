@@ -10,15 +10,10 @@ Health, built-in LED and ASCII matrix text. Firmware compiles; real board operat
 ## Prepare stock firmware
 
 ```sh
-arduino-cli core update-index
-arduino-cli core install arduino:renesas_uno@1.6.0
-npm run prepare:firmware
-arduino-cli --config-file build/firmware/stock/arduino-cli.json lib update-index
-arduino-cli --config-file build/firmware/stock/arduino-cli.json lib install ArduinoJson@7.4.3 ArduinoHttpClient@0.6.2 ArduinoGraphics@1.1.5
-npm run build:firmware
+npm run setup:firmware
 ```
 
-These commands stage isolated dependencies and compile without flashing. Use the root build wrapper; a raw compile can accidentally resolve a globally patched WiFiS3 library.
+Install Arduino CLI first. The helper asks for the installed ESP transport and your application (LED/matrix or ArduRoomba), prepares isolated dependencies, and compiles with pinned versions. It never uploads or changes the ESP image. It does not guess the transport from a USB board name.
 
 ## Repaired console-mux profile
 
@@ -37,13 +32,13 @@ Follow the complete [transport profile guide](https://github.com/pkyanam/openlau
 1. Connect USB and run `arduino-cli board list`. Identify the exact board and port; close serial monitors.
 2. Upload only the matching profile's compiled sketch to the confirmed port. The RA sketch upload is separate from ESP connectivity firmware.
 3. In **Devices → Add device**, create a device setup token. It uses the `ol_sdk_` prefix, expires after 10 minutes by default, and attaches one device by default.
-4. Run the provisioner with the confirmed USB port and HTTPS bridge origin:
+4. Connect one Uno by USB, close serial monitors, and run the hosted setup menu:
 
 ```sh
-npm run provision:uno -- --port /dev/cu.YOUR_CONFIRMED_PORT --origin https://www.openlaunch.dev
+curl -fsSL https://www.openlaunch.dev/setup.sh | bash
 ```
 
-The helper prompts for Wi-Fi details and the device setup token, hiding sensitive input, then asks before sending the setup to the board. The workspace comes from the token; you do not need to copy it separately. It does not write credentials to a computer file. The board stores a private child credential that survives setup-token expiry or revocation; removing the device from the console revokes that credential. After pairing, the console opens the device's **Access** view so you can grant functions separately. If pairing confirmation times out, inspect **Devices** before retrying with the same token; do not start a second attachment request.
+Choose **Uno** for LED/matrix firmware, or **ArduRoomba** for the Roomba sketch. Arduino CLI detects the single board. From a checkout, use `npm run provision:uno` or `npm run provision:roomba`. The helper prompts for Wi-Fi details and the device setup token, hiding sensitive input, then asks before sending the setup to the board. The workspace comes from the token; you do not need to copy it separately. It does not write credentials to a computer file. The board stores a private child credential that survives setup-token expiry or revocation; removing the device from the console revokes that credential. After pairing, the console opens the device's **Access** view so you can grant functions separately. If pairing confirmation times out, inspect **Devices** before retrying with the same token; do not start a second attachment request.
 
 The firmware stores its device identity in EEPROM. Use an appropriate test network. TLS verification and a valid clock are mandatory. Firmware compile success does not establish physical operation: confirm real health/RSSI, physically observe the LED and matrix, then run the [permission acceptance checks](/pairing). Physical board acceptance remains pending; see [Verification](/status).
 

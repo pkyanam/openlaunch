@@ -1,14 +1,13 @@
-# Setup status and gates
+# Setup
 
-The monorepo is published at https://github.com/pkyanam/openlaunch. Start with [Mac handoff](MAC-HANDOFF.md). The software can run locally without cloud login; real boards require a reachable trusted HTTPS bridge.
+Start with the [current README](../README.md) or the [hosted setup guide](https://www.openlaunch.dev/docs/setup).
 
-## Cloud rollout still required
+```sh
+curl -fsSL https://www.openlaunch.dev/setup.sh | bash
+```
 
-1. Sign into the official Cloudflare CLI on the Mac; verify the intended account and openlaunch.dev zone. The cloud workspace's earlier device-code exchange was blocked by network policy.
-2. Confirm a spending limit and credit eligibility before provisioning resources. Reported credit is not unlimited spending permission.
-3. Configure maintained OAuth provider integration and real owner login. Verify consent, PKCE, requested scopes, refresh/revocation and per-workspace isolation.
-4. Restrict openlaunch:owner to owner dashboard sessions. MCP clients get read/act scopes and separately approved device grants.
-5. Deploy the Worker, Durable Object and web assets; configure openlaunch.dev and verify TLS. Do not mistake JWT verification code for a complete OAuth provider.
-6. Complete Pi/R4 Wi-Fi, reconnect, clock, restart and revocation acceptance on actual hardware.
+The menu offers Uno, ArduRoomba, Pi, standalone ESP32, custom Node adapters, and a local developer console. USB helpers configure already-flashed firmware; they never update the ESP connectivity image. Downloads and checksums come from the deployed GitHub commit.
 
-No OpenAI API key is required for the core MCP bridge. Optional model-based evaluations or voice would need a separate approved integration. No Cloudflare resources or DNS changes have been made by the current implementation.
+The hosted console, Clerk owner/OAuth sign-in, Cloudflare bridge, and workspace SQLite storage are deployed. Device setup credentials, agent connections, and per-function grants are separate. Select the actual agent connection under a device’s Access view and save its function grant. ChatGPT through Executor needs an Executor grant.
+
+For source development, run `npm run setup`. For guided Uno compilation, run `npm run setup:firmware`. Deployment and hardware acceptance details are in [Mac handoff](MAC-HANDOFF.md) and [transport profiles](UNO-R4-PROFILES.md). Physical Roomba operation remains unverified. Keep private repair assets and credentials outside Git.

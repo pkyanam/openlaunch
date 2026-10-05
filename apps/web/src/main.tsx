@@ -229,19 +229,29 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [legacyKind, setLegacyKind] = useState("custom.device");
   const [setupConnection, setSetupConnection] =
     useState<DeviceSetupToken | null>(null);
-  const sdkArchiveUrl = `https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz${import.meta.env.VITE_OPENLAUNCH_BUILD_COMMIT ? `?commit=${import.meta.env.VITE_OPENLAUNCH_BUILD_COMMIT}` : ""}`;
-  const adapterSetupCommand = `npx --yes --package=${quoteShellValue(sdkArchiveUrl)} openlaunch-device setup --url ${quoteShellValue(window.location.origin)}`;
+  const hostedSetupCommand = (mode: string, args = "") =>
+    `curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- ${mode}${args}`;
+  const setupOriginOption =
+    window.location.origin === "https://www.openlaunch.dev"
+      ? ""
+      : ` --origin ${quoteShellValue(window.location.origin)}`;
+  const adapterSetupCommand = hostedSetupCommand(
+    "adapter",
+    window.location.origin === "https://www.openlaunch.dev"
+      ? ""
+      : ` setup --url ${quoteShellValue(window.location.origin)}`,
+  );
   const mcpServerUrl = `${window.location.origin}/mcp`;
   const connectPrompt = `Connect to the openlaunch MCP server at ${mcpServerUrl} using OAuth. Use only functions I have granted. Check action results before reporting success.`;
   const codexConnectCommand = `codex mcp add openlaunch --url ${mcpServerUrl} --oauth-client-registration cimd`;
-  const usbSetupCommand = (filename: string) =>
-    `(ol_helper=$(mktemp) && trap 'rm -f "$ol_helper"' EXIT && curl -fsS --proto '=https' --max-redirs 0 ${quoteShellValue(`${window.location.origin}/downloads/${filename}`)} -o "$ol_helper" && python3 "$ol_helper" ${deviceSetupKind === "esp32" ? `--port ${quoteShellValue(deviceSetupPort)} ` : ""}--origin ${quoteShellValue(window.location.origin)})`;
-  const unoSetupCommand =
-    "curl -fsSL https://www.openlaunch.dev/setup-uno.sh | bash";
-  const esp32SetupCommand = usbSetupCommand("provision-esp32.py");
+  const unoSetupCommand = hostedSetupCommand("uno", setupOriginOption);
+  const esp32SetupCommand = hostedSetupCommand(
+    "esp32",
+    ` --port ${quoteShellValue(deviceSetupPort)}${setupOriginOption}`,
+  );
   const deviceSetupCommand =
     deviceSetupKind === "pi"
-      ? "curl -fsSL https://www.openlaunch.dev/install-pi.sh | bash"
+      ? hostedSetupCommand("pi")
       : deviceSetupKind === "uno"
         ? unoSetupCommand
         : deviceSetupKind === "esp32"
@@ -2079,8 +2089,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </>
             ) : (
               <p>
-                Run this command on a Linux or desktop machine with Node.js 22
-                or newer and access to your hardware library.
+                Run this command on a Linux or desktop machine with Node.js 24
+                or newer, Python 3, curl, and access to your hardware library.
               </p>
             )}
             <div className="setup-command">

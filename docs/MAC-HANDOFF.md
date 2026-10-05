@@ -176,3 +176,9 @@ copying, secret clearing, revocation and mobile layout were tested using
 disposable software fixtures. No production client, token or grant was created
 for this acceptance check, and no firmware was flashed. A live Executor OAuth
 login and physical Roomba operation still require owner acceptance.
+
+## Guided setup (October 5, 2026)
+
+The current README and hosted setup menu are the user entry points. Run `curl -fsSL https://www.openlaunch.dev/setup.sh | bash` to choose an adapter; it reads the deployed checksum manifest and verifies the selected helper or SDK. USB modes provision already-flashed applications, not ESP firmware. From a checkout, `npm run setup:firmware` asks for stock or already-installed console-mux, confirms the mux pair, installs pinned isolated libraries, and compiles the selected RA application. It never uploads either chip. `npm run provision:roomba` pairs the Roomba sketch without a long command.
+
+CI builds all hosted assets from the same GitHub commit. Fresh local installations check out the deployed commit; existing checkouts retain their files. There is no independently maintained release tag to drift from the downloads. Launcher acceptance covers hash/URL rejection, real USB helper help, the packaged adapter CLI offline, and a real terminal menu with piped stdin. The guided console-mux Roomba build passed locally with the matching custom ESP image hash unchanged. Compilation is not physical Roomba verification.

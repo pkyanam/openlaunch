@@ -50,6 +50,8 @@ def verify(commit):
         status, _, body = response(ORIGIN + '/docs/' + policy + '.md')
         assert status == 200 and b'Belweave' in body, f'Markdown policy unavailable: {policy}'
     for source, public in [
+        ('scripts/setup.sh', '/setup.sh'),
+        ('scripts/setup.py', '/downloads/setup.py'),
         ('scripts/install.sh', '/install.sh'),
         ('scripts/install-pi.sh', '/install-pi.sh'),
         ('scripts/install-pi.sh', '/downloads/pi/install.sh'),

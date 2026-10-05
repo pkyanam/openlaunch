@@ -14,6 +14,8 @@ export function installerManifest(downloadDirectory, origin) {
   return {
     commit,
     installers: [
+      "setup.sh",
+      "setup.py",
       "install.sh",
       "install-pi.sh",
       "setup-uno.sh",
@@ -21,7 +23,7 @@ export function installerManifest(downloadDirectory, origin) {
       "provision-roomba.py",
       "provision-esp32.py",
     ].map((filename) => ({
-      url: `${origin}/${filename.startsWith("provision-") ? "downloads/" : ""}${filename}`,
+      url: `${origin}/${filename.endsWith(".py") ? "downloads/" : ""}${filename}`,
       sha256: digest(join(root, "scripts", filename)),
       backup: `https://raw.githubusercontent.com/pkyanam/openlaunch/${commit}/scripts/${filename}`,
     })),

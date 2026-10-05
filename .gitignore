@@ -36,3 +36,5 @@ __pycache__/
 
 /apps/site/public/downloads/provision-roomba.py
 /apps/site/public/setup-uno.sh
+/apps/site/public/setup.sh
+/apps/site/public/downloads/setup.py

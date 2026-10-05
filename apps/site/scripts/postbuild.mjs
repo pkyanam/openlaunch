@@ -10,10 +10,15 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 // Publish installers from this exact checkout alongside the website.
 // GitHub remains a source/backup link, never the primary installer redirect.
 for (const [source, destination] of [
+  ["../../scripts/setup.sh", "dist/client/setup.sh"],
+  ["../../scripts/setup.py", "dist/client/downloads/setup.py"],
   ["../../scripts/install.sh", "dist/client/install.sh"],
   ["../../scripts/setup-uno.sh", "dist/client/setup-uno.sh"],
   ["../../scripts/provision-uno.py", "dist/client/downloads/provision-uno.py"],
-  ["../../scripts/provision-roomba.py", "dist/client/downloads/provision-roomba.py"],
+  [
+    "../../scripts/provision-roomba.py",
+    "dist/client/downloads/provision-roomba.py",
+  ],
   [
     "../../scripts/provision-esp32.py",
     "dist/client/downloads/provision-esp32.py",
@@ -155,7 +160,7 @@ writeFileSync(
   (existsSync("dist/client/_headers")
     ? readFileSync("dist/client/_headers", "utf8")
     : "") +
-    "\n/install-pi.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/install.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-uno.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/provision-esp32.py\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
+    "\n/*.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/*\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/*.py\n  Content-Type: text/plain; charset=utf-8\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
 );
 // Blume 2.1.1's generated 404 ignores the custom Logo slot and omits raster dimensions.
 const notFoundPath = "dist/client/404.html";

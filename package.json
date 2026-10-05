@@ -5,7 +5,7 @@
   "description": "Provider-neutral device capabilities for agents",
   "type": "module",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=24"
   },
   "workspaces": [
     "packages/*",
@@ -22,10 +22,12 @@
     "build:pi": "node scripts/tasks.mjs pi",
     "build:firmware": "node scripts/tasks.mjs firmware",
     "prepare:firmware": "node scripts/firmware.mjs --prepare-only",
+    "setup:firmware": "node scripts/setup-firmware.mjs",
     "test:device": "node scripts/tasks.mjs device-test",
     "test:e2e": "node scripts/tasks.mjs e2e",
     "verify": "node scripts/tasks.mjs verify",
     "provision:uno": "python3 scripts/provision-uno.py",
+    "provision:roomba": "python3 scripts/provision-roomba.py",
     "build:site": "npm run build --workspace @openlaunch/site",
     "check:site": "npm run validate --workspace @openlaunch/site && npm run audit --workspace @openlaunch/site && node scripts/check-docs-mcp.mjs",
     "setup": "npm ci && npm run build --workspace @openlaunch/web && node scripts/start-local.mjs",

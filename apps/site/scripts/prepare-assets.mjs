@@ -3,6 +3,8 @@ import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 // The website and GitHub backup use these same tracked installer sources.
 mkdirSync("public/downloads", { recursive: true });
+copyFileSync("../../scripts/setup.sh", "public/setup.sh");
+copyFileSync("../../scripts/setup.py", "public/downloads/setup.py");
 copyFileSync("../../scripts/install.sh", "public/install.sh");
 copyFileSync("../../scripts/install-pi.sh", "public/install-pi.sh");
 copyFileSync("../../scripts/setup-uno.sh", "public/setup-uno.sh");

@@ -4,7 +4,7 @@
 
 Stock boards require stock ESP connectivity firmware and stock WiFiS3. The repaired board requires the matching custom ESP 0.6.0 mux image and patched WiFiS3. Never mix these pairs or automatically select a profile from a USB board name. The build does not detect the installed ESP firmware or establish that the board works.
 
-Run `npm run prepare:firmware` and install isolated dependencies as described in [Mac handoff](MAC-HANDOFF.md). Preparation validates and stages sources and writes configuration without compiling or downloading. To prepare the repaired profile instead, use:
+For guided dependency setup and compilation, run `npm run setup:firmware`. It asks for the transport and application, requires explicit acknowledgment for an already-installed mux image, and never flashes. The manual path remains available: run `npm run prepare:firmware` and install isolated dependencies as described in [Mac handoff](MAC-HANDOFF.md). Preparation validates and stages sources and writes configuration without compiling or downloading. To prepare the repaired profile instead, use:
 
 ```sh
 npm run prepare:firmware -- --profile console-mux \

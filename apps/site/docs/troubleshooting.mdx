@@ -19,6 +19,8 @@ If device setup loses its response, rerun the same setup command with the same `
 
 Device attachment and agent access are separate. Use OAuth or an `ol_agent_` API connection for the agent, then open the device's **Access** view and grant that connection its functions. Check that the grant has not expired or been revoked; grants can also remain active until explicitly revoked. For the local adapter, the agent is `local-agent`.
 
+ChatGPT through Executor uses the registered **Executor** OAuth client, not the direct **ChatGPT** connection. Select **Executor** in **Grant an agent access**, choose functions, and **Save grant**. OAuth sign-in alone gives it no device access. For commands, the OAuth client's allowed access must also include **Read and invoke granted functions**.
+
 ## My agent sees a function but has no tool to call it
 
 Call `list_functions` to get the current schemas, then `invoke_device_function` with the device ID, capability and matching arguments. This stable invocation path works when a client caches its tool list before a new grant. If the connection still shows only the original six tools, refresh its MCP tools once to obtain these two new tools. A function visible in the current agent catalog already has a grant; changing permissions will not refresh a cached tool list.

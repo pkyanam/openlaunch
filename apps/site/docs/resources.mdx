@@ -5,7 +5,7 @@ description: Download openlaunch installers and SDKs, find project source and CI
 
 ## openlaunch downloads
 
-Installers are served by openlaunch from the same source commit as the website. GitHub hosts the source code and CI build artifacts. The Pi installer downloads a standalone ARM binary and verifies its checksum. Raspberry Pi OS remains the operating system; openlaunch does not provide a flashable OS image.
+Run `curl -fsSL https://www.openlaunch.dev/setup.sh | bash` for the setup menu. Installers are served by openlaunch from the same checked GitHub commit as the website, updated automatically by CI. GitHub hosts the source code and CI build artifacts. The Pi installer downloads a standalone ARM binary and verifies its checksum. Raspberry Pi OS remains the operating system; openlaunch does not provide a flashable OS image.
 
 - [Source ZIP (main)](https://github.com/pkyanam/openlaunch/archive/refs/heads/main.zip) — moving branch; use a commit archive for reproducibility.
 - [CI builds and Pi binary artifacts](https://github.com/pkyanam/openlaunch/actions/workflows/ci.yml) — open a successful run and download `openlaunch-pi-binaries`. GitHub sign-in may be required. Build outputs are developer artifacts, not hardware-verified releases.
