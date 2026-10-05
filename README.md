@@ -78,6 +78,8 @@ curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
 
 Open a new terminal, then run `openlaunch-host start` or `openlaunch-host service install`. The default file workspace is isolated from private device state. Allow additional directories, fixed commands or user services with short local `openlaunch-host` commands, then grant those functions to agents in the console. Policy changes require reapproval. See the [Linux guide](https://www.openlaunch.dev/docs/linux) for the 15 available functions and limits, and [Muse comparison](docs/LINUX-HARNESS.md) for the baseline and differences.
 
+To update, rerun the same installer. It preserves the device token, policy, journal, uploads and grants without pairing again. An active user service restarts automatically; stop a foreground runner with Ctrl-C first and start it again afterward. Native work notifications reduce delivery delay, with ten-second polling as a fallback. `system.info` includes model, memory and optional temperature. Agents should keep checking the same action receipt until it finishes.
+
 For Uno firmware builds from a checkout, install Arduino CLI and run:
 
 ```sh

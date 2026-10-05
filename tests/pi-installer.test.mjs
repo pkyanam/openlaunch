@@ -8,7 +8,8 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +44,10 @@ esac
 
 const mockDevice = `#!/usr/bin/env bash
 set -eu
+if [[ " $* " == *" --check-config "* ]]; then
+  exit "\${TEST_CHECK_CONFIG_FAIL:-0}"
+fi
+[[ "\${TEST_NO_ENROLL:-0}" != 1 ]] || exit 79
 if [[ " $* " == *" --linux-init "* ]]; then
   while (($#)); do
     if [[ "$1" == --config ]]; then config="$2"; shift 2; else shift; fi
@@ -56,6 +61,8 @@ for arg in "$@"; do [[ "$arg" != "$TEST_EXPECT_TOKEN" ]] || exit 72; done
 [[ " $* " == *" --attach "* ]] || exit 73
 [[ " $* " != *" --workspace "* ]] || exit 74
 config=""
+saved_profile=""
+[[ " $* " != *" --profile linux "* ]] || saved_profile=linux
 while (($#)); do
   if [[ "$1" == --config ]]; then config="$2"; shift 2; else shift; fi
 done
@@ -69,8 +76,14 @@ if [[ "\${TEST_ATTACH_FAIL:-0}" == 1 ]]; then
 fi
 mkdir -p "$(dirname "$config")"
 umask 077
-cat > "$config" <<'JSON'
-{"url":"https://www.openlaunch.dev","workspace":"${workspace}","deviceId":"test-device","token":"child-device-credential","simulate":false}
+python3 - "$config" "$saved_profile" <<'JSON'
+import json, os, sys
+path, profile = sys.argv[1:]
+with open(path, 'w') as out:
+    json.dump({'url':'https://www.openlaunch.dev','workspace':'${workspace}',
+               'deviceId':'00000000-0000-4000-8000-000000000001',
+               'token':'child-device-credential','simulate':False,'profile':profile,
+               'policy':os.path.join(os.path.dirname(path), 'policy.json')}, out)
 JSON
 `;
 
@@ -145,7 +158,7 @@ async function fixture(linux = false) {
       { cwd: root, env, encoding: "utf8" },
     );
   };
-  return { base, home, manifestPath, writeManifest, run };
+  return { base, home, bin, artifactPath, manifestPath, writeManifest, run };
 }
 
 test("Linux installer supports x86-64, keeps Node CLI names separate and configures PATH", async () => {
@@ -200,10 +213,137 @@ test("Linux installer rejects checksum failure and protects existing host identi
     await writeFile(identity, "existing identity", { mode: 0o600 });
     assert.match(
       current.run().stderr,
-      /refusing to overwrite existing device identity/,
+      /saved identity is invalid or not private/,
     );
     assert.equal(await readFile(identity, "utf8"), "existing identity");
   } finally {
+    await rm(current.base, { recursive: true, force: true });
+  }
+});
+
+test("Linux upgrades preserve credentials, policy, journal and uploads without enrollment", async () => {
+  const current = await fixture(true);
+  try {
+    assert.equal(current.run().status, 0);
+    const state = join(current.home, ".config/openlaunch/host");
+    const binary = join(current.home, ".local/bin/openlaunch-host");
+    await writeFile(binary, "old installed binary", { mode: 0o700 });
+    const saved = new Map([
+      ["device.json", await readFile(join(state, "device.json"))],
+      ["policy.json", Buffer.from('{"owner":"custom policy"}')],
+      ["device.json.journal", Buffer.from('{"pending":"saved result"}')],
+      ["upload-staging", Buffer.from("unfinished upload")],
+    ]);
+    for (const [name, bytes] of saved)
+      await writeFile(join(state, name), bytes, { mode: 0o600 });
+    const result = current.run({
+      OPENLAUNCH_SDK_TOKEN: "",
+      TEST_NO_ENROLL: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /No pairing or grant changes/);
+    assert.deepEqual(
+      await readFile(binary),
+      await readFile(current.artifactPath),
+    );
+    for (const [name, bytes] of saved)
+      assert.deepEqual(await readFile(join(state, name)), bytes);
+    const again = current.run({
+      OPENLAUNCH_SDK_TOKEN: "",
+      TEST_NO_ENROLL: "1",
+    });
+    assert.equal(again.status, 0, again.stderr);
+    assert.match(again.stdout, /latest published binary/);
+    assert.doesNotMatch(
+      result.stdout + result.stderr,
+      /child-device-credential|ol_sdk_/,
+    );
+  } finally {
+    await rm(current.base, { recursive: true, force: true });
+  }
+});
+
+test("Linux upgrades validate before replacing and roll back a failed service restart", async () => {
+  const current = await fixture(true);
+  try {
+    assert.equal(current.run().status, 0);
+    const binary = join(current.home, ".local/bin/openlaunch-host");
+    await writeFile(binary, "previous binary", { mode: 0o700 });
+    const invalid = current.run({
+      TEST_CHECK_CONFIG_FAIL: "1",
+      OPENLAUNCH_SDK_TOKEN: "",
+    });
+    assert.notEqual(invalid.status, 0);
+    assert.equal(await readFile(binary, "utf8"), "previous binary");
+    const serviceLog = join(current.base, "service.log");
+    const mockSystemctl = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$TEST_SERVICE_LOG"
+if [[ "$2" == start ]] && [[ ! -e "$TEST_SERVICE_LOG.failed" ]]; then
+  touch "$TEST_SERVICE_LOG.failed"
+  exit 1
+fi
+exit 0
+`;
+    await writeFile(join(current.bin, "systemctl"), mockSystemctl, {
+      mode: 0o755,
+    });
+    const failed = current.run({
+      TEST_SERVICE_LOG: serviceLog,
+      OPENLAUNCH_SDK_TOKEN: "",
+    });
+    assert.notEqual(failed.status, 0);
+    assert.match(failed.stderr, /Previous binary restored/);
+    assert.equal(await readFile(binary, "utf8"), "previous binary");
+    assert.deepEqual((await readFile(serviceLog, "utf8")).trim().split("\n"), [
+      "--user is-active --quiet openlaunch-host.service",
+      "--user stop openlaunch-host.service",
+      "--user start openlaunch-host.service",
+      "--user stop openlaunch-host.service",
+      "--user start openlaunch-host.service",
+    ]);
+    const good = current.run({
+      TEST_SERVICE_LOG: serviceLog,
+      OPENLAUNCH_SDK_TOKEN: "",
+    });
+    assert.equal(good.status, 0, good.stderr);
+    assert.match(good.stdout, /restarted the existing user service/);
+  } finally {
+    await rm(current.base, { recursive: true, force: true });
+  }
+});
+
+test("Linux upgrades leave a busy foreground runtime and failed checksum untouched", async () => {
+  const current = await fixture(true);
+  let child;
+  let exited;
+  try {
+    assert.equal(current.run().status, 0);
+    const binary = join(current.home, ".local/bin/openlaunch-host");
+    await writeFile(binary, "previous binary", { mode: 0o700 });
+    await current.writeManifest(
+      "https://www.openlaunch.dev/downloads/linux/openlaunch-host-linux-arm64",
+      "0".repeat(64),
+    );
+    assert.notEqual(current.run({ OPENLAUNCH_SDK_TOKEN: "" }).status, 0);
+    assert.equal(await readFile(binary, "utf8"), "previous binary");
+    await current.writeManifest();
+    const lock = join(current.home, ".config/openlaunch/host/runtime.lock");
+    child = spawn("python3", [
+      "-c",
+      "import fcntl, os, sys; f=open(sys.argv[1], 'w'); os.chmod(sys.argv[1], 0o600); fcntl.flock(f, fcntl.LOCK_EX); print('ready', flush=True); sys.stdin.read()",
+      lock,
+    ]);
+    exited = once(child, "exit");
+    await once(child.stdout, "data");
+    const busy = current.run({ OPENLAUNCH_SDK_TOKEN: "" });
+    assert.notEqual(busy.status, 0);
+    assert.match(busy.stderr, /Stop the foreground runner with Ctrl-C/);
+    assert.equal(await readFile(binary, "utf8"), "previous binary");
+  } finally {
+    if (child) {
+      child.stdin.end();
+      await exited;
+    }
     await rm(current.base, { recursive: true, force: true });
   }
 });

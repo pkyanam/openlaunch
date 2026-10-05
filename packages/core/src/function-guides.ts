@@ -1,6 +1,6 @@
 import type { FunctionDefinition } from "./functions.ts";
 
-type Kind = "uno-r4-wifi";
+type Kind = "uno-r4-wifi" | "linux";
 type SchemaShape = FunctionDefinition["inputSchema"];
 
 interface FunctionGuide {
@@ -16,6 +16,18 @@ interface FunctionGuide {
 // match. Function names, bounds, access levels and tool schemas always come
 // from the live device definition.
 const guides: readonly FunctionGuide[] = [
+  {
+    kind: "linux",
+    name: "system.info",
+    access: "read",
+    schema: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+    text: "Use this read-only function for Linux hardware and OS information. Example arguments: {}. Its real result includes CPU count, architecture, kernel, distribution, system and adapter uptime, loadAverage, memoryBytes (MemTotal and MemAvailable) and diskBytes. model and temperatureC are returned when Linux exposes device-tree model and thermal data; no separate temperature capability is required. Missing fields mean unavailable, not zero. Wait for the final receipt and report actual returned values, with bytes and degrees Celsius as their units.",
+  },
   {
     kind: "uno-r4-wifi",
     name: "roomba.clean",

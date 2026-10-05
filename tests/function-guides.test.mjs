@@ -23,6 +23,41 @@ const clean = {
   },
 };
 
+test("Linux inventory guide documents optional thermal data only for its exact read schema", () => {
+  const info = {
+    name: "system.info",
+    title: "Inspect Linux system",
+    description: "Host inventory",
+    access: "read",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  };
+  assert.match(functionGuide("linux", info), /temperatureC/);
+  assert.match(
+    functionGuide("linux", info),
+    /no separate temperature capability/,
+  );
+  assert.doesNotMatch(functionGuide("uno-r4-wifi", info), /temperatureC/);
+  assert.doesNotMatch(
+    functionGuide("linux", { ...info, access: "write" }),
+    /temperatureC/,
+  );
+  assert.doesNotMatch(
+    functionGuide("linux", {
+      ...info,
+      inputSchema: {
+        ...info.inputSchema,
+        properties: { other: { type: "boolean" } },
+      },
+    }),
+    /temperatureC/,
+  );
+});
+
 test("hosted Roomba guides match only the verified kind, name, access and full schema", () => {
   const guide = functionGuide("uno-r4-wifi", clean);
   assert.match(guide, /general cleaning request/);

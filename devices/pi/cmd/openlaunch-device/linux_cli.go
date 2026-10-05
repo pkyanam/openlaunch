@@ -12,8 +12,30 @@ import (
 	"syscall"
 )
 
+func checkLinuxConfig(path string) error {
+	st, e := os.Lstat(path)
+	if e != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 || st.Size() > 16384 {
+		return errors.New("saved device configuration must be a private regular file, at most 16 KiB")
+	}
+	b, e := os.ReadFile(path)
+	if e != nil {
+		return e
+	}
+	var c Config
+	if json.Unmarshal(b, &c) != nil || c.Profile != "linux" || c.Simulate || c.Token == "" || !eventHex.MatchString(c.Workspace) || !eventDeviceID.MatchString(c.DeviceID) || validateURL(c.URL) != nil {
+		return errors.New("invalid saved Linux device configuration; identity was preserved")
+	}
+	h, e := newLinuxHarness(c.Policy, path)
+	if e != nil {
+		return e
+	}
+	defer h.Close()
+	_, _, e = loadJournal(path + ".journal")
+	return e
+}
+
 func acquireHostLock(state string) (*os.File, error) {
-	f, e := os.OpenFile(filepath.Join(state, "runtime.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NONBLOCK, 0600)
+	f, e := os.OpenFile(filepath.Join(state, "runtime.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0600)
 	if e != nil {
 		return nil, e
 	}

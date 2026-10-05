@@ -153,7 +153,8 @@ const Action = {
     },
     ownerAuthorized: {
       type: "boolean",
-      description: "Whether the action was directly authorized by an owner.",
+      description:
+        "Internal provenance: true for an owner-originated action. False is normal for an accepted agent action whose live grants authorize it; it is not a missing-approval status. MCP receipts omit this field.",
     },
   },
   required: [

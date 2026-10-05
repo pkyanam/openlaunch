@@ -36,18 +36,50 @@ config="$config_dir/device.json"
 pending="$config.attach-pending"
 expired_pending="$pending.expired"
 [[ ! -L "$bin_dir" && ! -L "$config_dir" ]] || fail 'refusing symlinked installation directories'
-[[ ! -e "$binary" && ! -L "$binary" ]] || fail "refusing to replace existing binary: $binary"
-[[ ! -e "$config" && ! -L "$config" ]] || fail "refusing to overwrite existing device identity: $config"
-[[ ! -L "$pending" ]] || fail "refusing symlinked pending attachment: $pending"
-[[ ! -e "$expired_pending" && ! -L "$expired_pending" ]] || fail "previous SDK attachment retry expired; check device inventory before removing $expired_pending and starting another request"
-
-sdk_token="${OPENLAUNCH_SDK_TOKEN:-}"
-if [[ -z "$sdk_token" ]]; then
-  [[ -r /dev/tty ]] || fail 'interactive terminal required; run this from a Linux terminal'
-  IFS= read -r -s -p 'openlaunch SDK token (hidden): ' sdk_token < /dev/tty || fail 'could not read SDK token'
-  printf '\n' > /dev/tty
+[[ ! -L "$binary" && ! -L "$config" ]] || fail 'refusing symlinked binary or device identity'
+upgrading=0
+if [[ -e "$config" ]]; then
+  upgrading=1
+  python3 - "$config" <<'PY_IDENTITY' || fail 'saved identity is invalid or not private; it was preserved'
+import json, os, re, stat, sys
+from urllib.parse import urlsplit
+try:
+    path = sys.argv[1]
+    st = os.lstat(path)
+    if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or st.st_uid != os.getuid() or st.st_size > 16384:
+        raise ValueError()
+    with open(path) as f:
+        config = json.load(f)
+    origin = urlsplit(config['url'])
+    if (config.get('profile') != 'linux' or config.get('simulate') is not False or
+            not re.fullmatch(r'[a-f0-9]{64}', config['workspace']) or
+            not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', config['deviceId']) or
+            not isinstance(config['token'], str) or not config['token'] or
+            not isinstance(config.get('policy'), str) or not config['policy'] or
+            origin.scheme != 'https' or not origin.hostname or origin.username is not None or
+            origin.password is not None or origin.path not in ('', '/') or origin.query or origin.fragment):
+        raise ValueError()
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(1)
+PY_IDENTITY
+elif [[ -e "$binary" ]]; then
+  fail 'an existing binary has no saved Linux identity; refusing to replace it'
 fi
-[[ "$sdk_token" =~ ^ol_sdk_([a-f0-9]{64})_[a-f0-9]{64}$ ]] || fail 'Use an owner-issued ol_sdk_ token; legacy agent tokens cannot pair devices'
+[[ ! -L "$pending" ]] || fail "refusing symlinked pending attachment: $pending"
+if ((upgrading == 0)); then
+  [[ ! -e "$expired_pending" && ! -L "$expired_pending" ]] || fail "previous SDK attachment retry expired; check device inventory before removing $expired_pending and starting another request"
+fi
+
+sdk_token=''
+if ((upgrading == 0)); then
+  sdk_token="${OPENLAUNCH_SDK_TOKEN:-}"
+  if [[ -z "$sdk_token" ]]; then
+    [[ -r /dev/tty ]] || fail 'interactive terminal required; run this from a Linux terminal'
+    IFS= read -r -s -p 'openlaunch SDK token (hidden): ' sdk_token < /dev/tty || fail 'could not read SDK token'
+    printf '\n' > /dev/tty
+  fi
+  [[ "$sdk_token" =~ ^ol_sdk_([a-f0-9]{64})_[a-f0-9]{64}$ ]] || fail 'Use an owner-issued ol_sdk_ token; legacy agent tokens cannot pair devices'
+fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/openlaunch-linux.XXXXXXXX")" || fail 'could not create a temporary directory'
 installed_binary=0
@@ -145,6 +177,125 @@ if h.hexdigest() != expected:
     sys.exit(1)
 PY
 chmod 700 "$download"
+
+if ((upgrading == 1)); then
+  unset sdk_token OPENLAUNCH_SDK_TOKEN
+  # Validate before touching the installed binary or stopping a user service.
+  # No attach/init operation occurs here: identity, policy and journal stay put.
+  "$download" --check-config --config "$config" || fail 'replacement could not validate saved state; existing installation was preserved'
+  python3 - "$download" "$binary" "$config_dir" <<'PY_UPGRADE' || fail 'update did not complete; saved credentials and policy were preserved'
+import fcntl, hashlib, os, shutil, stat, subprocess, sys, tempfile
+
+source, binary, state = sys.argv[1:]
+bindir = os.path.dirname(binary)
+os.makedirs(bindir, mode=0o700, exist_ok=True)
+backup = candidate = None
+changed = stopped = False
+service = ['systemctl', '--user']
+
+def run_service(action):
+    return subprocess.run(service + [action, 'openlaunch-host.service'],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+def digest(path):
+    with open(path, 'rb') as f:
+        h = hashlib.sha256()
+        for block in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(block)
+        return h.hexdigest()
+
+def lock_runtime():
+    fd = os.open(os.path.join(state, 'runtime.lock'), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or st.st_uid != os.getuid():
+            raise RuntimeError('invalid private runtime lock')
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return os.fdopen(fd, 'r+b')
+    except Exception:
+        os.close(fd)
+        raise RuntimeError('Stop the foreground runner with Ctrl-C (or run openlaunch-host service stop), then rerun this installer.') from None
+
+def stage(path):
+    fd, staged = tempfile.mkstemp(prefix='.openlaunch-host-', dir=bindir)
+    try:
+        with os.fdopen(fd, 'wb') as out, open(path, 'rb') as src:
+            shutil.copyfileobj(src, out)
+            os.fchmod(out.fileno(), 0o700)
+            out.flush()
+            os.fsync(out.fileno())
+        return staged
+    except Exception:
+        os.unlink(staged)
+        raise
+
+def sync_bin():
+    fd = os.open(bindir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+active = False
+try:
+    if os.path.lexists(binary):
+        st = os.lstat(binary)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+            raise RuntimeError('installed binary must be an owned regular file')
+        if digest(binary) == digest(source):
+            print('The latest published binary is already installed. Saved device identity and policy were preserved.')
+            sys.exit(0)
+    active = shutil.which('systemctl') is not None and subprocess.run(
+        service + ['is-active', '--quiet', 'openlaunch-host.service'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    if active:
+        if not run_service('stop'):
+            raise RuntimeError('could not stop the existing user service; binary was preserved')
+        stopped = True
+    with lock_runtime():
+        if os.path.exists(binary):
+            backup = stage(binary)
+        candidate = stage(source)
+        os.replace(candidate, binary)
+        candidate = None
+        changed = True
+        sync_bin()
+    if active:
+        if not run_service('start'):
+            raise RuntimeError('updated user service could not start')
+        stopped = False
+        print('Updated and restarted the existing user service.')
+    else:
+        print('Updated. Start the runner with: openlaunch-host start')
+except Exception as exc:
+    print(str(exc), file=sys.stderr)
+    if changed:
+        if active:
+            run_service('stop')
+        try:
+            with lock_runtime():
+                if backup:
+                    os.replace(backup, binary)
+                    backup = None
+                else:
+                    os.unlink(binary)
+                sync_bin()
+            print('Previous binary restored; device state was preserved.', file=sys.stderr)
+        except Exception:
+            print('Automatic rollback could not acquire the runtime lock; stop the runner and restore the private binary backup: ' + str(backup), file=sys.stderr)
+            backup = None  # Keep it for owner recovery.
+    if active and stopped:
+        if not run_service('start'):
+            print('Start the saved user service after reviewing its logs.', file=sys.stderr)
+    sys.exit(1)
+finally:
+    for path in (candidate, backup):
+        if path is not None:
+            os.unlink(path)
+PY_UPGRADE
+  printf 'openlaunch Linux update verified (%s, %s). No pairing or grant changes were made.\n' "$version" "$artifact_arch"
+  exit 0
+fi
 
 # Keep retry metadata at its durable final path. The Go runtime writes it
 # before sending the request and removes it only after saving the child device

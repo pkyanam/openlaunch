@@ -27,7 +27,19 @@ openlaunch-host service install
 
 The service starts with your user session and restarts after failures. Boot without a login requires the owner to enable lingering for that user; the installer does not change that setting. Hosts without systemd can run the foreground command under their existing supervisor. Stop or inspect the service with `openlaunch-host service stop`, `status` or `logs`. Use `service uninstall` to remove the service; it keeps your device identity and policy.
 
-The executable is `~/.local/bin/openlaunch-host`, which avoids collisions with the Node SDK's `openlaunch-device` command. The installer adds that directory to your shell PATH. The private child credential, policy, result journal and unfinished uploads live in `~/.config/openlaunch/host/`. It refuses to overwrite an existing executable or device identity. Interrupted pairing retains the same pending request for a retry with the same setup token within 10 minutes; after that, inspect device inventory before attempting another attachment.
+The executable is `~/.local/bin/openlaunch-host`, which avoids collisions with the Node SDK's `openlaunch-device` command. The installer adds that directory to your shell PATH. The private child credential, policy, result journal and unfinished uploads live in `~/.config/openlaunch/host/`. Interrupted pairing retains the same pending request for a retry with the same setup token within 10 minutes; after that, inspect device inventory before attempting another attachment.
+
+## Update an existing host
+
+Rerun the same command:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
+```
+
+An update reuses your device identity and token without pairing again or asking for a setup token. It preserves your local policy, result journal, unfinished uploads and existing grants. The replacement is checksum-verified and validates saved state before installation. An active user service is stopped and restarted automatically; a failed service start restores the previous binary. An inactive service remains inactive. If you run in a foreground terminal, stop that runner with Ctrl-C before updating, then run `openlaunch-host start`. A busy runtime lock blocks replacement. No sudo or shell-profile edits are needed for an update.
+
+The native runner now subscribes to authenticated work hints for prompt delivery. Hints carry no commands or permissions: every action is fetched over HTTPS and checked against expiry, grants and local policy. Idle polling remains every ten seconds if notifications are unavailable, with bounded reconnect backoff. This avoids increasing idle cloud traffic to improve latency.
 
 ## Configure local access
 
@@ -71,7 +83,9 @@ ol call DEVICE_ID system.run '{"command":"uptime"}'
 ol actions watch ACTION_ID
 ```
 
-A queued request is not a completed host operation. Inspect its final result. For `system.run` and service operations, a successful action means the program ran; check `exitCode`, `timedOut` and `interrupted` to assess the program's outcome.
+A queued request is accepted for delivery. Keep checking `get_action` with the same action ID until a terminal status or its deadline; do not queue a second invocation to check progress. MCP pending receipts include this next step. The owner API's internal `ownerAuthorized` flag describes an owner-originated request versus an agent request; `false` is normal for an authorized agent and does not mean approval is missing. For `system.run` and service operations, a successful action means the program ran; check `exitCode`, `timedOut` and `interrupted` to assess the program's outcome.
+
+Ask your agent to “call `system.info` with `{}`, wait for its final receipt, and print model, CPU count, memory, disk, OS and temperature.” Memory and disk values are bytes; `temperatureC` is degrees Celsius. Model and temperature are optional OS-provided fields in that function's result, not separate capabilities requiring additional grants. Missing values should be reported as unavailable.
 
 ## Functions
 

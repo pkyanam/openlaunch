@@ -121,6 +121,9 @@ func validateURL(s string) error {
 	return nil
 }
 func call(c Config, path string, input any, out any) error {
+	return callContext(context.Background(), c, path, input, out)
+}
+func callContext(ctx context.Context, c Config, path string, input any, out any) error {
 	var data []byte
 	if input != nil {
 		var e error
@@ -129,7 +132,7 @@ func call(c Config, path string, input any, out any) error {
 			return e
 		}
 	}
-	r, e := http.NewRequest("POST", strings.TrimRight(c.URL, "/")+path, bytes.NewReader(data))
+	r, e := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.URL, "/")+path, bytes.NewReader(data))
 	if e != nil {
 		return e
 	}
@@ -756,6 +759,7 @@ func main() {
 	profile := flag.String("profile", "", "linux enables locally configured host functions")
 	policy := flag.String("policy", "", "private Linux policy file; defaults alongside config")
 	initHost := flag.Bool("linux-init", false, "create a private default Linux policy and workspace")
+	checkConfig := flag.Bool("check-config", false, "validate a saved Linux configuration without network access or execution")
 	base := flag.String("url", "", "HTTPS server origin for enrollment")
 	workspace := flag.String("workspace", "", "cloud workspace id for enrollment")
 	attach := flag.Bool("attach", false, "attach with OPENLAUNCH_SDK_TOKEN")
@@ -770,6 +774,13 @@ func main() {
 		if e := initLinuxPolicy(*policy, *configPath); e != nil {
 			fatal(e)
 		}
+		return
+	}
+	if *checkConfig {
+		if e := checkLinuxConfig(*configPath); e != nil {
+			fatal(e)
+		}
+		fmt.Println("Saved Linux identity, policy and journal are valid.")
 		return
 	}
 	if *profile != "" && *profile != "linux" {
@@ -897,6 +908,13 @@ func main() {
 	started := time.Now()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(stop)
+	eventsContext, cancelEvents := context.WithCancel(context.Background())
+	defer cancelEvents()
+	var wake <-chan struct{}
+	if !*once {
+		wake = startDeviceEvents(eventsContext, c)
+	}
 	for {
 		if e = reconcileResults(c, journal, journalPath, time.Now().UnixMilli()); e != nil {
 			if haltOnResultError(e) {
@@ -914,6 +932,7 @@ func main() {
 			continue
 		}
 		waitBeforeNextPoll := 10 * time.Second
+		allowWake := wake
 		var cmd *Command
 		e = call(c, "/v1/device/"+c.DeviceID+"/next", map[string]any{}, &cmd)
 		if e != nil {
@@ -928,6 +947,8 @@ func main() {
 				}
 				fmt.Fprintln(os.Stderr, "result delivery retry pending:", e)
 				waitBeforeNextPoll = resultRetryWait(e)
+				// Hints never bypass durable result reconciliation or its backoff.
+				allowWake = nil
 			} else {
 				// Drain queued work promptly after its durable result is acknowledged.
 				// Idle/error polling stays at ten seconds; do not amplify idle cost.
@@ -940,6 +961,7 @@ func main() {
 		select {
 		case <-stop:
 			return
+		case <-allowWake:
 		case <-time.After(waitBeforeNextPoll):
 		}
 	}

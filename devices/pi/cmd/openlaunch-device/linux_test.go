@@ -336,3 +336,51 @@ func TestLinuxBoundedDirectoryAndNetworkResults(t *testing.T) {
 	}
 	hostCall(t, h, "network.interfaces", map[string]any{})
 }
+
+func TestLinuxUpdateValidationPreservesSavedIdentityPolicyAndJournal(t *testing.T) {
+	h, _, config := hostFixture(t, true)
+	c := Config{URL: "https://www.openlaunch.dev", Workspace: strings.Repeat("a", 64), DeviceID: uploadID, Token: "private-child-token", Profile: "linux", Policy: filepath.Join(h.State, "policy.json")}
+	if e := atomic(config, c); e != nil {
+		t.Fatal(e)
+	}
+	journalPath := config + ".journal"
+	if e := saveJournal(journalPath, map[string]JournalEntry{uploadID: {State: journalPending, ExpiresAt: time.Now().Add(time.Minute).UnixMilli(), Outcome: Outcome{"succeeded", map[string]any{"saved": true}}}}); e != nil {
+		t.Fatal(e)
+	}
+	before := map[string]string{}
+	for _, path := range []string{config, c.Policy, journalPath} {
+		b, _ := os.ReadFile(path)
+		before[path] = string(b)
+	}
+	if e := checkLinuxConfig(config); e != nil {
+		t.Fatal(e)
+	}
+	for path, want := range before {
+		b, _ := os.ReadFile(path)
+		if string(b) != want {
+			t.Fatal("update validation changed saved state")
+		}
+	}
+	if e := os.Chmod(config, 0644); e != nil {
+		t.Fatal(e)
+	}
+	if checkLinuxConfig(config) == nil {
+		t.Fatal("accepted exposed device credentials")
+	}
+	if e := os.Chmod(config, 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(journalPath, []byte(`{"corrupt":true}`), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if checkLinuxConfig(config) == nil {
+		t.Fatal("accepted corrupt saved journal")
+	}
+	if e := os.Symlink(config, filepath.Join(h.State, "runtime.lock")); e != nil {
+		t.Fatal(e)
+	}
+	if lock, e := acquireHostLock(h.State); e == nil {
+		lock.Close()
+		t.Fatal("runtime followed a symlinked lock")
+	}
+}

@@ -12,7 +12,7 @@ description: Learn how openlaunch separates hosted identity, device permissions,
 | React owner console | Pairing, capability grants and action inspection |
 | Node and SQLite local bridge | Local development service and persistent state |
 | Cloudflare Worker and Durable Objects | Hosted API, Clerk verification and workspace-isolated SQLite persistence |
-| Go Pi runtime | Outbound polling and process health |
+| Native Go runtime | Pi process health or locally configured Linux host functions; optional authenticated wake hints |
 | Arduino Uno R4 firmware | Health, built-in LED and matrix text |
 | Blume website | Product site, searchable guides and read-only documentation MCP |
 
@@ -28,7 +28,7 @@ Hosted workspace storage uses SQLite-backed Durable Objects identified from the 
 
 A device manifest can describe custom functions with a name, title, description and input schema. Schemas support a root object with bounded strings, bounded numbers or integers, and booleans. Additional root properties and external references are rejected. Each manifest can contain up to 16 functions, with up to 16 parameters per function; custom definitions cannot replace built-in capabilities. After an owner grants a function, it appears as a device-specific MCP tool. The live grant is checked again when the tool runs.
 
-Devices poll the service over outbound HTTPS every 10 seconds and report correlated results. Commands move through queued, received and terminal states, and expire within a bounded lifetime. If a device disconnects or an acknowledgment is lost, the service may not know whether the physical action occurred. There is no exactly-once execution guarantee.
+Devices fetch commands over outbound HTTPS and report correlated results. Node and native Go adapters subscribe to authenticated, payload-free work hints for prompt polling, with ten-second polling as a fallback. The Roomba Uno polls every second. Commands move through queued, received and terminal states, and expire within a bounded lifetime. Pending MCP receipts instruct agents to check the same action until it finishes. If a device disconnects or an acknowledgment is lost, the service may not know whether the physical action occurred. There is no exactly-once execution guarantee.
 
 `POST /v1/broadcasts` can request an action for up to 20 devices. Each device receives its own action or error result; a broadcast is not an atomic operation.
 
@@ -38,12 +38,12 @@ Model output cannot grant itself permission. The service checks API scopes and p
 
 R4 credentials are plaintext in EEPROM; Pi credentials use a restricted local file. Physical compromise can expose them. Commands are typed and bounded; unrestricted shell access and arbitrary LAN proxying are not default capabilities.
 
-The Pi runtime currently reports process health; GPIO and display control are not implemented. Uno R4 firmware supports health, its built-in LED and matrix text. Physical network, TLS, provisioning, power-loss and reconnect acceptance remains to be completed.
+The Pi health profile reports process health; the [Linux host profile](/linux) adds locally configured files, fixed commands, system metrics and user services. GPIO and Pi display control are not implemented. Uno R4 firmware supports health, its built-in LED and matrix text; a separate Roomba sketch exposes robot controls. See [verification](/status) for physical acceptance and remaining checks.
 
 ## Deployment
 
 The hosted API and public documentation website are separate services. Cloudflare Pages serves the site and read-only `/docs-mcp`; the Cloudflare Worker and Durable Objects serve authenticated device controls. `www.openlaunch.dev` serves the website, and the apex redirects to `www`. Vercel remains authoritative for DNS.
 
-WebSocket delivery, OTA signing and rollback, durable event subscriptions, broader quotas and account lifecycle controls are future work. D1 and R2 are design options, not deployed dependencies.
+WebSocket wake hints are implemented. OTA signing and rollback, durable event subscriptions, broader quotas and account lifecycle controls are future work. D1 and R2 are design options, not deployed dependencies.
 
 See the canonical [architecture document](https://github.com/pkyanam/openlaunch/blob/main/docs/architecture.md) and [verification record](/status) for implementation and acceptance details.

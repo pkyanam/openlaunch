@@ -96,6 +96,52 @@ async function fixture(principal = agent) {
   };
 }
 
+test("MCP receipts guide polling and omit internal owner bypass metadata without changing grants", async () => {
+  const f = await fixture();
+  try {
+    f.hub.grant(owner, agent.id, f.device.deviceId, ["device.health"], null);
+    const queued = (await f.invoke("device.health", {}, "receipt-health"))
+      .structuredContent.data;
+    assert.equal(queued.status, "queued");
+    assert.equal(queued.pollAfterSeconds, 1);
+    assert.match(queued.nextStep, /passed its grant checks/);
+    for (const field of [
+      "ownerAuthorized",
+      "fingerprint",
+      "principalId",
+      "clientKey",
+    ])
+      assert.equal(field in queued, false);
+    assert.equal(f.hub.get(owner, queued.id).ownerAuthorized, false);
+    const pending = (await f.call("get_action", { actionId: queued.id }))
+      .structuredContent.data;
+    assert.equal(pending.status, "queued");
+    assert.match(pending.nextStep, /Do not invoke again/);
+    await f.api(`/v1/device/${f.device.deviceId}/next`, {});
+    const received = (await f.call("get_action", { actionId: queued.id }))
+      .structuredContent.data;
+    assert.equal(received.status, "received");
+    assert.equal(received.pollAfterSeconds, 1);
+    f.hub.result(f.device.deviceId, queued.id, "succeeded", {
+      simulated: true,
+      temperatureC: 37,
+    });
+    const done = (await f.call("get_action", { actionId: queued.id }))
+      .structuredContent.data;
+    assert.equal(done.status, "succeeded");
+    assert.equal(done.result.temperatureC, 37);
+    assert.equal("nextStep" in done, false);
+    assert.equal("ownerAuthorized" in done, false);
+    f.hub.revokeGrant(owner, agent.id, f.device.deviceId);
+    assert.equal(
+      (await f.call("get_action", { actionId: queued.id })).isError,
+      true,
+    );
+  } finally {
+    await f.client.close();
+  }
+});
+
 test("cached MCP tools discover and invoke all Roomba functions granted after connection", async () => {
   const f = await fixture();
   try {
