@@ -72,6 +72,9 @@ export class WorkspaceHub extends DurableObject<Env> {
       const newOAuthApplications: string[] = [];
       const response = await this.workspaceState
         .withState(async (hub) => {
+          // Long-running commands pause HTTPS polling, while authenticated
+          // event pings continue. Refresh before inventory and action admission.
+          this.events.refreshPresence(hub.state.devices);
           const knownApplications = new Set(
             hub.state.agentConnections?.map((c) => c.oauth?.applicationId),
           );

@@ -1131,6 +1131,11 @@ export class Hub {
     this.audit("action.cancelled", id, p.id);
     return a;
   }
+  heartbeat(deviceId: string) {
+    const device = this.device(deviceId);
+    device.lastSeen = this.now();
+    return { lastSeen: device.lastSeen };
+  }
   next(deviceId: string) {
     this.expire();
     const d = this.device(deviceId);

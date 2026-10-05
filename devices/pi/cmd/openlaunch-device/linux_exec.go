@@ -248,18 +248,40 @@ func hostTool(name string) (string, error) {
 type limitedOutput struct {
 	sync.Mutex
 	data  []byte
+	tail  []byte
 	total int64
 }
 
 func (w *limitedOutput) Write(p []byte) (int, error) {
 	w.Lock()
 	defer w.Unlock()
+	lenOriginal := len(p)
 	w.total += int64(len(p))
-	space := 768 - len(w.data)
+	space := 512 - len(w.data)
 	if space > 0 {
-		w.data = append(w.data, p[:min(space, len(p))]...)
+		n := min(space, len(p))
+		w.data = append(w.data, p[:n]...)
+		p = p[n:]
 	}
-	return len(p), nil
+	if len(p) >= 256 {
+		w.tail = append(w.tail[:0], p[len(p)-256:]...)
+	} else if len(p) > 0 {
+		w.tail = append(w.tail, p...)
+		if len(w.tail) > 256 {
+			w.tail = append(w.tail[:0], w.tail[len(w.tail)-256:]...)
+		}
+	}
+	// io.Writer must acknowledge all input, including bytes deliberately dropped.
+	return lenOriginal, nil
+}
+func (w *limitedOutput) snapshot() (head, tail string, truncated bool) {
+	w.Lock()
+	defer w.Unlock()
+	truncated = w.total > int64(len(w.data)+len(w.tail))
+	if !truncated {
+		return cleanText(string(append(append([]byte{}, w.data...), w.tail...)), 768), "", false
+	}
+	return cleanText(string(w.data), 512), cleanText(string(w.tail), 256), true
 }
 func (h *LinuxHarness) runProgram(action Command, argv []string, directory string, timeout time.Duration) (any, error) {
 	return h.runProgramInput(action, argv, directory, timeout, "")
@@ -308,7 +330,36 @@ func (h *LinuxHarness) runProgramInput(action Command, argv []string, directory 
 			return nil, errors.New("configured program could not execute")
 		}
 	}
-	return map[string]any{"exitCode": code, "stdout": cleanText(string(stdout.data), 768), "stderr": cleanText(string(stderr.data), 768), "stdoutBytes": stdout.total, "stderrBytes": stderr.total, "truncated": stdout.total > int64(len(stdout.data)) || stderr.total > int64(len(stderr.data)), "timedOut": ctx.Err() == context.DeadlineExceeded, "interrupted": ctx.Err() == context.Canceled, "durationMs": time.Since(start).Milliseconds()}, nil
+	outHead, outTail, outTruncated := stdout.snapshot()
+	errHead, errTail, errTruncated := stderr.snapshot()
+	report := map[string]any{"exitCode": code, "stdout": outHead, "stderr": errHead, "stdoutBytes": stdout.total, "stderrBytes": stderr.total, "truncated": outTruncated || errTruncated, "timedOut": ctx.Err() == context.DeadlineExceeded, "interrupted": ctx.Err() == context.Canceled, "durationMs": time.Since(start).Milliseconds()}
+	if outTruncated {
+		report["stdoutTail"] = outTail
+	}
+	if errTruncated {
+		report["stderrTail"] = errTail
+	}
+	// JSON escaping can expand quotes, HTML characters and control bytes.
+	// Keep the complete receipt inside the same 4096-byte transport budget.
+	for {
+		encoded, _ := json.Marshal(report)
+		if len(encoded) <= 4096 {
+			break
+		}
+		report["truncated"] = true
+		for _, key := range []string{"stdout", "stderr", "stdoutTail", "stderrTail"} {
+			value, _ := report[key].(string)
+			if strings.HasSuffix(key, "Tail") {
+				value = value[len(value)/2:]
+			} else {
+				value = value[:len(value)/2]
+			}
+			if _, present := report[key]; present {
+				report[key] = cleanText(value, len(value))
+			}
+		}
+	}
+	return report, nil
 }
 func smallRead(path string) string {
 	f, e := os.Open(path)

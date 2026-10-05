@@ -159,6 +159,83 @@ try {
     ).id,
     action.id,
   );
+  // Real hibernation auto-responses must refresh presence while HTTPS polling
+  // is paused for longer than the 45-second online window (e.g. apt install).
+  async function eventSocket() {
+    const ticket = await api(
+      stub,
+      `/v1/device/${paired.deviceId}/events-ticket`,
+      "POST",
+      {},
+      paired.token,
+    );
+    const upgrade = await stub.fetch(
+      `https://www.openlaunch.dev/v1/device/${paired.deviceId}/events?workspace=${workspace}`,
+      {
+        headers: {
+          "x-openlaunch-workspace": workspace,
+          upgrade: "websocket",
+          "sec-websocket-protocol": `openlaunch.device.v1, ticket.${ticket.ticket}`,
+        },
+      },
+    );
+    assert.equal(upgrade.status, 101);
+    const socket = upgrade.webSocket;
+    socket.accept();
+    return socket;
+  }
+  let socket = await eventSocket();
+  let pongs = 0;
+  socket.addEventListener("message", (event) => {
+    if (event.data === "openlaunch.pong") pongs++;
+  });
+  socket.send("openlaunch.ping");
+  const ping = setInterval(() => socket.send("openlaunch.ping"), 5_000);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 47_000));
+    assert(pongs >= 8, "workerd did not send automatic pong replies");
+    const inventory = await api(stub, "/v1/devices");
+    assert.equal(
+      inventory[0].online,
+      true,
+      "busy device falsely reported offline after 45 seconds",
+    );
+    assert(inventory[0].lastSeen > action.createdAt + 40_000);
+    const waiting = await api(
+      stub,
+      `/v1/devices/${paired.deviceId}/actions`,
+      "POST",
+      { ...actionRequest, idempotencyKey: "queued-while-busy" },
+      agentConnection.token,
+    );
+    assert.equal(waiting.status, "queued");
+    const active = await api(stub, `/v1/actions/${action.id}`);
+    assert.equal(
+      active.status,
+      "received",
+      "presence must not complete or replay an action",
+    );
+    await api(
+      stub,
+      `/v1/actions/${waiting.id}/cancel`,
+      "POST",
+      {},
+      agentConnection.token,
+    );
+  } finally {
+    clearInterval(ping);
+    socket.close();
+  }
+  socket = await eventSocket(); // Replacement session uses a fresh one-use ticket.
+  socket.send("openlaunch.ping");
+  const presence = await api(
+    stub,
+    `/v1/device/${paired.deviceId}/heartbeat`,
+    "POST",
+    {},
+    paired.token,
+  );
+  assert(presence.lastSeen >= action.createdAt);
   const result = await api(
     stub,
     `/v1/device/${paired.deviceId}/result`,
@@ -172,10 +249,13 @@ try {
   );
   assert.equal(result.status, "succeeded");
   const history = await api(stub, "/v1/actions/export");
-  assert.equal(history.actions.length, 1);
-  assert.deepEqual(history.actions[0].result, { softwareFixture: true });
+  assert.equal(history.actions.length, 2);
+  assert.deepEqual(history.actions.find((a) => a.id === action.id).result, {
+    softwareFixture: true,
+  });
   await api(stub, `/v1/devices/${paired.deviceId}/revoke`, "POST", {});
   assert.deepEqual(await api(stub, "/v1/devices"), []);
+  socket.close();
   async function deniedDeviceRoutes(target) {
     const headers = {
       "x-openlaunch-workspace": workspace,
@@ -187,6 +267,11 @@ try {
       { method: "POST", headers, body: "{}" },
     );
     assert.equal(next.status, 404);
+    const heartbeat = await target.fetch(
+      `https://www.openlaunch.dev/v1/device/${paired.deviceId}/heartbeat`,
+      { method: "POST", headers, body: "{}" },
+    );
+    assert.equal(heartbeat.status, 404);
     const upgrade = await target.fetch(
       `https://www.openlaunch.dev/v1/device/${paired.deviceId}/events`,
       {
@@ -210,7 +295,7 @@ try {
   stub = await object();
   await deniedDeviceRoutes(stub);
   console.log(
-    "PASS: workerd SQLite attachment, restart, idempotency, grants, outcome, export and revocation",
+    "PASS: workerd SQLite attachment, restart, idempotency, grants, outcome, busy presence, socket reconnect, export and revocation",
   );
 } finally {
   if (worker) await worker.dispose();

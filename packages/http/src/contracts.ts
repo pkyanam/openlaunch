@@ -15,6 +15,7 @@ export const enrollRequestSchema = z
 export const manifestRequestSchema = z
   .object({ manifest: z.unknown() })
   .strict();
+export const heartbeatRequestSchema = z.object({}).strict();
 export const resultRequestSchema = z
   .object({
     actionId: z.string().uuid(),
@@ -1113,6 +1114,29 @@ export function buildOpenApi() {
       },
     ),
   );
+  add("/v1/device/{deviceId}/heartbeat", "post", {
+    ...op(
+      "Refresh device presence",
+      "Device",
+      device,
+      {
+        "200": ok({
+          type: "object",
+          properties: { lastSeen: { type: "integer" } },
+          required: ["lastSeen"],
+        }),
+        ...commonErrors,
+      },
+      {
+        ...body(heartbeatRequestSchema),
+        parameters: [
+          { name: "deviceId", in: "path", required: true, schema: uuid },
+        ],
+        description:
+          "Authenticated presence only. Does not fetch, dispatch, complete or replay an action, extend its expiry, or change any grant. Used during long execution when ordinary device polling is paused.",
+      },
+    ),
+  });
   add("/v1/device/{deviceId}/result", "post", {
     ...op(
       "Report action result",

@@ -32,7 +32,7 @@ const guides: readonly FunctionGuide[] = [
       additionalProperties: false,
     },
     example: { command: "uname -a", timeoutSeconds: 10 },
-    text: "This shell function appears only after the local owner enables broad control. It executes /bin/sh as the installing user, outside structured file-root restrictions. Check exitCode, timedOut, interrupted and truncated; succeeded means execution returned a report, not exit code zero. Commands have process-group deadlines, so use supervised user services for persistent applications. Agents cannot grant themselves this capability.",
+    text: "This shell function appears only after the local owner enables broad control. It executes /bin/sh as the installing user, outside structured file-root restrictions. Inspect stdoutTail/stderrTail for ending diagnostics when truncated. Check exitCode, timedOut, interrupted and truncated; succeeded means execution returned a report, not exit code zero. Commands have process-group deadlines, so use supervised user services for persistent applications. Agents cannot grant themselves this capability.",
   },
   {
     kind: "linux",

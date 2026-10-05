@@ -27,6 +27,7 @@ export interface DeviceEventsContext {
   storage: DeviceEventsStorage;
   acceptWebSocket(socket: DeviceEventsSocket, tags?: string[]): void;
   getWebSockets(tag?: string): DeviceEventsSocket[];
+  getWebSocketAutoResponseTimestamp(socket: DeviceEventsSocket): Date | null;
   setWebSocketAutoResponse(pair?: WebSocketRequestResponsePair): void;
 }
 
@@ -221,6 +222,35 @@ export class DeviceEvents {
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair(DEVICE_EVENTS_PING, DEVICE_EVENTS_PONG),
     );
+  }
+
+  /** Fold authenticated socket activity into presence before API admission.
+   * Reading runtime timestamps preserves hibernation: pings cause no JS wake,
+   * storage write or extra HTTP request. A socket alone never implies presence.
+   */
+  refreshPresence(
+    devices: { id: string; revoked: boolean; lastSeen: number }[],
+  ) {
+    const now = this.now();
+    for (const device of devices) {
+      if (device.revoked) continue;
+      for (const socket of this.ctx.getWebSockets(this.tag(device.id))) {
+        if (socket.readyState !== WebSocket.OPEN) continue;
+        const attachment =
+          socket.deserializeAttachment() as Partial<Attachment> | null;
+        if (attachment?.deviceId !== device.id) continue;
+        const timestamp = this.ctx
+          .getWebSocketAutoResponseTimestamp(socket)
+          ?.getTime();
+        if (
+          timestamp !== undefined &&
+          Number.isFinite(timestamp) &&
+          timestamp <= now &&
+          timestamp > device.lastSeen
+        )
+          device.lastSeen = timestamp;
+      }
+    }
   }
 
   /** Authenticated, single-use ticket issuance. Ticket is returned once and only its hash is stored. */

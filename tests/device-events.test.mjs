@@ -72,6 +72,9 @@ function fixture(options = {}) {
         .filter((entry) => !tag || entry.tags.includes(tag))
         .map((entry) => entry.socket);
     },
+    getWebSocketAutoResponseTimestamp(socket) {
+      return socket.lastPing ?? null;
+    },
   };
   const pairs = [];
   const events = new DeviceEvents(
@@ -434,4 +437,89 @@ test("invalid bearer, workspace, origin, or protocol cannot create a socket", as
   );
   assert.equal(badOrigin.status, 403);
   assert.equal(f.accepted.length, 0);
+});
+
+test("fresh authenticated pings keep a busy device online without executing or authorizing work", async () => {
+  const { Hub, emptyState } = await import("../packages/core/src/index.ts");
+  let now = 1_000;
+  const f = fixture({ now: () => now });
+  const owner = { id: "owner", owner: true },
+    agent = { id: "agent", owner: false };
+  const hub = new Hub(emptyState(), () => now);
+  const enrollment = await hub.enrollment(owner, "raspberry-pi-4");
+  const paired = await hub.enroll(enrollment.token, {
+    name: "busy fixture",
+    kind: "raspberry-pi-4",
+    capabilities: ["device.health"],
+  });
+  hub.grant(owner, agent.id, paired.deviceId, ["device.health"], 3600);
+  const first = hub.request(
+    agent,
+    paired.deviceId,
+    "device.health",
+    {},
+    "long-operation",
+    180,
+  );
+  hub.next(paired.deviceId);
+  const ticket = await f.events.handleTicket(
+    ticketRequest(paired.deviceId),
+    paired.deviceId,
+  );
+  const data = (await ticket.json()).data;
+  await f.events.handleUpgrade(
+    upgradeRequest(paired.deviceId, data.ticket),
+    paired.deviceId,
+  );
+  const socket = f.pairs[0].server;
+  now += 109_000;
+  assert.equal(hub.list(agent)[0].online, false);
+  socket.lastPing = new Date(now - 1_000);
+  f.events.refreshPresence(hub.state.devices);
+  assert.equal(hub.list(agent)[0].online, true);
+  assert.equal(first.status, "received");
+  const second = hub.request(
+    agent,
+    paired.deviceId,
+    "device.health",
+    {},
+    "queued-after-long-operation",
+  );
+  assert.equal(second.status, "queued");
+  assert.equal(first.status, "received");
+  hub.revokeGrant(owner, agent.id, paired.deviceId);
+  assert.throws(() =>
+    hub.request(agent, paired.deviceId, "device.health", {}, "ungranted"),
+  );
+  now += 46_000;
+  f.events.refreshPresence(hub.state.devices);
+  assert.equal(
+    hub.list(owner)[0].online,
+    false,
+    "an open socket with a stale ping cannot maintain presence",
+  );
+  const lastSeen = hub.state.devices[0].lastSeen;
+  socket.lastPing = new Date(now + 1_000);
+  f.events.refreshPresence(hub.state.devices);
+  assert.equal(
+    hub.state.devices[0].lastSeen,
+    lastSeen,
+    "future timestamps are rejected",
+  );
+  socket.lastPing = new Date(now);
+  socket.readyState = 3;
+  f.events.refreshPresence(hub.state.devices);
+  assert.equal(
+    hub.state.devices[0].lastSeen,
+    lastSeen,
+    "closed sockets are ignored",
+  );
+  socket.readyState = 1;
+  hub.state.devices[0].revoked = true;
+  f.events.refreshPresence(hub.state.devices);
+  assert.equal(
+    hub.state.devices[0].lastSeen,
+    lastSeen,
+    "revocation cannot be revived by socket traffic",
+  );
 });

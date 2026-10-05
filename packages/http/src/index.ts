@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   enrollRequestSchema,
   manifestRequestSchema,
+  heartbeatRequestSchema,
   resultRequestSchema,
   attachRequestSchema,
   enrollmentRequestSchema,
@@ -118,10 +119,16 @@ export async function handle(
       return json(await hub.enroll(b.token, b.manifest), 201);
     }
     const deviceRoute =
-      /^\/v1\/device\/([a-f0-9-]{36})\/(next|result|manifest)$/.exec(path);
+      /^\/v1\/device\/([a-f0-9-]{36})\/(next|result|manifest|heartbeat)$/.exec(
+        path,
+      );
     if (deviceRoute) {
       const id = deviceRoute[1]!;
       await hub.authenticateDevice(id, bearer(request));
+      if (deviceRoute[2] === "heartbeat" && method === "POST") {
+        heartbeatRequestSchema.parse(await body(request, 128));
+        return json(hub.heartbeat(id));
+      }
       if (deviceRoute[2] === "manifest" && method === "POST") {
         const b = manifestRequestSchema.parse(await body(request));
         return json(hub.publishManifest(id, b.manifest));

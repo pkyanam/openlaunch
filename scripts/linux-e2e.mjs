@@ -246,6 +246,86 @@ try {
   assert.equal(shell.result.exitCode, 0);
   assert.match(shell.result.stdout, /AGENT SHELL PIPELINE/);
 
+  // The local bridge has no notification WebSocket. Exercise the real Go
+  // presence fallback during an operation longer than the online window.
+  const busy = (
+    await mcp(
+      "invoke_device_function",
+      {
+        deviceId: device.id,
+        capability: "system.exec",
+        arguments: {
+          command: "sleep 52; printf 'long command finished\\n'",
+          timeoutSeconds: 60,
+        },
+        ttlSeconds: 90,
+        idempotencyKey: "busy-presence",
+      },
+      agent.token,
+    )
+  ).structuredContent.data;
+  assert.equal(busy.status, "queued");
+  const running = host(["--config", config, "--once"]);
+  // Attach a rejection handler immediately while checking the live receipt.
+  running.catch(() => {});
+  let current;
+  for (let i = 0; i < 100; i++) {
+    current = await call(
+      `/v1/actions/${busy.id}`,
+      "GET",
+      undefined,
+      agent.token,
+    );
+    if (current.status === "received") break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(current.status, "received");
+  await new Promise((resolve) => setTimeout(resolve, 46_000));
+  const [present] = await call("/v1/devices", "GET", undefined, agent.token);
+  assert.equal(
+    present.online,
+    true,
+    "HTTPS presence fallback failed during long execution",
+  );
+  current = await call(`/v1/actions/${busy.id}`, "GET", undefined, agent.token);
+  assert.equal(current.status, "received");
+  const waiting = (
+    await mcp(
+      "invoke_device_function",
+      {
+        deviceId: device.id,
+        capability: "device.health",
+        arguments: {},
+        ttlSeconds: 90,
+        idempotencyKey: "queued-during-busy",
+      },
+      agent.token,
+    )
+  ).structuredContent.data;
+  assert.equal(waiting.status, "queued");
+  await running;
+  const finished = await call(
+    `/v1/actions/${busy.id}`,
+    "GET",
+    undefined,
+    agent.token,
+  );
+  assert.equal(finished.status, "succeeded");
+  assert.equal(finished.result.exitCode, 0);
+  assert.match(finished.result.stdout, /long command finished/);
+  assert.equal(
+    (await call(`/v1/actions/${waiting.id}`, "GET", undefined, agent.token))
+      .status,
+    "queued",
+    "presence fetched another command",
+  );
+  await host(["--config", config, "--once"]);
+  assert.equal(
+    (await call(`/v1/actions/${waiting.id}`, "GET", undefined, agent.token))
+      .status,
+    "succeeded",
+  );
+
   const duplicate = (
     await mcp(
       "invoke_device_function",
@@ -355,7 +435,7 @@ try {
     [],
   );
   console.log(
-    "PASS: Linux host SDK attachment, separate agent grants, MCP/CLI discovery and execution, full-size file chunk round trip, policy reapproval, SQLite reconnect, deduplication and revocation (actual software operations; no physical Pi claim)",
+    "PASS: Linux host SDK attachment, separate agent grants, MCP/CLI discovery and execution, long-command presence and sequential queueing, full-size file chunk round trip, policy reapproval, SQLite reconnect, deduplication and revocation (actual software operations; no physical Pi claim)",
   );
 } finally {
   await stopServer();

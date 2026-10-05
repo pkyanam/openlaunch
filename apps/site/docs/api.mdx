@@ -65,6 +65,7 @@ Device polling and result reports use a private per-device bearer credential. Ne
 | GET    | `/v1/actions/export`                  | Owner downloads all retained action receipts                              |
 | GET    | `/v1/actions/{id}`                    | Inspect the command result                                                |
 | POST   | `/v1/actions/{id}/cancel`             | Cancel an undispatched command                                            |
+| POST   | `/v1/device/{id}/heartbeat`           | Device refreshes presence while busy; does not dispatch or extend actions |
 | POST   | `/v1/device/{id}/next`                | Device polls for its next command                                         |
 | POST   | `/v1/device/{id}/result`              | Device reports success or failure                                         |
 | POST   | `/v1/device/{id}/events-ticket`       | Issue a 30-second, single-use WebSocket handshake ticket                  |

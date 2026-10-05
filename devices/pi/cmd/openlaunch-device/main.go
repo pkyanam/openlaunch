@@ -947,7 +947,13 @@ func main() {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "poll:", e)
 		} else if cmd != nil {
-			if e = processCommand(c, *cmd, started, journal, journalPath, run); e != nil {
+			operation := func() error { return processCommand(c, *cmd, started, journal, journalPath, run) }
+			if harness != nil {
+				e = withDevicePresence(harness.Context, c, 20*time.Second, operation)
+			} else {
+				e = operation()
+			}
+			if e != nil {
 				fatal(e)
 			}
 			if e = reconcileResults(c, journal, journalPath, time.Now().UnixMilli()); e != nil {

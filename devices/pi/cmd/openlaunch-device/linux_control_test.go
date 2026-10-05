@@ -252,3 +252,36 @@ func TestBrowserLauncherKeepsLiteralURLAndCleanEnvironmentAndSelectsSessionBacke
 		}
 	}
 }
+
+func TestCommandOutputRetainsEndingDiagnosticsWithinResultBudget(t *testing.T) {
+	h, _, _ := hostFixture(t, true)
+	h.Policy.Control = &HostControl{Shell: true}
+	command := `printf 'begin\n'; i=0; while [ "$i" -lt 1000 ]; do printf '"<&'; printf '"<&' >&2; i=$((i+1)); done; printf '\ninstalled successfully\n'; printf '\nlast error diagnostic\n' >&2; exit 7`
+	r := hostCall(t, h, "system.exec", map[string]any{"command": command})
+	if r["exitCode"] != 7 || r["truncated"] != true || !strings.HasPrefix(r["stdout"].(string), "begin\n") || !strings.HasSuffix(r["stdoutTail"].(string), "installed successfully\n") || !strings.HasSuffix(r["stderrTail"].(string), "last error diagnostic\n") {
+		t.Fatal(r)
+	}
+	encoded, e := json.Marshal(r)
+	if e != nil || len(encoded) > 4096 {
+		t.Fatal("output exceeds receipt budget", len(encoded), e)
+	}
+	for _, size := range []int{0, 511, 512, 513, 767, 768, 769, 3000} {
+		input := strings.Repeat("a", size)
+		w := &limitedOutput{}
+		for offset := 0; offset < size; {
+			n := min(17, size-offset)
+			accepted, err := w.Write([]byte(input[offset : offset+n]))
+			if err != nil || accepted != n {
+				t.Fatal("short write", accepted, err)
+			}
+			offset += n
+		}
+		head, tail, truncated := w.snapshot()
+		if w.total != int64(size) || len(head)+len(tail) != min(size, 768) || truncated != (size > 768) {
+			t.Fatal(size, len(head), len(tail), w.total, truncated)
+		}
+		if size <= 768 && (head != input || tail != "") {
+			t.Fatal("short output changed", size)
+		}
+	}
+}
