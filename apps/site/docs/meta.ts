@@ -4,6 +4,7 @@ export default defineMeta({
     "index",
     "setup",
     "agents",
+    "cli",
     "functions",
     "sdk",
     "uno-r4",

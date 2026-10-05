@@ -16,6 +16,7 @@ export function installerManifest(downloadDirectory, origin) {
     installers: [
       "setup.sh",
       "setup.py",
+      "install-cli.sh",
       "install.sh",
       "install-pi.sh",
       "setup-uno.sh",

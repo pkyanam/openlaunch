@@ -11,6 +11,7 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 // GitHub remains a source/backup link, never the primary installer redirect.
 for (const [source, destination] of [
   ["../../scripts/setup.sh", "dist/client/setup.sh"],
+  ["../../scripts/install-cli.sh", "dist/client/install-cli.sh"],
   ["../../scripts/setup.py", "dist/client/downloads/setup.py"],
   ["../../scripts/install.sh", "dist/client/install.sh"],
   ["../../scripts/setup-uno.sh", "dist/client/setup-uno.sh"],
@@ -108,8 +109,19 @@ function pinGeneratedLinks(directory) {
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) pinGeneratedLinks(path);
     else if (/\.(html|md|mdx|txt|json)$/.test(entry.name)) {
-      const original = readFileSync(path, "utf8"),
-        pinned = pinInstallerBackup(original);
+      const original = readFileSync(path, "utf8");
+      let pinned = pinInstallerBackup(original);
+      // Blume bases relative header links under /docs. These two surfaces live
+      // at the site root; publish relative links so previews retain their host.
+      if (entry.name.endsWith(".html"))
+        pinned = pinned.replace(/<a\b[^>]*>/g, (tag) => {
+          for (const route of ["/console/", "/changelog"])
+            tag = tag.replaceAll(
+              `href="https://www.openlaunch.dev${route}"`,
+              `href="${route}"`,
+            );
+          return tag;
+        });
       if (pinned !== original) writeFileSync(path, pinned);
     }
   }
@@ -219,12 +231,23 @@ writeFileSync(
       "/",
       "/docs",
       "/docs/*",
+      "/reference",
+      "/reference/*",
+      "/changelog",
+      "/changelog/*",
       "/v1/*",
       "/mcp",
       "/healthz",
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/*",
     ],
-    exclude: ["/docs/*.md", "/docs/*.mdx"],
+    exclude: [
+      "/docs/*.md",
+      "/docs/*.mdx",
+      "/reference/*.md",
+      "/reference/*.mdx",
+      "/changelog/*.md",
+      "/changelog/*.mdx",
+    ],
   }),
 );

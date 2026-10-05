@@ -1,5 +1,6 @@
 ---
 title: Connect an agent
+related: [/cli, /pairing, /functions]
 description: Connect any OAuth-capable MCP host or JavaScript agent to openlaunch, approve device functions and inspect each action result.
 ---
 
@@ -46,19 +47,16 @@ See the [Bridge SDK guide](/sdk) for a minimal code example, action lifecycle, a
 
 ## Agent CLI
 
-Install the SDK archive, then provide the separate `ol_agent_` credential through `OPENLAUNCH_AGENT_TOKEN`. The token is read from the environment and is never accepted as a command-line argument. `OPENLAUNCH_URL` optionally selects another bridge origin; `OPENLAUNCH_WORKSPACE` optionally overrides the workspace encoded in the token. The canonical command is `ol`; `openlaunch-agent` remains an alias.
+Install `ol` on your PATH, then log in with a separate agent API credential:
 
 ```sh
-npm install 'https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz'
+{{cli-install}}
+ol login
 ol devices list
 ol functions list
-ol functions list --device DEVICE_ID
-ol call DEVICE_ID FUNCTION [ARGUMENTS_JSON] [--key KEY] [--ttl SECONDS]
-ol actions get ACTION_ID
-ol actions watch ACTION_ID
 ```
 
-`functions list` returns built-in and custom functions this connection may currently use, with the device's advertised input schema and guide. Use that schema for `ARGUMENTS_JSON`; guide text cannot add arguments or permission. `call` generates a key and includes it in success or error output. Reuse it with `--key KEY` (1–128 characters) for an exact retry; `--ttl SECONDS` is optional and ranges from 1–300. The command prints the action receipt. Use `actions watch` to follow status to a terminal result; `queued` is pending, and a successful receipt does not by itself verify physical hardware.
+Open a new terminal and restart your agent application after installing. Login prompts without echoing the token and saves it privately on this computer. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login. Device setup and owner credentials remain separate. See the [CLI guide](/cli) for custom JSON arguments, idempotent retries, action watching, cancellation and logout.
 
 ## Codex on your computer
 

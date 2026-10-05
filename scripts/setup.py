@@ -2,6 +2,7 @@
 """Choose a setup helper and verify its download before running it."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -19,6 +20,7 @@ MODES = {
     'esp32': ('Standalone ESP32 USB setup', 'provision-esp32.py'),
     'adapter': ('Custom Node device adapter', None),
     'local': ('Local developer console', 'install.sh'),
+    'cli': ('Install ol CLI on PATH', None),
 }
 
 
@@ -78,16 +80,69 @@ def helper_command(mode, args, manifest, directory):
     return [sys.executable if filename.endswith('.py') else 'bash', str(helper), *args]
 
 
+def install_cli(manifest, temporary, user_directory=None, environment=None):
+    user_directory = Path.home() if user_directory is None else Path(user_directory)
+    environment = os.environ if environment is None else environment
+    for tool in ('node', 'npm'):
+        if not shutil.which(tool):
+            raise ValueError('Install Node 24 or newer, then retry.')
+    subprocess.run(['node', '-e', 'if(Number(process.versions.node.split(".")[0])<24)process.exit(1)'], check=True)
+    commit = manifest['commit']
+    if not isinstance(commit, str) or not re.fullmatch(r'[a-f0-9]{40}', commit):
+        raise ValueError('Invalid deployed source commit')
+    archive = temporary / ('openlaunch-sdk-' + commit + '.tgz')
+    archive.write_bytes(checked_download(manifest['sdk'], '/downloads/openlaunch-sdk.tgz', commit, 25 * 1024 * 1024))
+    prefix = user_directory / '.local'
+    # npm can replace a regular binary when updating an existing package.
+    # Admit only absent names or links to this package before asking npm to install.
+    for name, target in [('ol', 'agent-cli.js'), ('openlaunch-agent', 'agent-cli.js'),
+                         ('openlaunch-device', 'cli.js')]:
+        executable = prefix / 'bin' / name
+        expected = prefix / 'lib/node_modules/@openlaunch/sdk/dist' / target
+        if executable.exists() or executable.is_symlink():
+            if not executable.is_symlink() or executable.resolve() != expected.resolve():
+                raise ValueError('Refusing to replace an unrelated executable: ' + str(executable))
+    subprocess.run(['npm', 'install', '--global', '--prefix', str(prefix),
+                    '--ignore-scripts', '--no-audit', '--no-fund', str(archive)], check=True)
+    subprocess.run([str(prefix / 'bin/ol'), '--help'], check=True, stdout=subprocess.DEVNULL)
+    shell = Path(environment.get('SHELL', '')).name
+    profiles = {'zsh': ['.zprofile', '.zshrc'],
+                'sh': ['.profile'], 'dash': ['.profile'],
+                'fish': ['.config/fish/config.fish']}.get(shell, ['.profile'])
+    if shell == 'bash':
+        # Preserve bash's existing login-file precedence instead of hiding .profile.
+        login_profile = next((name for name in ['.bash_profile', '.bash_login', '.profile']
+                              if (user_directory / name).exists() or
+                              (user_directory / name).is_symlink()), '.profile')
+        profiles = [login_profile, '.bashrc']
+    marker = '# openlaunch CLI'
+    line = ('fish_add_path --path "$HOME/.local/bin"' if shell == 'fish' else
+            'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac')
+    for filename in profiles:
+        profile = user_directory / filename
+        if profile.is_symlink() or (profile.exists() and not profile.is_file()):
+            print('Add ~/.local/bin to PATH in your shell configuration: ' + str(profile))
+            continue
+        content = profile.read_text() if profile.exists() else ''
+        if marker not in content:
+            profile.parent.mkdir(parents=True, exist_ok=True)
+            with profile.open('a') as output:
+                output.write('\n' + marker + '\n' + line + '\n')
+    print('Installed ol, openlaunch-agent and openlaunch-device in ' + str(prefix / 'bin'))
+    print('Open a new terminal or restart your agent to pick up PATH. Then run: ol --help')
+    print('Available immediately at: ' + str(prefix / 'bin/ol'))
+
+
 def main(args):
     if args and args[0] in ('--help', '-h'):
-        print('openlaunch setup: uno | roomba | pi | esp32 | adapter | local')
+        print('openlaunch setup: uno | roomba | pi | esp32 | adapter | local | cli')
         print('No option opens a menu. USB setup configures already-flashed firmware.')
         print('Examples: setup.sh roomba; setup.sh adapter run; setup.sh uno --status')
         return 0
     # The shell script may arrive through a pipe; read prompts from the terminal.
     tty = None
     try:
-        if not args or '--help' not in args:
+        if not args or (args[0] not in ('cli', 'local') and '--help' not in args):
             try:
                 tty = open('/dev/tty', 'r')
             except OSError:
@@ -95,15 +150,15 @@ def main(args):
         if not args:
             for i, (label, _) in enumerate(MODES.values(), 1):
                 print(f'{i}. {label}')
-            print('Choose setup [1-6]: ', end='', flush=True)
+            print(f'Choose setup [1-{len(MODES)}]: ', end='', flush=True)
             choice = tty.readline().strip()
             if choice not in [str(i) for i in range(1, len(MODES) + 1)]:
-                raise ValueError('Choose a number from 1 to 6.')
+                raise ValueError(f'Choose a number from 1 to {len(MODES)}.')
             args = [list(MODES)[int(choice) - 1]]
         mode, *forwarded = args
         if mode not in MODES:
-            raise ValueError('Choose uno, roomba, pi, esp32, adapter, or local.')
-        if mode in ('pi', 'local') and forwarded:
+            raise ValueError('Choose uno, roomba, pi, esp32, adapter, local, or cli.')
+        if mode in ('pi', 'local', 'cli') and forwarded:
             if forwarded == ['--help']:
                 print(MODES[mode][0] + ': rerun without --help to install.')
                 return 0
@@ -117,6 +172,9 @@ def main(args):
             forwarded = ['--port', port, *forwarded]
         manifest = json.loads(fetch(ORIGIN + '/downloads/installers.json', 32768))
         with tempfile.TemporaryDirectory(prefix='openlaunch-setup-') as temporary:
+            if mode == 'cli':
+                install_cli(manifest, Path(temporary))
+                return 0
             command = helper_command(mode, forwarded, manifest, Path(temporary))
             print('Using openlaunch build ' + manifest['commit'][:12], flush=True)
             return subprocess.call(command, stdin=tty)

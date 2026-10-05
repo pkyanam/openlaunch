@@ -10,6 +10,7 @@ import {
   type DeviceManifest,
 } from "./index.js";
 import { createInterface } from "node:readline/promises";
+import { askSecret } from "./secret.js";
 import { stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
@@ -117,40 +118,6 @@ async function askLine(
   } finally {
     rl.close();
   }
-}
-
-async function askSecret(
-  prompt: string,
-  input: NodeJS.ReadStream,
-  output: NodeJS.WriteStream,
-  environmentName = "OPENLAUNCH_SDK_TOKEN",
-): Promise<string> {
-  if (!input.isTTY || !output.isTTY)
-    throw new Error(
-      `Set ${environmentName} when running without an interactive terminal`,
-    );
-  output.write(prompt);
-  const wasRaw = input.isRaw;
-  input.setRawMode(true);
-  input.resume();
-  return new Promise((resolveSecret, reject) => {
-    let value = "";
-    const finish = (error?: Error) => {
-      input.off("data", onData);
-      input.setRawMode(Boolean(wasRaw));
-      output.write("\n");
-      error ? reject(error) : resolveSecret(value.trim());
-    };
-    const onData = (chunk: Buffer) => {
-      for (const char of chunk.toString("utf8")) {
-        if (char === "\u0003") return finish(new Error("Setup cancelled"));
-        if (char === "\r" || char === "\n") return finish();
-        if (char === "\u007f" || char === "\b") value = value.slice(0, -1);
-        else if (char >= " " && char !== "\u007f") value += char;
-      }
-    };
-    input.on("data", onData);
-  });
 }
 
 async function createScaffold(
@@ -300,7 +267,9 @@ export async function setupDevice(options: SetupOptions = {}) {
   if (sdkToken) {
     workspace = sdkTokenWorkspace(sdkToken) ?? "";
     if (!workspace || !sdkToken.startsWith("ol_sdk_"))
-      throw new Error("Use an owner-issued ol_sdk_ token; agent tokens cannot pair devices");
+      throw new Error(
+        "Use an owner-issued ol_sdk_ token; agent tokens cannot pair devices",
+      );
     if (options.workspace && options.workspace !== workspace)
       throw new Error("Workspace ID does not match the SDK token");
     pendingPath = join(directory, ".setup-pending.json");

@@ -1,6 +1,6 @@
 ---
 title: Device and agent SDK
-description: Pair devices with short-lived setup tokens, connect agents separately, and approve each device function.
+description: Pair devices with short-lived setup tokens, connect agents separately, approve each device function and follow correlated action results.
 ---
 
 The openlaunch SDK has separate credentials for device setup and agent access. A short-lived `ol_sdk_` token pairs a device; it cannot call agent or MCP APIs. An `ol_agent_` API connection authenticates an agent; it cannot pair devices. Pairing does not grant an agent permission to use device functions; the owner approves those separately.

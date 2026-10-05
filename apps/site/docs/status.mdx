@@ -20,6 +20,8 @@ description: See the hosted software and device behaviors that have been checked
 
 ## Latest deployment checks
 
+Commit `adee2bf3bc2783b335e13f69e8f72af5aca5e5d8` passed all four CI jobs and the live exact-commit verifier in [GitHub Actions](https://github.com/pkyanam/openlaunch/actions/runs/37290810309). The guided setup menu and helpers are served from that checked source; USB help and the packaged adapter CLI were exercised without pairing or issuing device commands. The prepared console-mux Roomba application compiled with the matching custom ESP image hash unchanged. The owner-approved Executor function grant was saved and re-read; an actual Executor discovery retry remains separate acceptance.
+
 Release `0f61baf1db82d5008a9aa74f575f545df988dd76` passed Linux, macOS, firmware compilation and production deployment checks in [GitHub Actions](https://github.com/pkyanam/openlaunch/actions/runs/37232983142). The live website and bridge reported the same commit. HTTPS, the apex redirect, configured authentication and the unauthenticated inventory challenge passed. All five hosted installer URLs matched their committed source bytes. These public checks now run after every production deployment.
 
 The public Node installer and official Codex OAuth client were exercised together on `873f829`: a software adapter paired, its owner-granted custom function appeared in Codex, and its action completed with a matching durable result receipt. The fixture and its credentials were retired afterward. This verifies the installer-to-agent software path; it does not prove board execution.
@@ -43,3 +45,5 @@ Start in the [hosted console](https://www.openlaunch.dev/console/), follow [setu
 ## Repaired Uno connection
 
 On October 4, 2026, the console-mux Roomba sketch retained its paired identity after a main-chip upload, automatically published 13 functions, and completed a real hosted health request. The custom ESP firmware was preserved. The Roomba was not wired to the Uno, so serial sensor responses, movement, cleaning and docking remain unverified.
+
+The owner subsequently reported wiring the Roomba to the Uno. The serial-only correction remains prepared for owner flashing; no physical cleaning, docking, motion or sensor acceptance is claimed.

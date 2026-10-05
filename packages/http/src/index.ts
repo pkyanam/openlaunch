@@ -1,5 +1,19 @@
 import { z } from "zod";
 import {
+  enrollRequestSchema,
+  manifestRequestSchema,
+  resultRequestSchema,
+  attachRequestSchema,
+  enrollmentRequestSchema,
+  createAgentConnectionSchema,
+  createSetupTokenSchema,
+  grantRequestSchema,
+  revokeGrantRequestSchema,
+  broadcastRequestSchema,
+  actionRequestSchema,
+  oauthClientConfigSchema,
+} from "./contracts.ts";
+import {
   Hub,
   Fault,
   deviceKind,
@@ -9,10 +23,7 @@ import {
   type DeviceCredentialDeriver,
 } from "../../core/src/index.ts";
 import { functionGuide } from "../../core/src/function-guides.ts";
-import {
-  oauthClientConfig,
-  type OAuthClientProvider,
-} from "../../core/src/oauth-clients.ts";
+import { type OAuthClientProvider } from "../../core/src/oauth-clients.ts";
 import { createMcp, toolNeedsActionScope } from "../../mcp/src/index.ts";
 import {
   handlePerRequestMcp,
@@ -100,10 +111,7 @@ export async function handle(
     if (path === "/v1/device/enroll") {
       if (method !== "POST")
         throw new Fault("method", 405, "Method not allowed");
-      const b = z
-        .object({ token: z.string().length(64), manifest: z.unknown() })
-        .strict()
-        .parse(await body(request));
+      const b = enrollRequestSchema.parse(await body(request));
       return json(await hub.enroll(b.token, b.manifest), 201);
     }
     const deviceRoute =
@@ -112,23 +120,13 @@ export async function handle(
       const id = deviceRoute[1]!;
       await hub.authenticateDevice(id, bearer(request));
       if (deviceRoute[2] === "manifest" && method === "POST") {
-        const b = z
-          .object({ manifest: z.unknown() })
-          .strict()
-          .parse(await body(request));
+        const b = manifestRequestSchema.parse(await body(request));
         return json(hub.publishManifest(id, b.manifest));
       }
       if (deviceRoute[2] === "next" && method === "POST")
         return json(hub.next(id));
       if (deviceRoute[2] === "result" && method === "POST") {
-        const b = z
-          .object({
-            actionId: z.string().uuid(),
-            status: z.enum(["succeeded", "failed"]),
-            result: z.unknown(),
-          })
-          .strict()
-          .parse(await body(request));
+        const b = resultRequestSchema.parse(await body(request));
         return json(hub.result(id, b.actionId, b.status, b.result));
       }
       throw new Fault("method", 405, "Method not allowed");
@@ -222,10 +220,7 @@ export async function handle(
       }
     }
     if (path === "/v1/sdk/devices" && method === "POST") {
-      const b = z
-        .object({ requestId: z.string().uuid(), manifest: z.unknown() })
-        .strict()
-        .parse(await body(request));
+      const b = attachRequestSchema.parse(await body(request));
       if (!context.deviceCredentials)
         throw new Fault(
           "setup_required",
@@ -257,10 +252,7 @@ export async function handle(
       );
     }
     if (path === "/v1/enrollments" && method === "POST") {
-      const b = z
-        .object({ kind: deviceKind })
-        .strict()
-        .parse(await body(request));
+      const b = enrollmentRequestSchema.parse(await body(request));
       return json(await hub.enrollment(p, b.kind), 201);
     }
     if (path === "/v1/agent-connections" && method === "GET")
@@ -277,7 +269,7 @@ export async function handle(
     if (path === "/v1/oauth-clients" && method === "POST") {
       // Ownership and capacity precede any provider-side registration.
       hub.checkOAuthClientCapacity(p);
-      const config = oauthClientConfig.parse(await body(request));
+      const config = oauthClientConfigSchema.parse(await body(request));
       if (!context.oauthClients)
         throw new Fault(
           "setup_required",
@@ -326,20 +318,7 @@ export async function handle(
       return json({ ok: true, providerCleanupPending });
     }
     if (path === "/v1/agent-connections" && method === "POST") {
-      const b = z
-        .object({
-          name: z.string().min(1).max(64),
-          ttlSeconds: z
-            .number()
-            .int()
-            .min(60)
-            .max(2592000)
-            .nullable()
-            .default(86400),
-          access: z.enum(["read", "act"]).default("act"),
-        })
-        .strict()
-        .parse(await body(request));
+      const b = createAgentConnectionSchema.parse(await body(request));
       return json(
         await hub.createConnection(
           p,
@@ -362,14 +341,7 @@ export async function handle(
       ["/v1/device-setup-tokens", "/v1/sdk-tokens"].includes(path) &&
       method === "POST"
     ) {
-      const b = z
-        .object({
-          name: z.string().min(1).max(64),
-          ttlSeconds: z.number().int().min(60).max(86400).default(600),
-          deviceLimit: z.number().int().min(1).max(20).default(1),
-        })
-        .strict()
-        .parse(await body(request));
+      const b = createSetupTokenSchema.parse(await body(request));
       return json(
         await hub.createConnection(
           p,
@@ -390,43 +362,17 @@ export async function handle(
     if (connectionRevoke && method === "POST")
       return json(hub.revokeConnection(p, connectionRevoke[1]!));
     if (path === "/v1/grants" && method === "POST") {
-      const b = z
-        .object({
-          principal: z.string().min(1).max(128),
-          deviceId: z.string().uuid(),
-          capabilities: z.array(caps).min(1).max(16),
-          ttlSeconds: z
-            .number()
-            .int()
-            .min(1)
-            .max(86400)
-            .nullable()
-            .default(3600),
-        })
-        .strict()
-        .parse(await body(request));
+      const b = grantRequestSchema.parse(await body(request));
       return json(
         hub.grant(p, b.principal, b.deviceId, b.capabilities, b.ttlSeconds),
       );
     }
     if (path === "/v1/grants/revoke" && method === "POST") {
-      const b = z
-        .object({ principal: z.string(), deviceId: z.string().uuid() })
-        .strict()
-        .parse(await body(request));
+      const b = revokeGrantRequestSchema.parse(await body(request));
       return json(hub.revokeGrant(p, b.principal, b.deviceId));
     }
     if (path === "/v1/broadcasts" && method === "POST") {
-      const b = z
-        .object({
-          deviceIds: z.array(z.string().uuid()).min(1).max(20),
-          capability: caps,
-          arguments: z.record(z.string(), z.unknown()),
-          idempotencyKey: z.string().min(1).max(64),
-          ttlSeconds: z.number().int().min(1).max(300).default(30),
-        })
-        .strict()
-        .parse(await body(request));
+      const b = broadcastRequestSchema.parse(await body(request));
       return json(
         hub.broadcast(
           p,
@@ -443,15 +389,7 @@ export async function handle(
     if (revoke && method === "POST") return json(hub.revoke(p, revoke[1]!));
     const action = /^\/v1\/devices\/([a-f0-9-]{36})\/actions$/.exec(path);
     if (action && method === "POST") {
-      const b = z
-        .object({
-          capability: caps,
-          arguments: z.record(z.string(), z.unknown()),
-          idempotencyKey: z.string().min(1).max(128),
-          ttlSeconds: z.number().int().min(1).max(300).default(30),
-        })
-        .strict()
-        .parse(await body(request));
+      const b = actionRequestSchema.parse(await body(request));
       return json(
         hub.request(
           p,

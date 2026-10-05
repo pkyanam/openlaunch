@@ -1,0 +1,73 @@
+---
+title: ol command-line client
+related: [/api, /agents, /sdk]
+description: Install ol on your PATH, connect an agent API credential, discover granted functions and follow device action results.
+search:
+  keywords: [CLI, PATH, installer, ol, terminal, agent]
+  boost: 2
+---
+
+`ol` is the installed Node command-line client for the same API used by MCP and the console. It prints JSON for agents and scripts. It requires Node 24+, npm, curl and Python 3 on macOS or Linux.
+
+## Install once
+
+```sh
+{{cli-install}}
+```
+
+The installer checks the SDK archive against the deployed SHA-256 manifest and installs `ol`, `openlaunch-agent` and `openlaunch-device` in `~/.local/bin`. It adds that directory to zsh, bash, sh or fish configuration without sudo. Open a new terminal and restart your agent application so it inherits the updated PATH. An agent running as another user needs its own installation and credentials. A sandbox may require its own PATH configuration.
+
+```sh
+ol --version
+ol --help
+```
+
+`~/.local/bin/ol` works immediately in the current terminal. Rerun the installer to update to the checked deployment. It preserves existing shell configuration and refuses to overwrite unrelated executables. Inspect [the script](/install-cli.sh) and [download manifest](/downloads/installers.json) first if desired.
+
+## Connect an agent
+
+In **Connections → API**, create an agent API credential with the needed read/action access. In **Devices → your device → Access**, grant that connection the functions you want it to use. Then run:
+
+```sh
+ol login
+ol devices list
+ol functions list
+```
+
+Paste the `ol_agent_` credential into the hidden prompt. Login verifies it through read-only function discovery and saves it in `~/.config/openlaunch/agent.json` with private file permissions. It creates no tokens or grants. Device setup tokens and owner sessions cannot log in to `ol`. Keep this private file out of source control, shared folders and agent prompts.
+
+For a custom service origin, use `ol login --url https://your-service.example`. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login; `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides. OAuth-aware MCP hosts continue to manage their own OAuth connection.
+
+An empty list means this connection currently has no visible granted functions. Being online does not give an agent access. ChatGPT through Executor uses **Executor's** OAuth grant; the CLI uses its own API connection.
+
+## Invoke and follow a result
+
+Use a device ID and function from the live discovery output. For an approved health check:
+
+```sh
+ol call DEVICE_ID device.health
+ol actions watch ACTION_ID
+```
+
+The call returns an action receipt and idempotency key. Copy its action ID into `watch`. A new action gets a fresh key; after an uncertain request failure, retry identical arguments with the reported `--key`. Expiry defaults to 30 seconds; `--ttl` accepts 1–300 seconds.
+
+For a custom function, pass its exact JSON object arguments:
+
+```sh
+ol functions list --device DEVICE_ID
+ol call DEVICE_ID custom.sensor.read '{"channel":1}'
+ol actions get ACTION_ID
+ol actions cancel ACTION_ID
+```
+
+The sensor call is an example: it works only if your adapter implements and advertises that schema and the owner grants it. Cancellation succeeds only before dispatch. `watch` prints status changes until a terminal result or timeout. `queued` and `received` are pending; `unknown` requires inspecting the device before issuing more work. A receipt cannot prove physical hardware behavior on its own.
+
+## Disconnect
+
+```sh
+ol logout
+```
+
+Logout removes this computer's saved credential. Revoke the API connection in **Connections** to stop its server access and remove its grants. An environment-supplied token remains active until separately cleared or revoked.
+
+See the [end-to-end API guide](/api), [endpoint reference](/reference) and [agent MCP setup](/agents).

@@ -49,8 +49,19 @@ def verify(commit):
         assert status == 200 and b'Belweave' in body and b'info@belweave.com' in body, f'policy unavailable: {policy}'
         status, _, body = response(ORIGIN + '/docs/' + policy + '.md')
         assert status == 200 and b'Belweave' in body, f'Markdown policy unavailable: {policy}'
+    status, _, body = response(ORIGIN + '/device-api.json')
+    assert status == 200, 'device OpenAPI contract unavailable'
+    contract = json.loads(body)
+    assert contract.get('openapi') == '3.1.0' and contract['servers'][0]['url'] == ORIGIN, 'device API contract mismatch'
+    assert '/v1/functions' in contract['paths'] and '/v1/device/{deviceId}/result' in contract['paths'], 'device API routes missing'
+    for public, expected in [('/docs/cli.md', b'ol login'),
+                             ('/docs/reference/agent/post-v1-devices-device-id-actions.md', b'requestAction'),
+                             ('/changelog/rss.xml', b'2026')]:
+        status, _, body = response(ORIGIN + public)
+        assert status == 200 and expected in body, f'integration documentation unavailable: {public}'
     for source, public in [
         ('scripts/setup.sh', '/setup.sh'),
+        ('scripts/install-cli.sh', '/install-cli.sh'),
         ('scripts/setup.py', '/downloads/setup.py'),
         ('scripts/install.sh', '/install.sh'),
         ('scripts/install-pi.sh', '/install-pi.sh'),

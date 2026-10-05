@@ -102,6 +102,9 @@ assert.equal(
   "SDK setup URL must distinguish this deployment from npm's cached CLI",
 );
 for (const filename of [
+  "setup.sh",
+  "setup.py",
+  "install-cli.sh",
   "install.sh",
   "install-pi.sh",
   "setup-uno.sh",
@@ -109,9 +112,7 @@ for (const filename of [
   "provision-roomba.py",
   "provision-esp32.py",
 ]) {
-  const path = filename.startsWith("provision-")
-    ? `downloads/${filename}`
-    : filename;
+  const path = filename.endsWith(".py") ? `downloads/${filename}` : filename;
   const original = await readFile(
     new URL(`../scripts/${filename}`, import.meta.url),
   );
@@ -175,6 +176,50 @@ try {
   const pages = JSON.parse(list.content[0].text);
   assert(pages.some((x) => x.route === "/"));
   assert(pages.some((x) => x.route === "/docs/agents"));
+  assert(pages.some((x) => x.route === "/docs/cli"));
+  assert(pages.some((x) => x.route === "/docs/reference"));
+  const actionReference = pages.find(
+    (x) =>
+      x.route === "/docs/reference/agent/post-v1-devices-device-id-actions",
+  );
+  assert(
+    actionReference,
+    "action endpoint must be discoverable through documentation MCP",
+  );
+  const actionPage = await client.callTool({
+    name: "get_page",
+    arguments: { route: actionReference.route },
+  });
+  assert(
+    actionPage.content[0].text.includes("ol call"),
+    "operation Markdown must include CLI examples",
+  );
+  assert(
+    actionPage.content[0].text.includes("requestAction"),
+    "operation Markdown must include SDK examples",
+  );
+  const contract = JSON.parse(
+    await readFile(new URL("device-api.json", root), "utf8"),
+  );
+  assert.equal(contract.servers[0].url, "https://www.openlaunch.dev");
+  assert(contract.paths["/v1/functions"].get);
+  assert(contract.paths["/v1/device/{deviceId}/result"].post);
+  const cliMarkdown = await readFile(new URL("docs/cli.md", root), "utf8");
+  assert(cliMarkdown.includes("install-cli.sh"));
+  assert(
+    !cliMarkdown.includes("{{cli-install}}"),
+    "content variables must resolve for agents",
+  );
+  await access(new URL("changelog/rss.xml", root));
+  const referenceHtml = await readFile(
+    new URL(actionReference.route.slice(1) + "/index.html", root),
+    "utf8",
+  );
+  assert(
+    referenceHtml.includes('href="/console/"'),
+    "global console link must retain the current site's host",
+  );
+  assert(!referenceHtml.includes('href="/docs/console/"'));
   for (const page of pages) {
     const path = page.route === "/" ? "index.md" : page.route.slice(1) + ".md";
     await access(fileURLToPath(new URL(path, root)));

@@ -2,10 +2,17 @@
 /// <reference types="node" />
 /** Dynamic command-line client for agent connections. */
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { stderr, stdout } from "node:process";
+import { readFileSync, realpathSync } from "node:fs";
+import { stderr, stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
 import { createClient, OpenLaunchError, sdkTokenWorkspace } from "./index.js";
+import {
+  readAgentConfig,
+  removeAgentConfig,
+  validateAgentConfig,
+  writeAgentConfig,
+} from "./agent-config.js";
+import { askSecret } from "./secret.js";
 
 const DEFAULT_URL = "https://www.openlaunch.dev";
 const TERMINAL = new Set([
@@ -30,13 +37,18 @@ class AgentCliCallError extends Error {
 function usage(): string {
   return [
     "Usage:",
+    "  ol login [--url HTTPS_ORIGIN]",
+    "  ol logout",
+    "  ol --version",
     "  ol devices list",
     "  ol functions list [--device DEVICE_ID]",
     "  ol call DEVICE_ID FUNCTION [ARGUMENTS_JSON] [--key KEY] [--ttl SECONDS]",
     "  ol actions get ACTION_ID",
+    "  ol actions cancel ACTION_ID",
     "  ol actions watch ACTION_ID [--interval-ms MS] [--timeout-seconds SECONDS]",
     "",
-    "Set OPENLAUNCH_AGENT_TOKEN. Optionally set OPENLAUNCH_URL and OPENLAUNCH_WORKSPACE.",
+    "ol login prompts for an agent API credential and stores it privately on this computer.",
+    "OPENLAUNCH_AGENT_TOKEN overrides saved login; OPENLAUNCH_URL and OPENLAUNCH_WORKSPACE are optional.",
   ].join("\n");
 }
 
@@ -164,10 +176,15 @@ async function execute(
     writeJson(output, { idempotencyKey, action });
     return;
   }
-  if (group === "actions" && command === "get") {
+  if (group === "actions" && (command === "get" || command === "cancel")) {
     const { positional, options } = parseOptions(rawArgs);
     if (positional.length !== 1 || options.size) throw new Error(usage());
-    writeJson(output, await client.getAction(positional[0]));
+    writeJson(
+      output,
+      await (command === "get"
+        ? client.getAction(positional[0])
+        : client.cancelAction(positional[0])),
+    );
     return;
   }
   if (group === "actions" && command === "watch") {
@@ -218,15 +235,21 @@ export async function runAgentCli(
   dependencies: {
     fetch?: typeof fetch;
     sleep?: (milliseconds: number) => Promise<void>;
+    configDirectory?: string;
   } = {},
 ): Promise<void> {
-  const token = environment.OPENLAUNCH_AGENT_TOKEN;
+  const saved = environment.OPENLAUNCH_AGENT_TOKEN
+    ? undefined
+    : await readAgentConfig(dependencies.configDirectory);
+  const token = environment.OPENLAUNCH_AGENT_TOKEN ?? saved?.token;
   if (!token)
-    throw new Error("Set OPENLAUNCH_AGENT_TOKEN to an agent API credential");
+    throw new Error(
+      "Run ol login or set OPENLAUNCH_AGENT_TOKEN to an agent API credential",
+    );
   const workspace =
     environment.OPENLAUNCH_WORKSPACE ?? sdkTokenWorkspace(token);
   const client = createClient({
-    url: environment.OPENLAUNCH_URL ?? DEFAULT_URL,
+    url: environment.OPENLAUNCH_URL ?? saved?.url ?? DEFAULT_URL,
     token,
     ...(workspace ? { workspace } : {}),
     ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
@@ -244,6 +267,47 @@ async function main() {
   try {
     if (process.argv[2] === "--help" || process.argv[2] === "-h") {
       stdout.write(`${usage()}\n`);
+      return;
+    }
+    if (process.argv[2] === "--version") {
+      stdout.write(
+        `${JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version}\n`,
+      );
+      return;
+    }
+    if (process.argv[2] === "login") {
+      const { positional, options } = parseOptions(process.argv.slice(3));
+      if (positional.length || [...options.keys()].some((key) => key !== "url"))
+        throw new Error(usage());
+      stdout.write(
+        "Create a separate agent API credential in Connections, then paste it here.\n",
+      );
+      const config = validateAgentConfig({
+        version: 1,
+        url: options.get("url") ?? process.env.OPENLAUNCH_URL ?? DEFAULT_URL,
+        token:
+          process.env.OPENLAUNCH_AGENT_TOKEN ??
+          (await askSecret(
+            "Agent API token (hidden): ",
+            stdin,
+            stdout,
+            "OPENLAUNCH_AGENT_TOKEN",
+          )),
+      });
+      // Validate the existing credential with read-only discovery; login creates no grants or tokens.
+      await createClient(config).listFunctions();
+      await writeAgentConfig(config);
+      stdout.write(
+        "Saved private agent login. Run ol devices list and ol functions list.\n",
+      );
+      return;
+    }
+    if (process.argv[2] === "logout") {
+      if (process.argv.length !== 3) throw new Error(usage());
+      await removeAgentConfig();
+      stdout.write(
+        "Removed saved login. Revoke the API connection in the console to stop access elsewhere.\n",
+      );
       return;
     }
     await runAgentCli(process.argv.slice(2));

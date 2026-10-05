@@ -1,9 +1,25 @@
 ---
-title: API reference
+title: API workflow
+related: [/cli, /sdk, /pairing]
 description: Explore authentication, device grants, action requests, custom functions and results in the shared openlaunch API.
 ---
 
 The web console, MCP and device clients use the same command service and permission checks.
+
+Use the [generated endpoint reference](/reference) for every endpoint's request and response schema, authentication, errors and examples. [Download the OpenAPI 3.1 contract](/device-api.json) for your tooling. It is generated from shared request validators on each build. The site's separate `/openapi.json` describes its public documentation JSON API.
+
+The hosted base URL is `{{api-url}}`. The reference's **Try it** panel sends a real request to this service when you press Send. Supply the correct credential for the endpoint and only request an action you intend to run. It does not acquire owner sessions, create grants for an agent or automatically connect your OAuth account. Credentials stay in browser memory unless you explicitly enable the panel's Remember setting.
+
+## End-to-end agent flow
+
+1. Pair a device with a separate device setup token and save its private child identity.
+2. Create an agent API connection or register and complete OAuth for your MCP host.
+3. In device **Access**, grant that exact connection the required functions. ChatGPT through Executor uses the Executor connection.
+4. Read `/v1/devices` and `/v1/functions`. Choose a returned device and use its exact current argument schema.
+5. Request `/v1/devices/{id}/actions` with a new idempotency key and bounded TTL. HTTP 202 means queued.
+6. Read `/v1/actions/{id}` until terminal status. Inspect the result; a firmware acknowledgment does not independently prove physical operation.
+
+The [ol CLI](/cli) follows this flow with `ol login`, `ol functions list`, `ol call` and `ol actions watch`. The [SDK guide](/sdk) shows the equivalent typed client. MCP's stable `list_functions` and `invoke_device_function` use the same catalog and authorization.
 
 ## Authentication
 

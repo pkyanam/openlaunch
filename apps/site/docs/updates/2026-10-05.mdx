@@ -1,0 +1,18 @@
+---
+title: OAuth connections and simpler setup
+description: Custom OAuth clients, current function discovery, checksum-verified setup and protected Uno build profiles for openlaunch users.
+type: changelog
+date: 2026-10-05
+changelog:
+  category: Integrations and setup
+---
+
+openlaunch now supports owner-registered OAuth clients for Executor and other MCP hosts, with exact callbacks, PKCE, consent and a read/action ceiling. Registering a client and granting device functions remain separate steps. ChatGPT through Executor uses the Executor connection's grant.
+
+The device and documentation MCP endpoints support 2026-07-28 requests and earlier handshake-based clients. Stable function listing and invocation let agents use newly granted custom functions even when a host caches its initial tool list. Optional MCP features are advertised only when implemented.
+
+The [hosted setup menu](/docs/setup) verifies helper and SDK downloads against the checked deployment's checksum manifest. Fresh local installations use that deployed GitHub commit. The README now covers separate setup, agent and grant credentials and short setup commands.
+
+The prepared Roomba sketch uses Serial1 D0/D1 and BRC D5 without requiring D6/D7 contacts by default. It retains bounded direct wheel/brush commands, Safe mode, replay protection and correlated result journals. The guided firmware build preserves the matching custom ESP console-mux image and never flashes either chip. The application still needs owner flashing and physical robot acceptance.
+
+These software changes were deployed and verified at [adee2bf](https://github.com/pkyanam/openlaunch/commit/adee2bf3bc2783b335e13f69e8f72af5aca5e5d8). They do not establish physical Roomba operation. See [verification status](/docs/status).

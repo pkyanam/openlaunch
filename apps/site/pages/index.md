@@ -22,6 +22,12 @@ curl -fsSL https://www.openlaunch.dev/install.sh | bash
 
 Device pairing creates a private device credential. The owner separately grants an agent specific functions on that device. Devices poll every 10 seconds. A queued action has not completed: inspect its final result.
 
+## API, MCP and CLI
+
+[Endpoint reference](/docs/reference) · [OpenAPI contract](/device-api.json) · [MCP connection guide](/docs/agents) · [ol CLI installer and guide](/docs/cli) · [Updates](/changelog)
+
+The API, MCP and CLI discover the same granted functions and share action receipts. Install ol with `curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash`, open a new terminal and run `ol login`.
+
 ## Build and learn
 
 [Device and agent SDK](/docs/sdk) · [Permissions](/docs/pairing) · [Agent connections](/docs/agents) · [Verification](/docs/status) · [Upstream SDKs, OS images and tools](/docs/resources)

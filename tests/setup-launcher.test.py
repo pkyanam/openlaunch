@@ -75,6 +75,77 @@ class SetupTests(unittest.TestCase):
                     setup.helper_command('uno', [], manifest, Path(temporary))
             fetch.assert_not_called()
 
+    def test_cli_install_uses_user_prefix_and_adds_path_once_without_touching_links(self):
+        data = b'fixture archive'
+        manifest = {'commit': COMMIT, 'sdk': {
+            'url': setup.ORIGIN + '/downloads/openlaunch-sdk.tgz?commit=' + COMMIT,
+            'sha256': hashlib.sha256(data).hexdigest(),
+        }}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            user = directory / 'user'
+            user.mkdir()
+            target = directory / 'external-profile'
+            target.write_text('preserve\n')
+            (user / '.zprofile').symlink_to(target)
+            (user / '.zshrc').write_text('existing config\n')
+            with patch.object(setup, 'fetch', return_value=data), patch.object(setup.shutil, 'which', return_value='/tool'), patch.object(setup.subprocess, 'run') as run:
+                for _ in range(2):
+                    setup.install_cli(manifest, directory, user, {'SHELL': '/bin/zsh'})
+            self.assertEqual(target.read_text(), 'preserve\n')
+            profile = (user / '.zshrc').read_text()
+            self.assertTrue(profile.startswith('existing config\n'))
+            self.assertEqual(profile.count('# openlaunch CLI'), 1)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertIn(['npm', 'install', '--global', '--prefix', str(user / '.local'),
+                           '--ignore-scripts', '--no-audit', '--no-fund', str(directory / ('openlaunch-sdk-' + COMMIT + '.tgz'))], commands)
+            self.assertIn([str(user / '.local/bin/ol'), '--help'], commands)
+            self.assertFalse(any('--force' in command or 'sudo' in command for command in commands))
+
+    def test_real_cli_archive_installs_offline_and_refuses_an_unrelated_ol(self):
+        data = (ROOT / 'apps/site/public/downloads/openlaunch-sdk.tgz').read_bytes()
+        manifest = {'commit': COMMIT, 'sdk': {
+            'url': setup.ORIGIN + '/downloads/openlaunch-sdk.tgz?commit=' + COMMIT,
+            'sha256': hashlib.sha256(data).hexdigest(),
+        }}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            user = directory / 'user'
+            with patch.object(setup, 'fetch', return_value=data):
+                setup.install_cli(manifest, directory, user, {'SHELL': '/bin/bash'})
+            cli = user / '.local/bin/ol'
+            result = subprocess.run([str(cli), '--version'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('0.1.0-dev.g', result.stdout)
+            result = subprocess.run([str(cli), '--help'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('ol login', result.stdout)
+            self.assertTrue((user / '.local/bin/openlaunch-device').is_file())
+            self.assertTrue((user / '.local/bin/openlaunch-agent').is_file())
+            cli.unlink()
+            cli.write_text('unrelated program\n')
+            with patch.object(setup, 'fetch', return_value=data):
+                with self.assertRaisesRegex(ValueError, 'unrelated executable'):
+                    setup.install_cli(manifest, directory, user, {'SHELL': '/bin/bash'})
+            self.assertEqual(cli.read_text(), 'unrelated program\n')
+
+    def test_bash_keeps_existing_login_profile_precedence(self):
+        data = b'fixture archive'
+        manifest = {'commit': COMMIT, 'sdk': {
+            'url': setup.ORIGIN + '/downloads/openlaunch-sdk.tgz?commit=' + COMMIT,
+            'sha256': hashlib.sha256(data).hexdigest(),
+        }}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            user = directory / 'user'
+            user.mkdir()
+            (user / '.profile').write_text('existing login configuration\n')
+            with patch.object(setup, 'fetch', return_value=data), patch.object(setup.shutil, 'which', return_value='/tool'), patch.object(setup.subprocess, 'run'):
+                setup.install_cli(manifest, directory, user, {'SHELL': '/bin/bash'})
+            self.assertFalse((user / '.bash_profile').exists())
+            self.assertIn('existing login configuration', (user / '.profile').read_text())
+            self.assertIn('# openlaunch CLI', (user / '.profile').read_text())
+
     def test_help_needs_no_network_or_terminal(self):
         with patch.object(setup, 'fetch') as fetch:
             self.assertEqual(setup.main(['--help']), 0)
@@ -99,14 +170,15 @@ class SetupTests(unittest.TestCase):
                     if not chunk:
                         break
                     output += chunk
-                    if b'Choose setup [1-6]:' in output and not sent:
+                    if b'Choose setup [1-7]:' in output and not sent:
                         os.write(fd, b'0\n')
                         sent = True
-                    if b'Choose a number from 1 to 6.' in output:
+                    if b'Choose a number from 1 to 7.' in output:
                         break
             self.assertIn(b'1. Uno R4 WiFi USB setup', output)
             self.assertIn(b'6. Local developer console', output)
-            self.assertIn(b'Choose a number from 1 to 6.', output)
+            self.assertIn(b'7. Install ol CLI on PATH', output)
+            self.assertIn(b'Choose a number from 1 to 7.', output)
         finally:
             os.close(fd)
             try:

@@ -39,6 +39,26 @@ Use **Connections** for MCP instructions, OAuth client registration, or a separa
 
 The stable MCP tools include `list_devices`, `list_functions`, `invoke_device_function`, health, LED/text helpers, and action status/cancellation. Granted functions also appear as device-specific tools. The generic invocation tool handles custom functions when a host caches an older tool list. See [agent setup](https://www.openlaunch.dev/docs/agents) and the [API reference](https://www.openlaunch.dev/docs/api).
 
+## API, MCP and ol CLI
+
+All three surfaces use the same live function schemas, authorization and action receipts. The [end-to-end API guide](https://www.openlaunch.dev/docs/api) explains the workflow; the [endpoint reference](https://www.openlaunch.dev/docs/reference) includes request/response schemas, errors and executable examples. Download [the OpenAPI contract](https://www.openlaunch.dev/device-api.json) for your own integration.
+
+Install the Node CLI on macOS or Linux with Node 24+, npm, curl and Python 3:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash
+```
+
+The installer verifies the current SDK checksum, installs `ol` in `~/.local/bin` and configures your shell PATH. Open a new terminal and restart your agent app, then run:
+
+```sh
+ol login
+ol devices list
+ol functions list
+```
+
+`ol login` privately prompts for a separate agent API credential from Connections. Grant that API connection functions in device Access. The credential stays in a private local file; setup tokens and owner sessions cannot log in. `ol call DEVICE_ID FUNCTION` queues an approved action, and `ol actions watch ACTION_ID` follows its result. See the [CLI guide](https://www.openlaunch.dev/docs/cli) for JSON arguments, retries, cancellation and logout.
+
 ## Hardware
 
 | Device                 | What the maintained adapter implements                                              | Setup requirements                                                |

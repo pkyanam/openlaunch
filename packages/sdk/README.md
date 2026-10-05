@@ -41,13 +41,14 @@ Use a new idempotency key for each new action. Reuse the same key only when retr
 
 ### Agent CLI
 
-The SDK archive also installs the `ol` agent CLI (`openlaunch-agent` is an alias). Load an `ol_agent_` credential from a secret store into `OPENLAUNCH_AGENT_TOKEN`; the CLI does not accept credentials as arguments. `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides.
+Install `ol` on PATH with `curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash`, then open a new terminal and run `ol login`. The hidden prompt accepts a separate `ol_agent_` API credential and stores it privately in `~/.config/openlaunch/agent.json`. Grant this API connection functions in the console. `openlaunch-agent` is an alias. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login; credentials are never command arguments. `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides.
 
 ```sh
 ol devices list
 ol functions list [--device DEVICE_ID]
 ol call DEVICE_ID FUNCTION [ARGUMENTS_JSON] [--key KEY] [--ttl SECONDS]
 ol actions get ACTION_ID
+ol actions cancel ACTION_ID
 ol actions watch ACTION_ID [--interval-ms MS] [--timeout-seconds SECONDS]
 ```
 
