@@ -160,6 +160,12 @@ Device setup-token revocation and device revocation are separate: revoking a set
 
 The Roomba sketch now defaults to Serial1/BRC wiring without D6/D7 controls. It retains local one-second wheel/brush deadlines, Safe mode, replay/result journals and separate grants. Optional owner-selected contact builds still support D6/D7. Sensor reads drain bounded startup text before querying; a timeout still requires restart. Health exposes the wiring policy and readiness without stopping autonomous cleaning. Source/compile validation is separate from installing the new RA sketch and observing the robot. Keep the repaired ESP image and console-mux transport intact; update only the RA application using the explicitly selected artifact.
 
+The October 5 link correction adds a separate wake pulse before baud selection
+and a real OI-mode reply check. Motion commands reserve initialization time and
+require a fresh mode response. Saved terminal receipts can reconcile after TTL
+without rerunning hardware, preventing a lost acknowledgment from permanently
+blocking cloud polling. See the [link and receipt details](UNO-R4-PROFILES.md#roomba-link-initialization-and-receipts).
+
 ## Custom OAuth clients and current MCP
 
 Connections now includes an OAuth clients panel for Executor and custom hosts.

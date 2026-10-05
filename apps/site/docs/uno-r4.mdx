@@ -43,3 +43,22 @@ Choose **Uno** for LED/matrix firmware, or **ArduRoomba** for the Roomba sketch.
 The firmware stores its device identity in EEPROM. Use an appropriate test network. TLS verification and a valid clock are mandatory. Firmware compile success does not establish physical operation: confirm real health/RSSI, physically observe the LED and matrix, then run the [permission acceptance checks](/pairing). Physical board acceptance remains pending; see [Verification](/status).
 
 The console does not need your USB port. Connect one Uno R4 WiFi and run its setup command; the helper uses Arduino CLI to detect the board locally. If several Unos are connected, disconnect the others or pass `--port` to select the intended one. Detection never flashes firmware or chooses the stock versus console-mux profile. Agents use a separate `ol_agent_` API connection or OAuth; the setup token cannot authenticate them.
+
+## ArduRoomba link checks
+
+The Roomba 551 adapter uses D0/D1 serial at 19200 baud and D5 BRC. D6/D7 are
+unused in the default harness. Initialization wakes the robot before selecting
+baud, stops outputs, and returns to Passive mode for idle charging. Before
+cleaning or motion, firmware requires a fresh OI-mode response; direct wheel
+and brush bursts require Safe mode and stop within one second.
+
+Device health reports `roombaLinkVerified`, `oiMode`, `linkError`, and the time
+of the last link check. It does not interrupt autonomous cleaning. Online means
+the Uno is reachable, not that the Roomba replied. A serial timeout requires
+checking wiring, waking the Roomba, and restarting the adapter. Older robots
+may need physical CLEAN wake while docked.
+
+Activity distinguishes **Serial command sent · operation unverified** from an
+observed hardware result. A valid serial reply confirms communication; it does
+not establish that cleaning began. Saved receipts reconcile without replaying
+commands or resetting pairing. Read the [transport and link guide](https://github.com/pkyanam/openlaunch/blob/main/docs/UNO-R4-PROFILES.md#roomba-link-initialization-and-receipts).

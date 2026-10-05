@@ -383,7 +383,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               : current.status === "received"
                 ? "The device received the request. Waiting for its result…"
                 : current.status === "succeeded"
-                  ? "The device reported success. See the receipt for its result."
+                  ? current.result?.physicalVerified === false &&
+                    current.result?.transport === "serial_command_sent"
+                    ? "Serial command sent. Physical operation is unverified."
+                    : "The device reported success. See the receipt for its result."
                   : current.status === "unknown"
                     ? "The outcome is unknown. Check the device before trying again."
                     : `Action ${current.status}. See the receipt for details.`,
@@ -1825,7 +1828,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               ? "Queued · waiting for device"
                               : receipt.status === "received"
                                 ? "Received · device is processing"
-                                : `Finished · ${receipt.status}`}
+                                : receipt.status === "succeeded" &&
+                                    receipt.result?.physicalVerified ===
+                                      false &&
+                                    receipt.result?.transport ===
+                                      "serial_command_sent"
+                                  ? "Serial command sent · operation unverified"
+                                  : `Finished · ${receipt.status}`}
                           </span>
                           <time>
                             {receipt.createdAt

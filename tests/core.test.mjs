@@ -71,13 +71,24 @@ test("permission, idempotency and acknowledgement lifecycle", async () => {
 test("until-revoked grant authorizes transport after time advances and revocation still cancels", async () => {
   const { h, d, setTime } = await fixture();
   h.grant(owner, "agent", d.deviceId, ["led.set"], null);
-  assert.deepEqual(h.grants(owner).map((g) => g.expiresAt), [null]);
+  assert.deepEqual(
+    h.grants(owner).map((g) => g.expiresAt),
+    [null],
+  );
   setTime(90 * 24 * 60 * 60 * 1000);
   h.state.devices[0].lastSeen = 90 * 24 * 60 * 60 * 1000;
-  const queued = h.request(agent, d.deviceId, "led.set", { on: true }, "long-lived");
+  const queued = h.request(
+    agent,
+    d.deviceId,
+    "led.set",
+    { on: true },
+    "long-lived",
+  );
   assert.equal(h.next(d.deviceId).id, queued.id);
   h.revokeGrant(owner, "agent", d.deviceId);
-  assert.throws(() => h.request(agent, d.deviceId, "led.set", { on: false }, "revoked"));
+  assert.throws(() =>
+    h.request(agent, d.deviceId, "led.set", { on: false }, "revoked"),
+  );
 });
 test("queued expiry differs from ambiguous dispatched expiry", async () => {
   const { h, d, setTime } = await fixture();
@@ -90,6 +101,54 @@ test("queued expiry differs from ambiguous dispatched expiry", async () => {
   setTime(3000);
   assert.equal(h.get(owner, b.id).status, "unknown");
   assert.throws(() => h.result(d.deviceId, b.id, "succeeded", {}));
+});
+test("a saved receipt can be reconciled after TTL without admitting a late new outcome", async () => {
+  const { h, d, setTime } = await fixture();
+  const action = h.request(
+    owner,
+    d.deviceId,
+    "device.health",
+    {},
+    "saved-receipt",
+    1,
+  );
+  h.next(d.deviceId);
+  const result = {
+    physicalVerified: false,
+    nested: { value: 2 },
+    accepted: true,
+  };
+  h.result(d.deviceId, action.id, "succeeded", result);
+  setTime(5000);
+  assert.equal(
+    h.result(d.deviceId, action.id, "succeeded", {
+      accepted: true,
+      nested: { value: 2 },
+      physicalVerified: false,
+    }).status,
+    "succeeded",
+  );
+  assert.throws(() => h.result(d.deviceId, action.id, "failed", result));
+  assert.throws(() =>
+    h.result(d.deviceId, action.id, "succeeded", {
+      ...result,
+      accepted: false,
+    }),
+  );
+  const unreported = h.request(
+    owner,
+    d.deviceId,
+    "device.health",
+    {},
+    "unreported",
+    1,
+  );
+  h.next(d.deviceId);
+  setTime(10000);
+  assert.throws(() => h.result(d.deviceId, unreported.id, "succeeded", result));
+  assert.equal(h.get(owner, unreported.id).status, "unknown");
+  h.revoke(owner, d.deviceId);
+  assert.throws(() => h.result(d.deviceId, action.id, "succeeded", result));
 });
 test("revocation cancels queued commands and denies credentials", async () => {
   const { h, d } = await fixture();

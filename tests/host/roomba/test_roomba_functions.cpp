@@ -9,10 +9,14 @@ class TestIO : public RoombaDriveIO {
   uint32_t now = 0;
   uint32_t disarmAt = 0;
   bool armed = true;
+  bool budget = true, expireDuringWake = false;
+  int wakes = 0;
   uint32_t nowMs() override { return now++; }
   bool locallyArmed() override { return armed && (!disarmAt || now < disarmAt); }
   void drive(int16_t, int16_t) override {}
   void stop() override {}
+  void wakeForControl() override { ++wakes; if (expireDuringWake) budget = false; }
+  bool controlWindowAvailable(uint16_t) override { return budget; }
 };
 
 static JsonObjectConst argsWith(JsonDocument& doc, const char* key, int value) {
@@ -21,7 +25,26 @@ static JsonObjectConst argsWith(JsonDocument& doc, const char* key, int value) {
   return args;
 }
 
+struct WakeClock { uint32_t now = 0; void wait(uint16_t ms) { now += ms; } };
+struct WakePin {
+  WakeClock& clock;
+  uint32_t times[9] = {};
+  bool levels[9] = {};
+  int count = 0;
+  explicit WakePin(WakeClock& c) : clock(c) {}
+  void set(bool high) { assert(count < 9); times[count] = clock.now; levels[count++] = high; }
+};
+
 int main() {
+  WakeClock wakeClock; WakePin wakePin(wakeClock);
+  wakeAndSelectRoombaBaud(wakePin, wakeClock);
+  assert(wakePin.count == 9 && wakeClock.now == 2800);
+  assert(wakePin.levels[0] && !wakePin.levels[1] && wakePin.levels[2]);
+  assert(wakePin.times[2] == 100 && wakePin.times[3] == 2100);
+  for (int i = 3; i < 9; i += 2) {
+    assert(!wakePin.levels[i] && wakePin.levels[i + 1]);
+    assert(wakePin.times[i + 1] - wakePin.times[i] == 100);
+  }
   assert(roombaPacketLength(7) == 1);
   assert(roombaPacketLength(15) == 1);
   assert(roombaPacketLength(16) == 0);
@@ -34,6 +57,9 @@ int main() {
   assert(roombaPacketLength(43) == 0);
 
   ArduRoomba roomba;
+  returnRoombaToPassiveIdle(roomba);
+  assert(roomba.serialPort.writes == 1 && roomba.serialPort.lastWrite == 128);
+  assert(roomba.actuatorInterface.cleanCount == 0 && roomba.movementInterface.directCount == 0);
   TestIO io;
   RoombaLocalControl serialOnly(ROOMBA_REQUIRE_LOCAL_CONTACTS);
   io.armed = serialOnly.allows(true, false, false);
@@ -88,6 +114,51 @@ int main() {
   assert(handled && strcmp(error, "serial_link_desynced") == 0);
   assert(roomba.sensorInterface.queries == queriesBeforeRetry);
 
+  // A "connected" library flag cannot authorize a clean without a reply.
+  argsDoc.clear(); resultDoc.clear();
+  JsonObject disconnectedClean = argsDoc.to<JsonObject>(); disconnectedClean["mode"] = "standard";
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "serial_link_desynced") == 0);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  assert(roomba.sensorInterface.queries == queriesBeforeRetry);
+
+  // Simulate a reboot for each independently failed, unframed transaction.
+  roombaSensorLinkDesynced = false;
+  roomba.sensorInterface.reply = false;
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "serial_timeout") == 0 && !roombaLinkVerified);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  roombaSensorLinkDesynced = false; roomba.sensorInterface.reply = true;
+  roomba.sensorInterface.oiMode = 65; // Startup ASCII is not an OI mode.
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "invalid_oi_response") == 0 && !roombaLinkVerified);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  roombaSensorLinkDesynced = false; roomba.sensorInterface.oiMode = 0;
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "roomba_oi_off") == 0 && roombaLinkVerified);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  roomba.sensorInterface.oiMode = 3;
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "unexpected_full_mode") == 0);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  roomba.sensorInterface.oiMode = 2;
+  io.expireDuringWake = true;
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "clock_unavailable_or_expired") == 0);
+  assert(roomba.actuatorInterface.cleanCount == 0);
+  io.expireDuringWake = false;
+  const int wakesBeforeExpired = io.wakes;
+  assert(handleRoombaFeature("roomba.clean", disconnectedClean, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "clock_unavailable_or_expired") == 0 && io.wakes == wakesBeforeExpired);
+  io.budget = true;
+
   argsDoc.clear(); resultDoc.clear();
   roomba.sensorInterface.reply = true;
   args = argsWith(argsDoc, "packetId", 16);
@@ -130,12 +201,15 @@ int main() {
   io.armed = serialOnly.allows(true, false, false); io.disarmAt = 0;
   argsDoc.clear(); resultDoc.clear();
   JsonObject clean = argsDoc.to<JsonObject>(); clean["mode"] = "standard";
+  roomba.sensorInterface.oiMode = 1; // Charger may keep the robot in Passive.
   assert(handleRoombaFeature("roomba.clean", clean, roomba, io,
       resultDoc.to<JsonObject>(), error));
   assert(error == nullptr && roomba.actuatorInterface.cleanCount == 1);
   assert(resultDoc["transport"] == "serial_command_sent");
   assert(resultDoc["behavior"] == "robot_autonomous");
   assert(resultDoc["physicalVerified"] == false);
+  assert(resultDoc["roombaLinkVerified"] == true);
+  roomba.sensorInterface.oiMode = 2;
 
   argsDoc.clear(); resultDoc.clear();
   clean = argsDoc.to<JsonObject>(); clean["mode"] = "spot";
@@ -161,10 +235,16 @@ int main() {
   JsonObject recovery = argsDoc.to<JsonObject>();
   assert(handleRoombaFeature("roomba.resume_safe", recovery, roomba, io,
       resultDoc.to<JsonObject>(), error));
-  assert(error == nullptr && roomba.resumeCount == 1);
+  assert(error == nullptr && roombaLinkVerified && roombaOiMode == 2);
   argsDoc.clear(); resultDoc.clear();
   JsonObject wheels = argsDoc.to<JsonObject>();
   wheels["rightMmS"] = 100; wheels["leftMmS"] = 100; wheels["durationMs"] = 1000;
+  roomba.sensorInterface.oiMode = 1;
+  assert(handleRoombaFeature("roomba.drive_direct", wheels, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(strcmp(error, "roomba_safe_mode_unavailable") == 0);
+  assert(roomba.movementInterface.directCount == 0);
+  roomba.sensorInterface.oiMode = 2;
   const int stoppedBeforeWheels = roomba.stopCount;
   assert(handleRoombaFeature("roomba.drive_direct", wheels, roomba, io,
       resultDoc.to<JsonObject>(), error));
@@ -232,5 +312,15 @@ int main() {
   assert(!readJsonUnsignedInteger(envelope["string"], timestamp));
   assert(!readJsonUnsignedInteger(envelope["tooLarge"], timestamp));
   assert(!readJsonUnsignedInteger(envelope["missing"], timestamp));
+  JsonDocument expectedReceipt, actualReceipt;
+  assert(!deserializeJson(expectedReceipt, "{\"accepted\":true,\"nested\":{\"bytes\":[1,2],\"optional\":null}}"));
+  assert(!deserializeJson(actualReceipt, "{\"nested\":{\"optional\":null,\"bytes\":[1,2]},\"accepted\":true}"));
+  assert(roombaResultJsonEqual(expectedReceipt.as<JsonVariantConst>(), actualReceipt.as<JsonVariantConst>()));
+  actualReceipt["accepted"] = 1;
+  assert(!roombaResultJsonEqual(expectedReceipt.as<JsonVariantConst>(), actualReceipt.as<JsonVariantConst>()));
+  actualReceipt["accepted"] = true; actualReceipt["nested"]["bytes"][0] = 2;
+  assert(!roombaResultJsonEqual(expectedReceipt.as<JsonVariantConst>(), actualReceipt.as<JsonVariantConst>()));
+  assert(!deserializeJson(actualReceipt, "{\"nested\":{\"different\":null,\"bytes\":[1,2]},\"accepted\":true}"));
+  assert(!roombaResultJsonEqual(expectedReceipt.as<JsonVariantConst>(), actualReceipt.as<JsonVariantConst>()));
   return 0;
 }

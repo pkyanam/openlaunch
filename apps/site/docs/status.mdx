@@ -36,7 +36,7 @@ The public Node installer and official Codex OAuth client were exercised togethe
 
 ## Physical device acceptance
 
-Physical acceptance remains open. Pi and Uno checks for network access, TLS and time synchronization, provisioning, power loss and reconnect have not been completed. The WebSocket wake path has been checked with software fixtures only. Durable result journals reduce duplicate work after interrupted result uploads, but neither device promises exactly-once physical execution.
+Physical output acceptance remains open. Pi hardware checks are pending. The repaired Uno has completed pairing, hosted health and reconnection checks, and returned a real Roomba OI-mode reply over serial. Cleaning, docking, wheel/brush motion and stopping distance remain unverified. Power-loss acceptance is incomplete. The WebSocket wake path has been checked with software fixtures only. Durable result journals reduce duplicate work after interrupted result uploads, but neither device promises exactly-once physical execution.
 
 ## Try openlaunch
 
@@ -46,4 +46,11 @@ Start in the [hosted console](https://www.openlaunch.dev/console/), follow [setu
 
 On October 4, 2026, the console-mux Roomba sketch retained its paired identity after a main-chip upload, automatically published 13 functions, and completed a real hosted health request. The custom ESP firmware was preserved. The Roomba was not wired to the Uno, so serial sensor responses, movement, cleaning and docking remain unverified.
 
-The owner subsequently reported wiring the Roomba to the Uno. The serial-only correction remains prepared for owner flashing; no physical cleaning, docking, motion or sensor acceptance is claimed.
+On October 5, the owner wired the robot and approved the RA application upload.
+The updated serial-only application adds wake-before-baud initialization,
+OI-mode verification, and exact saved-receipt reconciliation after TTL. A real
+mode reply confirmed communication with the Roomba, and hosted health succeeded
+after reconnection. The idle robot is left in Passive mode for charging.
+The ESP image and device pairing were preserved; D6/D7 are unused. No cleaning,
+docking or motion command was issued during this acceptance check. A serial
+reply and a transmitted opcode do not prove physical cleaning.

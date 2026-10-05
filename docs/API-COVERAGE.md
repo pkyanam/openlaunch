@@ -26,6 +26,14 @@ actuator methods return `void`; a successful serial write is not confirmation
 that the Roomba accepted a command or moved. Report command delivery separately
 from physical verification.
 
+The October 5 adapter correction checks packet 35 rather than treating the
+library's local `isConnected()` flag as proof of a robot connection. It sends a
+separate wake pulse before baud selection and requires a fresh Passive/Safe
+mode response before autonomous starts, or Safe before manual outputs. The
+owner-approved RA upload returned a real mode response from the wired 551;
+cloud health and reconnection succeeded. Actuator behavior remains unverified.
+See [link and receipt semantics](UNO-R4-PROFILES.md#roomba-link-initialization-and-receipts).
+
 ## Coverage decisions
 
 “Network now” means the operation is suitable for a narrowly typed, per-function

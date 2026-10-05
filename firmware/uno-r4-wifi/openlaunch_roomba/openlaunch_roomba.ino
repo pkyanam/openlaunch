@@ -71,6 +71,8 @@ bool resultAuthRevoked = false;
 bool resultExpiryReported = false;
 uint32_t nextResultAttemptMs = 0;
 uint32_t resultRetryDelayMs = 1000;
+int lastResultHttpStatus = 0;
+uint32_t resultDeliveryAttempts = 0;
 uint32_t attachRetryAtMs = 0;
 uint32_t attachRetryDelayMs = 5000;
 bool attachRetryScheduled = false;
@@ -131,9 +133,21 @@ RoombaConfig makeRoombaConfig() {
 }
 ArduRoomba roomba(makeRoombaConfig());
 
+struct BoardBrcPin {
+  void set(bool high) { pinMode(ROOMBA_BRC_PIN, OUTPUT); digitalWrite(ROOMBA_BRC_PIN, high ? HIGH : LOW); }
+};
+struct BoardWaitClock { void wait(uint16_t ms) { delay(ms); } };
+
 class BoardDriveIO : public RoombaDriveIO {
  public:
   uint32_t nowMs() override { return millis(); }
+  void wakeForControl() override {
+    BoardBrcPin pin; BoardWaitClock clock;
+    wakeAndSelectRoombaBaud(pin, clock);
+  }
+  bool controlWindowAvailable(uint16_t neededMs) override {
+    return roombaHasExecutionBudget(WiFi.getTime(), activeActionExpiresAt, neededMs);
+  }
   bool locallyArmed() override {
     const bool ready = roombaReady && motionReady && resultJournalReady &&
         !configStorageFault && !resultJournalFault && !resultAuthRevoked &&
@@ -486,14 +500,10 @@ bool clearPendingResult() {
 bool tryDeliverPendingResult() {
   if (!resultJournalReady || !validRoombaPendingResult(pendingResult) ||
       resultJournalFault || resultAuthRevoked) return false;
-  const uint64_t now = static_cast<uint64_t>(WiFi.getTime()) * 1000ULL;
-  if (WiFi.getTime() < 1700000000UL || now >= pendingResult.expiresAt) {
-    if (!resultExpiryReported) {
-      Serial.println("openlaunch: result delivery uncertain; action expired; USB reset required to clear journal");
-      resultExpiryReported = true;
-    }
-    return false;
-  }
+  // This retries only an immutable receipt, never an OI command. The service
+  // accepts an expired receipt only when it already holds that exact terminal
+  // outcome; unknown/expired or conflicting outcomes remain blocked.
+  if (WiFi.status() != WL_CONNECTED) return false;
   if (static_cast<int32_t>(millis() - nextResultAttemptMs) < 0) return false;
 
   JsonDocument request, response;
@@ -503,8 +513,10 @@ bool tryDeliverPendingResult() {
     return false;
   }
   int status = 0;
+  ++resultDeliveryAttempts;
   const bool delivered = post(String("/v1/device/") + cfg.deviceId + "/result",
                               request, response, &status);
+  lastResultHttpStatus = status;
   if (status == 401 || status == 403 || status == 404) {
     resultAuthRevoked = true;
     Serial.println("openlaunch: device access revoked; pending result retained and retries stopped");
@@ -513,12 +525,9 @@ bool tryDeliverPendingResult() {
   bool matches = false;
   if (delivered && response["data"]["id"] == pendingResult.actionId &&
       response["data"]["status"] == pendingResult.status) {
-    String expected, actual;
-    serializeJson(request["result"], expected);
-    serializeJson(response["data"]["result"], actual);
-    matches = roombaResultResponseMatches(pendingResult,
-        response["data"]["id"] | "", response["data"]["status"] | "",
-        expected.c_str(), actual.c_str());
+    matches = request["result"].is<JsonObjectConst>() &&
+        response["data"]["result"].is<JsonObjectConst>() &&
+        roombaResultJsonEqual(request["result"], response["data"]["result"]);
   }
   if (matches) {
     if (clearPendingResult()) {
@@ -562,8 +571,17 @@ void setup() {
   }
   // Establish Safe mode and send stop before any USB or network wait so a
   // prior latched drive request is cleared as soon as this sketch starts.
+  // begin() waits two seconds then selects 19200 via three BRC pulses.
+  // Wake first so its delay is measured after waking the robot.
+  BoardBrcPin brc;
+  brc.set(true); brc.set(false); delay(100); brc.set(true);
   roombaReady = roomba.begin();
-  if (roombaReady) roomba.stop();
+  if (roombaReady) {
+    roomba.stop();
+    roomba.actuators().stopAllMotors();
+    returnRoombaToPassiveIdle(roomba);
+    verifyRoombaLink(roomba);
+  }
   Serial.setTimeout(100);
   const bool configLoaded = loadConfig();
   recoverBootstrapAtStartup(configLoaded);
@@ -577,7 +595,7 @@ void setup() {
     Serial.println("openlaunch: result journal invalid; hardware locked; explicit USB reset required");
   }
   if (!roombaReady) Serial.println("openlaunch: Roomba initialization failed; motion locked");
-  if (roombaReady && motionReady && cfg.magic == CONFIG_MAGIC && cfg.token[0] &&
+  if (roombaReady && roombaLinkVerified && motionReady && cfg.magic == CONFIG_MAGIC && cfg.token[0] &&
       strcmp(cfg.model, "551") == 0) roomba.actuators().definePredefinedSongs();
   if (roombaReady && !motionReady) driveAdapter.stop();
   if (cfg.magic != CONFIG_MAGIC)
@@ -589,11 +607,18 @@ void emitStatus() {
   out["event"] = "status";
   out["adapter"] = "roomba-551";
   out["protocolVersion"] = 1;
+  out["uptimeMs"] = millis();
   out["state"] = (configStorageFault || resultJournalFault)
       ? "storage_error" : (cfg.magic == CONFIG_MAGIC && cfg.token[0] && cfg.deviceId[0])
       ? "paired" : bootstrapState == RoombaBootstrapState::Pending
       ? "configured" : "unconfigured";
   out["pendingResult"] = pendingResult.pending;
+  if (pendingResult.pending) {
+    out["pendingResultActionId"] = pendingResult.actionId;
+    out["pendingResultStatus"] = pendingResult.status;
+  }
+  out["resultDeliveryAttempts"] = resultDeliveryAttempts;
+  out["lastResultHttpStatus"] = lastResultHttpStatus;
   out["manifestPublished"] = manifestPublished;
   out["manifestPublishStopped"] = manifestPublishStopped;
   out["configured"] = cfg.magic == CONFIG_MAGIC;
@@ -606,8 +631,15 @@ void emitStatus() {
   out["storageFault"] = configStorageFault || resultJournalFault;
   out["wifiConnected"] = WiFi.status() == WL_CONNECTED;
   out["controlWiring"] = ROOMBA_REQUIRE_LOCAL_CONTACTS ? "local_contacts" : "serial_only";
-  out["controlReady"] = driveIO.locallyArmed();
+  out["controlReady"] = driveIO.locallyArmed() && roombaLinkVerified &&
+      !roombaSensorLinkDesynced && (roombaOiMode == 1 || roombaOiMode == 2);
   out["sensorLinkDesynced"] = roombaSensorLinkDesynced;
+  out["roombaUartInitialized"] = roombaReady;
+  out["roombaLinkVerified"] = roombaLinkVerified;
+  out["oiMode"] = roombaOiMode;
+  out["linkCheckedAtMs"] = roombaLinkCheckedAtMs;
+  out["linkError"] = roombaLinkError;
+  out["linkDiscardedRxBytes"] = roombaLinkDiscardedBytes;
   if (cfg.magic == CONFIG_MAGIC && cfg.deviceId[0]) out["deviceId"] = cfg.deviceId;
   serializeJson(out, Serial); Serial.println();
 }
@@ -892,11 +924,11 @@ bool requiresLocalInterlock(const char* capability) {
 }
 
 uint16_t requiredActionTimeMs(const char* capability) {
-  if (isRoombaMotionFeature(capability)) return 1000;
+  if (isRoombaMotionFeature(capability)) return ROOMBA_CONTROL_PREPARE_MS + 1000;
+  if (requiresLocalInterlock(capability)) return ROOMBA_CONTROL_PREPARE_MS;
   if (strcmp(capability, "roomba.sensor.read") == 0) return 225;
   if (strcmp(capability, "roomba.tone.play") == 0) return 512;
   if (strcmp(capability, "roomba.song.play") == 0) return 1600;
-  if (strcmp(capability, "roomba.resume_safe") == 0) return 40;
   return 0;
 }
 
@@ -1005,8 +1037,15 @@ void handleAction(JsonObject cmd) {
     ack["result"]["board"] = "uno-r4-wifi";
     ack["result"]["model"] = cfg.model;
     ack["result"]["controlWiring"] = ROOMBA_REQUIRE_LOCAL_CONTACTS ? "local_contacts" : "serial_only";
-    ack["result"]["controlReady"] = driveIO.locallyArmed();
+    ack["result"]["controlReady"] = driveIO.locallyArmed() && roombaLinkVerified &&
+        !roombaSensorLinkDesynced && (roombaOiMode == 1 || roombaOiMode == 2);
     ack["result"]["sensorLinkDesynced"] = roombaSensorLinkDesynced;
+    ack["result"]["roombaUartInitialized"] = roombaReady;
+    ack["result"]["roombaLinkVerified"] = roombaLinkVerified;
+    ack["result"]["oiMode"] = roombaOiMode;
+    ack["result"]["linkCheckedAtMs"] = roombaLinkCheckedAtMs;
+    ack["result"]["linkError"] = roombaLinkError;
+    ack["result"]["linkDiscardedRxBytes"] = roombaLinkDiscardedBytes;
     ack["result"]["physicalVerified"] = false;
     queueResult(ack);
     return;
@@ -1052,6 +1091,12 @@ void handleAction(JsonObject cmd) {
     const int velocity = args["velocityMmS"].as<int>();
     const int radius = args["radiusMm"].as<int>();
     const int duration = args["durationMs"].as<int>();
+    const char* linkError = nullptr;
+    if (!prepareRoombaControl(roomba, driveIO, true, duration, linkError)) {
+      driveAdapter.stop();
+      reportResult(id, false, linkError);
+      return;
+    }
     const RoombaDriveResult result = driveAdapter.run(
         static_cast<int16_t>(velocity), static_cast<int16_t>(radius),
         static_cast<uint16_t>(duration));
@@ -1067,6 +1112,11 @@ void handleAction(JsonObject cmd) {
   const char* error = nullptr;
   const bool handled = handleRoombaFeature(capability, args, roomba, driveIO,
       featureResponse.to<JsonObject>(), error);
+  if (requiresLocalInterlock(capability)) {
+    featureResponse["roombaLinkVerified"] = roombaLinkVerified;
+    featureResponse["oiMode"] = roombaOiMode;
+    featureResponse["linkError"] = roombaLinkError;
+  }
   if (!handled) {
     driveAdapter.stop();
     reportResult(id, false, "unsupported_capability");

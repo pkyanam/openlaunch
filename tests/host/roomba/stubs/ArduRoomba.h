@@ -12,21 +12,26 @@ class RoombaSerial {
   bool active = true;
   int pending = 0;
   bool continuous = false;
+  uint8_t lastWrite = 0;
+  int writes = 0;
   bool isActive() const { return active; }
   int available() { return continuous ? 1 : pending; }
   int read() { if (!continuous && pending > 0) --pending; return 0; }
+  void write(uint8_t value) { lastWrite = value; ++writes; }
+  void flush() {}
 };
 
 class RoombaSensors {
  public:
   bool reply = true;
+  uint8_t oiMode = 2;
   uint8_t requestedId = 0, requestedLength = 0;
   int queries = 0;
   bool getSensor(uint8_t id, uint8_t* bytes, uint8_t length) {
     requestedId = id; requestedLength = length;
     ++queries;
     if (!reply) return false;
-    for (uint8_t i = 0; i < length; ++i) bytes[i] = static_cast<uint8_t>(i + 1);
+    for (uint8_t i = 0; i < length; ++i) bytes[i] = id == 35 ? oiMode : static_cast<uint8_t>(i + 1);
     return true;
   }
 };

@@ -12,6 +12,9 @@ class RoombaDriveIO {
   virtual bool locallyArmed() = 0;
   virtual void drive(int16_t velocityMmS, int16_t radiusMm) = 0;
   virtual void stop() = 0;
+  // Board-specific BRC wake/baud sequence, performed before outputs start.
+  virtual void wakeForControl() {}
+  virtual bool controlWindowAvailable(uint16_t) { return true; }
 };
 
 enum class RoombaDriveResult : uint8_t {

@@ -11,11 +11,7 @@
 #include "RoombaDriveAdapter.h"
 #include "RoombaLocalControl.h"
 #include "RoombaSerialSync.h"
-
-struct RoombaSensorClock {
-  uint32_t nowMs() { return millis(); }
-  void pause() { delay(1); }
-};
+#include "RoombaLink.h"
 
 static const uint16_t ROOMBA_MAX_BRUSH_BURST_MS = 1000;
 
@@ -232,12 +228,6 @@ inline uint8_t roombaPacketLength(uint8_t id) {
   return 0;
 }
 
-// OI sensor replies contain no checksum or packet identifier. Once a timed
-// out query could still have a late reply in flight, later bytes cannot be
-// confidently assigned to a new request. Latch the read path closed until a
-// reboot rather than present a late response as fresh data.
-static bool roombaSensorLinkDesynced = false;
-
 // Handles only the additional functions defined above. The caller retains
 // ownership of common action-id, grant, expiry and result reporting logic.
 // Returns false only when capability is not one of these feature functions.
@@ -303,6 +293,7 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
       // Backlog sent no query, so retrying its drain is safe. A timeout can
       // leave a delayed reply: require a restart before another query.
       if (!backlog) roombaSensorLinkDesynced = true;
+      roombaLinkVerified = false;
       error = backlog ? "serial_rx_backlog" : "serial_timeout";
     }
     return true;
@@ -375,6 +366,7 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
       error = "local_interlock_open";
       return true;
     }
+    if (!prepareRoombaControl(roomba, io, true, duration, error)) return true;
     const uint32_t startedAt = io.nowMs();
     roomba.actuators().setMotors(args["mainBrush"].as<bool>(),
         args["sideBrush"].as<bool>(), args["vacuum"].as<bool>());
@@ -403,11 +395,10 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
       error = "local_interlock_open";
       return true;
     }
-    const bool resumed = roomba.resumeControl();
+    const bool resumed = prepareRoombaControl(roomba, io, true, 0, error);
     roomba.stop();
     roomba.actuators().stopAllMotors();
     if (!resumed) {
-      error = "resume_failed";
       return true;
     }
     result["accepted"] = true;
@@ -430,6 +421,7 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
       error = "local_interlock_open";
       return true;
     }
+    if (!prepareRoombaControl(roomba, io, true, duration, error)) return true;
     const uint32_t startedAt = io.nowMs();
     roomba.movement().driveDirect(static_cast<int16_t>(right), static_cast<int16_t>(left));
     while (static_cast<uint32_t>(io.nowMs() - startedAt) < static_cast<uint32_t>(duration)) {
@@ -476,24 +468,27 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
       error = "local_interlock_open";
       return true;
     }
-    if (isDock) {
-      roomba.actuators().seekDock();
-    } else {
+    const char* cleanMode = nullptr;
+    if (!isDock) {
       JsonVariantConst mode = args["mode"];
       if (!mode.is<const char*>()) {
         error = "invalid_arguments";
         return true;
       }
-      const char* value = mode.as<const char*>();
-      if (strcmp(value, "standard") == 0) roomba.actuators().startCleaning();
-      else if (strcmp(value, "spot") == 0) roomba.actuators().startSpotClean();
-      else if (strcmp(value, "max") == 0) roomba.actuators().startMaxClean();
-      else {
+      cleanMode = mode.as<const char*>();
+      if (strcmp(cleanMode, "standard") && strcmp(cleanMode, "spot") && strcmp(cleanMode, "max")) {
         error = "invalid_arguments";
         return true;
       }
     }
+    if (!prepareRoombaControl(roomba, io, false, 0, error)) return true;
+    if (isDock) roomba.actuators().seekDock();
+    else if (!strcmp(cleanMode, "standard")) roomba.actuators().startCleaning();
+    else if (!strcmp(cleanMode, "spot")) roomba.actuators().startSpotClean();
+    else roomba.actuators().startMaxClean();
     result["accepted"] = true;
+    result["roombaLinkVerified"] = roombaLinkVerified;
+    result["oiModeBeforeCommand"] = roombaOiMode;
     result["transport"] = "serial_command_sent";
     result["behavior"] = "robot_autonomous";
     result["physicalVerified"] = false;
