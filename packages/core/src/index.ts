@@ -206,6 +206,7 @@ export interface State {
   version: 1;
   devices: Device[];
   actions: Action[];
+  retiredActionKeys?: string[];
   enrollments: Enrollment[];
   grants: Grant[];
   agentConnections?: AgentConnection[];
@@ -236,6 +237,7 @@ export function emptyState(): State {
     version: 1,
     devices: [],
     actions: [],
+    retiredActionKeys: [],
     enrollments: [],
     grants: [],
     agentConnections: [],
@@ -273,6 +275,7 @@ export class Hub {
     if (state.version !== 1) throw new Error("Unsupported state version");
     state.agentConnections ??= [];
     state.attachAttempts ??= [];
+    state.retiredActionKeys ??= [];
   }
   private capacity(
     changes: Partial<State> = {},
@@ -467,8 +470,6 @@ export class Hub {
         403,
         "Enrollment expired, consumed, or wrong device kind",
       );
-    if (this.state.devices.filter((d) => !d.revoked).length >= 20)
-      throw new Fault("limit", 429, "Device limit reached");
     const credential = identity?.credential ?? secret();
     const d: Device = {
       ...m,
@@ -540,12 +541,6 @@ export class Hub {
   }
   checkOAuthClientCapacity(p: Principal) {
     this.owner(p);
-    if (
-      this.state.agentConnections!.filter((c) =>
-        connectionIsActive(c, this.now()),
-      ).length >= 20
-    )
-      throw new Fault("limit", 429, "Agent connection limit reached");
     // Reserve the largest bounded OAuth record before contacting the provider.
     this.capacity({
       agentConnections: [
@@ -676,7 +671,7 @@ export class Hub {
       typeof attachment.canAttach !== "boolean" ||
       !Number.isInteger(attachment.deviceLimit) ||
       attachment.deviceLimit < 0 ||
-      attachment.deviceLimit > 20 ||
+      !Number.isSafeInteger(attachment.deviceLimit) ||
       (attachment.canAttach
         ? attachment.deviceLimit < 1
         : attachment.deviceLimit !== 0) ||
@@ -687,8 +682,6 @@ export class Hub {
     this.state.agentConnections = this.state.agentConnections!.filter((c) =>
       connectionIsActive(c, this.now()),
     );
-    if (this.state.agentConnections.length >= 20)
-      throw new Fault("limit", 429, "Agent connection limit reached");
     const id = crypto.randomUUID();
     const token = `ol_${purpose === "agent" ? "agent" : "sdk"}_${workspace}_${secret()}`;
     const connection: AgentConnection = {
@@ -766,10 +759,7 @@ export class Hub {
         ).length >= (connection.deviceLimit ?? 0)
       )
         throw new Fault("limit", 429, "SDK token device limit reached");
-      if (
-        this.state.devices.filter((d) => !d.revoked).length >= 20 ||
-        this.state.attachAttempts!.length >= 1000
-      )
+      if (this.state.attachAttempts!.length >= 1000)
         throw new Fault("limit", 429, "Workspace attachment limit reached");
     }
     const keyVersion = existing?.keyVersion ?? credentials.keyVersion;
@@ -1074,6 +1064,12 @@ export class Hub {
             throw new Fault("unsupported", 400, "Function schema unavailable");
           })();
     const clientKey = JSON.stringify([p.id, key]);
+    if (this.state.retiredActionKeys!.includes(clientKey))
+      throw new Fault(
+        "history_pruned",
+        409,
+        "This request was already accepted; its receipt is no longer retained. Use a new key only for an intentional new action.",
+      );
     const fingerprint = canonical({ id, capability, args: parsed, ttlSeconds });
     const old = this.state.actions.find((a) => a.clientKey === clientKey);
     if (old) {
@@ -1087,12 +1083,6 @@ export class Hub {
     }
     if (this.now() - d.lastSeen >= 45000)
       throw new Fault("offline", 409, "Device offline; no action queued");
-    if (this.state.actions.length >= 5000)
-      throw new Fault(
-        "limit",
-        429,
-        "Workspace limit reached: 5,000 retained actions. New actions are paused; downloading history does not free capacity.",
-      );
     const a: Action = {
       id: crypto.randomUUID(),
       deviceId: id,
@@ -1106,8 +1096,39 @@ export class Hub {
       principalId: p.id,
       ownerAuthorized: p.owner,
     };
-    this.capacity({ actions: [...this.state.actions, a] });
-    this.state.actions.push(a);
+    // Keep pending and uncertain work. Only settled receipts past their TTL
+    // may be pruned; durable keys prevent a historical retry executing again.
+    let actions = [...this.state.actions];
+    const retiredActionKeys = [...this.state.retiredActionKeys!];
+    const removable = actions.filter(
+      (row) =>
+        ["succeeded", "failed", "cancelled", "expired"].includes(row.status) &&
+        row.expiresAt <= this.now(),
+    );
+    while (true) {
+      try {
+        if (actions.length >= 5000)
+          throw new Fault(
+            "limit",
+            429,
+            "Pending or unsettled action capacity reached; retry after work settles.",
+          );
+        this.capacity({ actions: [...actions, a], retiredActionKeys });
+        break;
+      } catch (error) {
+        if (
+          !(error instanceof Fault) ||
+          !["limit", "storage_full"].includes(error.code) ||
+          !removable.length
+        )
+          throw error;
+        const row = removable.shift()!;
+        actions = actions.filter((item) => item.id !== row.id);
+        retiredActionKeys.push(row.clientKey);
+      }
+    }
+    this.state.actions = [...actions, a];
+    this.state.retiredActionKeys = retiredActionKeys;
     this.audit("action.queued", a.id, p.id);
     return a;
   }

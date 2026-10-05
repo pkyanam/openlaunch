@@ -26,6 +26,7 @@ const collections = [
   "grants",
   "agentConnections",
   "attachAttempts",
+  "retiredActionKeys",
 ] as const;
 
 function jsonBytes(value: unknown): number {

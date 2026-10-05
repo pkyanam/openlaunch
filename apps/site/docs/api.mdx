@@ -153,9 +153,17 @@ for their result when accepted. A full workspace still accepts results from
 already received actions, permits revocation and serves saved history; it does
 not dispatch more queued work while over budget.
 
-Downloading is a copy and does not remove actions or free capacity;
-saved requests continue to prevent accidental duplicate execution. History
-archiving is not currently available.
+Downloading is a copy. When accepting new work, the service may prune the oldest
+settled receipts past their command TTL to stay within count and byte budgets.
+Queued, received and uncertain (`unknown`) actions are not pruned. Durable request
+keys remain after pruning: retrying one returns HTTP 409 with `history_pruned`
+rather than executing again. A new key means an intentional new action.
+Export history you want to keep. The service can still return 429 when pending
+work, uncertain results or retained request keys exhaust capacity.
+
+There is no plan-level cap on paired devices or agent connections. Device setup
+tokens retain their owner-selected attachment limit; broadcasts are bounded to
+20 devices per request. Hosted storage, rate and pending-work limits still apply.
 
 ## Request an action
 

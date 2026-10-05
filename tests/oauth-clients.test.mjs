@@ -286,7 +286,7 @@ test("revocation is immediate and durable even when provider cleanup fails, remo
   );
   assert.equal(stranger.deletes.length, 0);
 });
-test("callback validation, strict configuration and shared connection limits run before provider calls", async () => {
+test("callback validation and storage capacity run before provider calls without a seat cap", async () => {
   const f = fixture();
   for (const redirectUris of [
     ["http://public.test/callback"],
@@ -330,8 +330,11 @@ test("callback validation, strict configuration and shared connection limits run
       { canAttach: false, deviceLimit: 0 },
       "agent",
     );
+  assert.equal((await f.api("/v1/oauth-clients", "POST", config)).status, 201);
+  assert.equal(f.creates(), 1);
+  f.hub.state.retiredActionKeys = ["x".repeat(17 * 1024 * 1024)];
   assert.equal((await f.api("/v1/oauth-clients", "POST", config)).status, 429);
-  assert.equal(f.creates(), 0);
+  assert.equal(f.creates(), 1);
 });
 test("Clerk registration fixes consent/PKCE, bounds scopes, and never forwards callbacks or reflects provider secrets", async () => {
   const calls = [];

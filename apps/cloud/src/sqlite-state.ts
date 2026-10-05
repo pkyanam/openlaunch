@@ -44,6 +44,7 @@ const collections = [
   "grants",
   "agentConnections",
   "attachAttempts",
+  "retiredActionKeys",
   "audit",
 ] as const;
 
@@ -106,9 +107,11 @@ function normalizeState(value: unknown): State {
       );
   state.agentConnections ??= [];
   state.attachAttempts ??= [];
+  state.retiredActionKeys ??= [];
   if (
     !Array.isArray(state.agentConnections) ||
-    !Array.isArray(state.attachAttempts)
+    !Array.isArray(state.attachAttempts) ||
+    !Array.isArray(state.retiredActionKeys)
   )
     throw new Error("Invalid legacy workspace optional collections");
   return state;
@@ -121,6 +124,8 @@ function recordKey(
 ): string {
   const item = value as Record<string, unknown>;
   switch (collection) {
+    case "retiredActionKeys":
+      return typeof value === "string" ? value : invalidKey(collection);
     case "devices":
     case "actions":
     case "agentConnections":
@@ -158,6 +163,7 @@ function stateCollections(state: State): Array<[string, unknown[]]> {
     ["grants", state.grants],
     ["agentConnections", state.agentConnections ?? []],
     ["attachAttempts", state.attachAttempts ?? []],
+    ["retiredActionKeys", state.retiredActionKeys ?? []],
     ["audit", state.audit],
   ];
 }
@@ -225,7 +231,14 @@ function loadRows(sql: WorkspaceSQL): {
         `count:${collection}`,
       )
       .toArray()[0]?.value;
-    if (storedCount === undefined || storedCount !== String(records.length))
+    if (
+      !(
+        collection === "retiredActionKeys" &&
+        storedCount === undefined &&
+        records.length === 0
+      ) &&
+      (storedCount === undefined || storedCount !== String(records.length))
+    )
       throw new Error(
         `SQLite workspace record count mismatch in ${collection}`,
       );
@@ -233,6 +246,9 @@ function loadRows(sql: WorkspaceSQL): {
     switch (collection) {
       case "devices":
         state.devices = values;
+        break;
+      case "retiredActionKeys":
+        state.retiredActionKeys = values;
         break;
       case "actions":
         state.actions = values;

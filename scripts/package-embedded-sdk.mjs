@@ -20,6 +20,7 @@ const sourceRoot = join(root, "packages/embedded-sdk");
 const defaultOutput = join(root, "build/embedded-sdk/openlaunch-esp32.zip");
 const epoch = new Date("1980-01-01T00:00:00Z");
 const sources = [
+  ["../../LICENSE", "openlaunch/LICENSE", "copy"],
   ["arduino/src/openlaunch.h", "openlaunch/src/openlaunch.h", "copy"],
   ["arduino/library.properties", "openlaunch/library.properties", "copy"],
   [

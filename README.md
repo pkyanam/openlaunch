@@ -146,3 +146,13 @@ Platform and deployment details live in [Mac handoff](docs/MAC-HANDOFF.md), [arc
 - `devices/pi` and `firmware/uno-r4-wifi`: maintained runtimes
 - `scripts`: installers, setup helpers, builds and verification
 - `integrations`: agent connection guides
+
+## License and project stewardship
+
+Existing first-party code is [MIT-licensed](LICENSE), copyright Belweave. Hosted
+and self-hosted openlaunch share this public production repository. Belweave
+maintains `main` for community functionality and the flagship hosted service.
+See [contributing guidelines](CONTRIBUTING.md), the [DCO](DCO), and the
+[name and branding policy](TRADEMARK.md). Hosted service use is governed by its
+Terms and Privacy Policy. Future separately licensed enterprise additions are
+planned, not included in the current stack.

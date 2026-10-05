@@ -25,6 +25,7 @@ try {
   }).trim();
   const packageRoot = join(staging, "package");
   mkdirSync(packageRoot);
+  cpSync(join(root, "LICENSE"), join(packageRoot, "LICENSE"));
   cpSync(join(root, "packages/sdk/dist"), join(packageRoot, "dist"), {
     recursive: true,
   });

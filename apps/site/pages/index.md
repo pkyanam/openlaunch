@@ -12,7 +12,7 @@ For a local development bridge, install Node 24+ and Git, then run:
 curl -fsSL https://www.openlaunch.dev/install.sh | bash
 ```
 
-[Setup guide](/docs/setup) · [Source](https://github.com/pkyanam/openlaunch) · [Downloads and resources](/docs/resources)
+[Pricing](/pricing) · [Setup guide](/docs/setup) · [Source](https://github.com/pkyanam/openlaunch) · [Downloads and resources](/docs/resources)
 
 ## Hardware
 

@@ -174,7 +174,69 @@ test("downloading at the retention limit does not permit duplicate or new action
   );
   assert.throws(
     () => hub.request(owner, deviceId, "device.health", {}, "new", 60),
-    (e) => e.status === 429 && e.message.includes("does not free capacity"),
+    (e) => e.status === 429 && e.message.includes("capacity"),
   );
   assert.equal(hub.state.actions.length, 5000);
+});
+
+test("settled history rolls over, preserving pending work and durable replay keys", async () => {
+  let now = 1700000000000;
+  const hub = new Hub(emptyState(), () => now);
+  const enrollment = await hub.enrollment(owner, "custom.device");
+  const { deviceId } = await hub.enroll(enrollment.token, {
+    name: "retention fixture",
+    kind: "custom.device",
+    capabilities: ["device.health"],
+  });
+  const first = hub.request(owner, deviceId, "device.health", {}, "pruned", 1);
+  hub.next(deviceId);
+  hub.result(deviceId, first.id, "succeeded", { ok: true });
+  hub.state.actions = Array.from({ length: 5000 }, (_, i) => ({
+    ...first,
+    id: i === 0 ? first.id : crypto.randomUUID(),
+    clientKey: JSON.stringify([owner.id, i === 0 ? "pruned" : `settled-${i}`]),
+  }));
+  hub.state.actions[1].status = "unknown";
+  const uncertainId = hub.state.actions[1].id;
+  now += 1001;
+  const next = hub.request(owner, deviceId, "device.health", {}, "new", 60);
+  assert.equal(hub.state.actions.length, 5000);
+  assert(hub.state.actions.some((row) => row.id === uncertainId && row.status === "unknown"));
+  assert.equal(hub.state.actions.at(-1).id, next.id);
+  assert(!hub.state.actions.some((row) => row.id === first.id));
+  const restarted = new Hub(JSON.parse(JSON.stringify(hub.state)), () => now);
+  assert.throws(
+    () => restarted.request(owner, deviceId, "device.health", {}, "pruned", 1),
+    (error) => error.code === "history_pruned" && error.status === 409,
+  );
+  assert.equal(
+    restarted.request(owner, deviceId, "device.health", {}, "new", 60).id,
+    next.id,
+  );
+  assert.throws(
+    () => restarted.request(owner, deviceId, "device.health", {}, "new", 30),
+    (error) => error.code === "conflict",
+  );
+  assert.equal(restarted.next(deviceId).id, next.id);
+});
+
+test("device and agent connections can exceed twenty without a plan-level cap", async () => {
+  const hub = new Hub(emptyState());
+  for (let i = 0; i < 21; i++) {
+    const enrollment = await hub.enrollment(owner, "custom.device");
+    await hub.enroll(enrollment.token, {
+      name: `device-${i}`,
+      kind: "custom.device",
+      capabilities: ["device.health"],
+    });
+    await hub.createConnection(
+      owner,
+      "a".repeat(64),
+      `agent-${i}`,
+      86400,
+      "act",
+    );
+  }
+  assert.equal(hub.state.devices.length, 21);
+  assert.equal(hub.state.agentConnections.length, 21);
 });

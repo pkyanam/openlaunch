@@ -4,7 +4,7 @@ description: How Belweave processes account, device and action information to op
 ---
 
 
-**Effective date: October 4, 2026**
+**Effective date: October 5, 2026**
 
 **Belweave** operates openlaunch at openlaunch.dev and is responsible for the processing described here. Contact [info@belweave.com](mailto:info@belweave.com) with privacy questions or requests.
 
@@ -43,7 +43,7 @@ The application does not intentionally log bearer tokens, Wi-Fi passwords or ful
 
 ## Retention
 
-Account, device and permission records are retained while needed to operate your workspace. Action history remains available for troubleshooting, accountability and export, subject to workspace limits. The service currently retains up to 5,000 action records per workspace and a rolling maximum of 1,000 audit events; these are count limits, not fixed time-based deletion schedules. A command's expiry stops eligible dispatch; it does not erase its history.
+Account, device and permission records are retained while needed to operate your workspace. Action history remains available for troubleshooting, accountability and export, subject to workspace limits. The service currently retains up to 5,000 action records per workspace and a rolling maximum of 1,000 audit events; these are count limits, not fixed time-based deletion schedules. As new work arrives, the service may prune older settled action receipts past their command TTL within its 16 MiB logical storage budget. Pending and uncertain actions are preserved. Minimal request-key records remain to prevent replay of a pruned action; those records are also subject to account-deletion requests. Export history you want to keep. A command's expiry stops eligible dispatch; it does not erase its history.
 
 Revoking a device, token or grant disables its access and removes applicable permissions, but historical records may remain. Contact us to request account closure or deletion. We retain information only as necessary for the requested service, legitimate security and dispute-resolution needs, or legal obligations. Residual copies may remain in provider-managed backups or recovery records until their normal lifecycle ends. We do not promise immediate erasure from all backups. Providers' own account and security records are governed by their applicable terms and policies.
 

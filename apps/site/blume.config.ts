@@ -22,6 +22,7 @@ export default defineConfig({
       { label: "Agents", path: "/docs/agents" },
     ],
     actions: [
+      { label: "Pricing", href: "https://www.openlaunch.dev/pricing" },
       { label: "Updates", href: "https://www.openlaunch.dev/changelog" },
     ],
     cta: { label: "Console", href: "https://www.openlaunch.dev/console/" },
@@ -67,6 +68,8 @@ export default defineConfig({
   narration: true,
   footer: {
     links: [
+      { label: "Pricing", href: "https://www.openlaunch.dev/pricing" },
+      { label: "GitHub", href: "https://github.com/pkyanam/openlaunch" },
       { label: "Setup", href: "/docs/setup" },
       { label: "Project status", href: "/docs/status" },
       { label: "Terms", href: "/docs/terms" },

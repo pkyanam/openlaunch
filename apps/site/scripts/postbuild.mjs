@@ -98,7 +98,7 @@ writeFileSync(
   ) + "\n",
 );
 // Blume's custom homepage is indexable but is omitted from its generated llms index.
-const homepage = `## Website\n\n- [openlaunch home](${origin}/): Connect your agents to your hardware. Setup, hardware, source links and documentation.\n\n`;
+const homepage = `## Website\n\n- [openlaunch home](${origin}/): Connect your agents to your hardware. Setup, hardware, source links and documentation.\n- [Pricing](${origin}/pricing): Free hosted use, planned Team and custom Enterprise inquiries.\n\n`;
 const indexPath = "dist/client/llms.txt";
 const index = readFileSync(indexPath, "utf8").replace(
   "## Docs\n",
@@ -108,6 +108,25 @@ writeFileSync(indexPath, index);
 const homeMarkdown = readFileSync("pages/index.md", "utf8");
 writeFileSync("dist/client/index.md", homeMarkdown);
 writeFileSync("dist/client/index.mdx", homeMarkdown);
+const pricingMarkdown = readFileSync("pages/pricing.md", "utf8");
+writeFileSync("dist/client/pricing.md", pricingMarkdown);
+writeFileSync("dist/client/pricing.mdx", pricingMarkdown);
+const fullIndexPath = "dist/client/llms-full.txt";
+const fullIndex = readFileSync(fullIndexPath, "utf8");
+if (!fullIndex.includes(pricingMarkdown.trim()))
+  writeFileSync(fullIndexPath, fullIndex + `\n\n${pricingMarkdown}`);
+const sitemapPath = "dist/client/sitemap.xml";
+if (existsSync(sitemapPath)) {
+  const sitemap = readFileSync(sitemapPath, "utf8");
+  if (!sitemap.includes(`${origin}/pricing`))
+    writeFileSync(
+      sitemapPath,
+      sitemap.replace(
+        "</urlset>",
+        `<url><loc>${origin}/pricing</loc></url></urlset>`,
+      ),
+    );
+}
 // Pin GitHub backup links to the deployed commit, never the moving main branch.
 const pinInstallerBackup = (text) => {
   for (const filename of [
@@ -138,12 +157,12 @@ function pinGeneratedLinks(directory) {
       // at the site root; publish relative links so previews retain their host.
       if (entry.name.endsWith(".html"))
         pinned = pinned.replace(/<a\b[^>]*>/g, (tag) => {
-          for (const route of ["/console/", "/changelog"])
+          for (const route of ["/console/", "/changelog", "/pricing"])
             tag = tag.replaceAll(
               `href="https://www.openlaunch.dev${route}"`,
               `href="${route}"`,
             );
-          return tag;
+          return tag.replaceAll('href="/docs/pricing"', 'href="/pricing"');
         });
       if (pinned !== original) writeFileSync(path, pinned);
     }
@@ -216,6 +235,25 @@ const { buildMcpData } = await import("blume/ai/mcp/data.ts");
 const { build } = await import("esbuild");
 const project = await scanProject(process.cwd(), { mode: "build" });
 const corpus = await buildMcpData(project);
+corpus.pages["/pricing"] = pricingMarkdown;
+corpus.routes.push({
+  route: "/pricing",
+  title: "Pricing",
+  description: "Free, planned Team and custom Enterprise inquiries",
+  contentType: "page",
+  indexable: true,
+  lastModified: null,
+  locale: "en",
+  version: "",
+});
+corpus.documents.push({
+  route: "/pricing",
+  title: "Pricing",
+  content: pricingMarkdown,
+  contentType: "page",
+  locale: "en",
+  version: "",
+});
 corpus.pages["/"] = homeMarkdown;
 corpus.routes.push({
   route: "/",
@@ -251,6 +289,7 @@ writeFileSync(
     version: 1,
     include: [
       "/docs-mcp",
+      "/pricing",
       "/",
       "/docs",
       "/docs/*",

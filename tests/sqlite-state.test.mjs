@@ -810,3 +810,29 @@ test("an operation failure invalidates partially mutated cached state", async ()
     h.close();
   }
 });
+
+test("retired action keys survive SQLite persistence and old schemas hydrate safely", async () => {
+  const legacy = emptyState();
+  delete legacy.retiredActionKeys;
+  const harness = createHarness(legacy);
+  try {
+    await withWorkspaceSQLiteState(
+      harness.storage,
+      harness.sql,
+      async (hub) => {
+        hub.state.retiredActionKeys = ['["owner","already-executed"]'];
+      },
+    );
+    await withWorkspaceSQLiteState(
+      harness.storage,
+      harness.sql,
+      async (hub) => {
+        assert.deepEqual(hub.state.retiredActionKeys, [
+          '["owner","already-executed"]',
+        ]);
+      },
+    );
+  } finally {
+    harness.close();
+  }
+});
