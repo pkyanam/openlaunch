@@ -1,8 +1,10 @@
 import { createDeviceCredentialDeriver } from "../../../packages/core/src/device-credentials.ts";
 import { DurableObject } from "cloudflare:workers";
 import { authenticateClerk, type ClerkEnv } from "./clerk-auth.ts";
+import { clerkOAuthClients } from "./oauth-clients.ts";
 import {
   agentTokenWorkspace,
+  Fault,
   type Principal,
 } from "../../../packages/core/src/index.ts";
 import { handle } from "../../../packages/http/src/index.ts";
@@ -64,36 +66,67 @@ export class WorkspaceHub extends DurableObject<Env> {
       }
       const principal = request.headers.get("x-openlaunch-principal");
       let wake: string[] = [];
-      const response = await this.workspaceState.withState(async (hub) => {
-        const queued = new Set(
-          hub.state.actions
-            .filter((a) => a.status === "queued")
-            .map((a) => a.id),
-        );
-        const response = await handle(
-          request,
-          hub,
-          async () => {
-            if (!principal) throw new Error("Missing trusted principal");
-            return JSON.parse(principal) as Principal;
-          },
-          {
-            workspace: request.headers.get("x-openlaunch-workspace") ?? "",
-            deviceCredentials: createDeviceCredentialDeriver(
-              this.env.DEVICE_CREDENTIAL_KEYS,
-              this.env.DEVICE_CREDENTIAL_KEY_VERSION ?? "v1",
-            ),
-          },
-        );
-        wake = [
-          ...new Set(
+      const oauthClients = this.env.CLERK_SECRET_KEY
+        ? clerkOAuthClients(this.env.CLERK_SECRET_KEY)
+        : undefined;
+      const newOAuthApplications: string[] = [];
+      const response = await this.workspaceState
+        .withState(async (hub) => {
+          const knownApplications = new Set(
+            hub.state.agentConnections?.map((c) => c.oauth?.applicationId),
+          );
+          const queued = new Set(
             hub.state.actions
-              .filter((a) => a.status === "queued" && !queued.has(a.id))
-              .map((a) => a.deviceId),
-          ),
-        ];
-        return response;
-      });
+              .filter((a) => a.status === "queued")
+              .map((a) => a.id),
+          );
+          const response = await handle(
+            request,
+            hub,
+            async () => {
+              if (!principal) throw new Error("Missing trusted principal");
+              return JSON.parse(principal) as Principal;
+            },
+            {
+              workspace: request.headers.get("x-openlaunch-workspace") ?? "",
+              deviceCredentials: createDeviceCredentialDeriver(
+                this.env.DEVICE_CREDENTIAL_KEYS,
+                this.env.DEVICE_CREDENTIAL_KEY_VERSION ?? "v1",
+              ),
+              oauthClients,
+              oauthBuiltinClients: (this.env.CLERK_AGENT_CLIENT_IDS ?? "")
+                .split(",")
+                .map((id) => id.trim())
+                .filter(Boolean),
+              resourceMetadata:
+                this.env.API_ORIGIN +
+                "/.well-known/oauth-protected-resource/mcp",
+            },
+          );
+          for (const connection of hub.state.agentConnections ?? [])
+            if (
+              connection.oauth &&
+              !knownApplications.has(connection.oauth.applicationId)
+            )
+              newOAuthApplications.push(connection.oauth.applicationId);
+          wake = [
+            ...new Set(
+              hub.state.actions
+                .filter((a) => a.status === "queued" && !queued.has(a.id))
+                .map((a) => a.deviceId),
+            ),
+          ];
+          return response;
+        })
+        .catch(async (error) => {
+          // Provider registration precedes the SQLite commit. If that commit
+          // fails, remove the new provider app and never return its credentials.
+          if (oauthClients)
+            await Promise.allSettled(
+              newOAuthApplications.map((id) => oauthClients.delete(id)),
+            );
+          throw error;
+        });
       // Notify only after the canonical action state has been durably committed.
       if (wake.length) this.events.notify(wake);
       const revoked = /^\/v1\/devices\/([a-f0-9-]{36})\/revoke$/.exec(path);
@@ -202,11 +235,16 @@ export default {
       )!;
     } else {
       try {
-        const authenticated = await authenticateClerk(request, env);
+        const authenticated = await authenticateClerk(
+          request,
+          env,
+          undefined,
+          true,
+        );
         workspace = authenticated.workspace;
         const principal = authenticated.principal;
         headers.set("x-openlaunch-principal", JSON.stringify(principal));
-        if (url.pathname === "/v1/account")
+        if (url.pathname === "/v1/account" && principal.owner)
           return Response.json(
             {
               data: {
@@ -216,23 +254,29 @@ export default {
                 agentClients: (env.CLERK_AGENT_CLIENT_IDS ?? "")
                   .split(",")
                   .filter(Boolean),
+                oauthClientRegistration: true,
               },
             },
             { headers: { "cache-control": "no-store" } },
           );
         // MCP handlers still require a per-device grant, independent of OAuth scopes.
-      } catch {
+      } catch (error) {
+        const insufficient =
+          error instanceof Fault && error.code === "insufficient_scope";
         return Response.json(
           {
             error: {
-              code: "unauthorized",
-              message: "Sign in or connect an approved agent",
+              code: insufficient ? "insufficient_scope" : "unauthorized",
+              message: insufficient
+                ? "Read scope required"
+                : "Sign in or connect an approved agent",
             },
           },
           {
-            status: 401,
+            status: insufficient ? 403 : 401,
             headers: {
-              "www-authenticate": `Bearer resource_metadata="${env.API_ORIGIN}/.well-known/oauth-protected-resource"`,
+              "www-authenticate": `Bearer resource_metadata="${env.API_ORIGIN}/.well-known/oauth-protected-resource/mcp", scope="openlaunch:read"${insufficient ? ', error="insufficient_scope"' : ""}`,
+              "cache-control": "no-store",
             },
           },
         );

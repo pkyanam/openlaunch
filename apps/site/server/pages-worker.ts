@@ -1,7 +1,9 @@
 import { createMcpFetchHandler } from "blume/ai/mcp/server.ts";
 import data from "../dist/mcp-data.json";
-const docs = createMcpFetchHandler(
-  data as Parameters<typeof createMcpFetchHandler>[0],
+import { compatibleDocsMcp } from "./docs-mcp.ts";
+const docs = compatibleDocsMcp(
+  createMcpFetchHandler(data as Parameters<typeof createMcpFetchHandler>[0]),
+  { name: data.name, version: data.version },
 );
 export default {
   async fetch(

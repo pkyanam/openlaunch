@@ -1,5 +1,9 @@
 import { createClerkClient } from "@clerk/backend";
-import { hash, type Principal } from "../../../packages/core/src/index.ts";
+import {
+  hash,
+  Fault,
+  type Principal,
+} from "../../../packages/core/src/index.ts";
 export interface ClerkEnv {
   CLERK_SECRET_KEY?: string;
   CLERK_PUBLISHABLE_KEY?: string;
@@ -18,6 +22,7 @@ export async function principalFromIdentity(
   identity: VerifiedIdentity,
   env: ClerkEnv,
   path: string,
+  workspaceAdmission = false,
 ) {
   if (!identity.isAuthenticated || !identity.userId || !env.CLERK_ISSUER)
     throw Error("Unauthorized");
@@ -35,16 +40,18 @@ export async function principalFromIdentity(
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
-  if (!allowed.includes(identity.clientId))
+  if (!workspaceAdmission && !allowed.includes(identity.clientId))
     throw Error("Agent client is not admitted");
   const scopes = identity.scopes ?? [];
-  if (!scopes.includes("openlaunch:read")) throw Error("Read scope required");
+  if (!scopes.includes("openlaunch:read"))
+    throw new Fault("insufficient_scope", 403, "Read scope required");
   return {
     workspace,
     principal: {
       id: identity.clientId,
       owner: false,
       readOnly: !scopes.includes("openlaunch:act"),
+      ...(workspaceAdmission ? { oauthClient: true } : {}),
     } satisfies Principal,
   };
 }
@@ -52,6 +59,7 @@ export async function authenticateClerk(
   request: Request,
   env: ClerkEnv,
   verifier?: ReturnType<typeof createClerkClient>,
+  workspaceAdmission = false,
 ) {
   const path = new URL(request.url).pathname;
   const token = /^Bearer ([^\s]+)$/.exec(
@@ -87,6 +95,7 @@ export async function authenticateClerk(
       },
       env,
       path,
+      workspaceAdmission,
     );
   }
   const state = await client.authenticateRequest(request, {

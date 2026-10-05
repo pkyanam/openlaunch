@@ -90,6 +90,55 @@ const device = (lastSeen = 1) => ({
   revoked: false,
   lastSeen,
 });
+
+test("workspace OAuth client metadata persists in existing SQLite rows without secrets and revocation survives cold reload", async () => {
+  const h = createHarness();
+  const owner = { id: "owner", owner: true };
+  try {
+    const client = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.registerOAuthClient(
+        owner,
+        {
+          name: "Executor fixture",
+          redirectUris: ["https://v2.executor.sh/api/oauth/callback"],
+          public: true,
+          access: "read",
+        },
+        {
+          applicationId: "oapp_fixture",
+          clientId: "fixture-client",
+          redirectUris: ["https://v2.executor.sh/api/oauth/callback"],
+          public: true,
+        },
+      ),
+    );
+    const p = { id: client.principal, owner: false, oauthClient: true };
+    assert.equal(
+      await withWorkspaceSQLiteState(
+        h.storage,
+        h.sql,
+        (hub) => hub.admitOAuthClient(p).readOnly,
+      ),
+      true,
+    );
+    await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+      hub.revokeConnection(owner, client.id),
+    );
+    await assert.rejects(
+      withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+        hub.admitOAuthClient(p),
+      ),
+      (error) => error.status === 401,
+    );
+    const rows = JSON.stringify(
+      h.sql.db.prepare("SELECT * FROM openlaunch_records").all(),
+    );
+    assert(!rows.includes("clientSecret"));
+    assert(!rows.includes("client_secret"));
+  } finally {
+    h.close();
+  }
+});
 const legacyState = (overrides = {}) => ({
   version: 1,
   devices: [],
@@ -524,12 +573,14 @@ test("non-audit collection order survives replacement and pruning", async () => 
 test("until-revoked grant persists in SQLite and authorizes after reload", async () => {
   const state = legacyState({
     devices: [device(Date.now())],
-    grants: [{
-      principal: "agent",
-      deviceId: "device-1",
-      capabilities: ["device.health"],
-      expiresAt: null,
-    }],
+    grants: [
+      {
+        principal: "agent",
+        deviceId: "device-1",
+        capabilities: ["device.health"],
+        expiresAt: null,
+      },
+    ],
   });
   const h = createHarness(state);
   const owner = { id: "owner", owner: true };
@@ -543,7 +594,11 @@ test("until-revoked grant persists in SQLite and authorizes after reload", async
     );
     assert.equal(dispatch.id, queued.id);
     assert.equal(
-      (await withWorkspaceSQLiteState(h.storage, h.sql, (hub) => hub.grants(owner)))[0].expiresAt,
+      (
+        await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
+          hub.grants(owner),
+        )
+      )[0].expiresAt,
       null,
     );
     await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
@@ -579,7 +634,10 @@ test("until-revoked agent connection persists, authorizes transport, and revokes
     "agent",
   );
   assert.equal(connection.expiresAt, null);
-  assert.equal(JSON.stringify(original.state).includes(connection.token), false);
+  assert.equal(
+    JSON.stringify(original.state).includes(connection.token),
+    false,
+  );
   const h = createHarness(original.state);
   try {
     const principal = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
@@ -590,7 +648,13 @@ test("until-revoked agent connection persists, authorizes transport, and revokes
       hub.grant(owner, principal.id, device.deviceId, ["device.health"]),
     );
     const action = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
-      hub.request(principal, device.deviceId, "device.health", {}, "persistent-agent"),
+      hub.request(
+        principal,
+        device.deviceId,
+        "device.health",
+        {},
+        "persistent-agent",
+      ),
     );
     const dispatched = await withWorkspaceSQLiteState(h.storage, h.sql, (hub) =>
       hub.next(device.deviceId),

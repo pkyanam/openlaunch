@@ -426,10 +426,9 @@ test("stable invocation enforces live schemas, scope, expiry, revocation and man
       ),
       ["device.health", "roomba.sensor.read"],
     );
-    assert.equal(
-      (await readOnly.invoke("roomba.clean", args["roomba.clean"], "read-only"))
-        .isError,
-      true,
+    await assert.rejects(
+      readOnly.invoke("roomba.clean", args["roomba.clean"], "read-only"),
+      (error) => error.code === 403 && /insufficient_scope/.test(error.message),
     );
     assert.notEqual(
       (await readOnly.invoke("device.health", {}, "read-health")).isError,

@@ -48,6 +48,11 @@ Device polling and result reports use a private per-device bearer credential. Ne
 | POST   | `/v1/device/{id}/events-ticket`       | Issue a 30-second, single-use WebSocket handshake ticket                  |
 | GET    | `/v1/device/{id}/events`              | WebSocket connection for payload-free device wake hints                   |
 | POST   | `/mcp`                                | Stateless device MCP requests                                             |
+| GET    | `/v1/oauth-clients`                   | Owner lists this workspace's OAuth clients and registration availability   |
+| POST   | `/v1/oauth-clients`                   | Owner registers a PKCE/consent OAuth client; optional secret returned once  |
+| POST   | `/v1/oauth-clients/{id}/revoke`       | Owner revokes client access, grants and queued commands                     |
+
+OAuth client registration accepts `name`, one to eight exact `redirectUris`, `public` (default `true`), and `access` (`read` by default, or `act`). Callback URLs must use HTTPS or literal loopback HTTP. A new client has no function grants and cannot attach devices. Client secrets are excluded from persisted records, audit entries and subsequent reads. The existing shared 20-connection and workspace-storage limits apply; registration requires a configured hosted provider.
 
 ## Create a device setup token
 

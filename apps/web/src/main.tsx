@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import logoUrl from "../../site/public/icon.svg?url";
+import { OAuthClients, type OAuthConnection } from "./OAuthClients";
 import {
   ClerkProvider,
   SignIn,
@@ -52,7 +53,13 @@ type Grant = {
 };
 
 const consolePages = ["Devices", "Connections", "Activity", "Build"] as const;
-const connectionTabs = ["Prompt", "MCP URL", "Command", "API token"] as const;
+const connectionTabs = [
+  "Prompt",
+  "MCP URL",
+  "Command",
+  "OAuth clients",
+  "API token",
+] as const;
 function NavigationIcon({ page }: { page: (typeof consolePages)[number] }) {
   const common = {
     fill: "none",
@@ -193,6 +200,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     setConfirmation(null);
   };
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [oauthConnections, setOAuthConnections] = useState<OAuthConnection[]>(
+    [],
+  );
+  const [oauthRegistrationAvailable, setOAuthRegistrationAvailable] =
+    useState(false);
   const [deviceSetupTokens, setDeviceSetupTokens] = useState<
     DeviceSetupToken[]
   >([]);
@@ -390,16 +402,25 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   ]);
   const refresh = () =>
     run(async () => {
-      const [inventory, agentConnections, setupTokens, activity, savedGrants] =
-        await Promise.all([
-          api("/v1/devices"),
-          api("/v1/agent-connections"),
-          api("/v1/device-setup-tokens"),
-          api("/v1/actions"),
-          api("/v1/grants"),
-        ]);
+      const [
+        inventory,
+        agentConnections,
+        setupTokens,
+        activity,
+        savedGrants,
+        oauthClients,
+      ] = await Promise.all([
+        api("/v1/devices"),
+        api("/v1/agent-connections"),
+        api("/v1/device-setup-tokens"),
+        api("/v1/actions"),
+        api("/v1/grants"),
+        api("/v1/oauth-clients"),
+      ]);
       setDevices(inventory);
       setConnections(agentConnections);
+      setOAuthConnections(oauthClients.clients);
+      setOAuthRegistrationAvailable(oauthClients.available);
       setDeviceSetupTokens(setupTokens);
       setReceipts(activity);
       setGrants(savedGrants);
@@ -507,8 +528,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       ? "Codex"
       : value === "https://chatgpt.com/oauth/client.json"
         ? "ChatGPT"
-        : (connections.find((connection) => connection.principal === value)
-            ?.name ?? "Custom agent");
+        : ([...connections, ...oauthConnections].find(
+            (connection) => connection.principal === value,
+          )?.name ?? "Custom agent");
   const grantPrincipalLabel = principalLabel(principal);
   const visibleDevices = devices.filter((device) => {
     const query = deviceSearch.trim().toLocaleLowerCase();
@@ -615,6 +637,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 onClick={() => {
                   setToken("");
                   setDevices([]);
+                  setConnections([]);
+                  setOAuthConnections([]);
+                  setOAuthRegistrationAvailable(false);
+                  setConnectionTab("Prompt");
+                  setConnectionSecret(null);
                   setEnrollment(null);
                   setAction(null);
                   setNotice(
@@ -961,11 +988,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               <option value="https://chatgpt.com/oauth/client.json">
                                 ChatGPT
                               </option>
-                              {connections.map((c) => (
-                                <option key={c.id} value={c.principal}>
-                                  {c.name}
-                                </option>
-                              ))}
+                              {[...connections, ...oauthConnections].map(
+                                (c) => (
+                                  <option key={c.id} value={c.principal}>
+                                    {c.name}
+                                  </option>
+                                ),
+                              )}
                             </select>
                           </label>
                         ) : (
@@ -1268,6 +1297,39 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                         <a href="/docs/agents">Codex setup guide</a>
                       </div>
                     </div>
+                  )}
+                  {connectionTab === "OAuth clients" && (
+                    <OAuthClients
+                      available={oauthRegistrationAvailable}
+                      clients={oauthConnections}
+                      api={api}
+                      run={run}
+                      busy={busy}
+                      onRefresh={(clients) => {
+                        setOAuthConnections(clients);
+                        if (
+                          oauthConnections.some(
+                            (c) => c.principal === principal,
+                          ) &&
+                          !clients.some((c) => c.principal === principal)
+                        )
+                          setPrincipal(
+                            session
+                              ? "https://chatgpt.com/oauth/codex/client.json"
+                              : "local-agent",
+                          );
+                      }}
+                      refreshGrants={async () =>
+                        setGrants(await api("/v1/grants"))
+                      }
+                      notify={setNotice}
+                      confirm={confirmAction}
+                      grantAccess={(value) => {
+                        setPrincipal(value);
+                        setPage("Devices");
+                        setDetailTab("Access");
+                      }}
+                    />
                   )}
                   {connectionTab === "API token" && (
                     <div className="connection-method api-token-method">

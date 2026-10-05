@@ -34,6 +34,14 @@ for await (const line of createInterface({ input: process.stdin })) {
   let message;
   try {
     message = JSON.parse(line);
+    const version =
+      message?.params?._meta?.["io.modelcontextprotocol/protocolVersion"];
+    const headerValue = (value) =>
+      /^[\x20-\x7e\t]*$/.test(value) &&
+      value.trim() === value &&
+      !(value.startsWith("=?base64?") && value.endsWith("?="))
+        ? value
+        : `=?base64?${Buffer.from(value, "utf8").toString("base64")}?=`;
     const response = await fetch(origin + "/mcp", {
       method: "POST",
       signal: AbortSignal.timeout(10000),
@@ -41,12 +49,31 @@ for await (const line of createInterface({ input: process.stdin })) {
         authorization: "Bearer " + token,
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
+        ...(version
+          ? {
+              "mcp-protocol-version": version,
+              "mcp-method": message.method,
+              ...(["tools/call", "resources/read", "prompts/get"].includes(
+                message.method,
+              )
+                ? {
+                    "mcp-name": headerValue(
+                      message.method === "resources/read"
+                        ? message.params.uri
+                        : message.params.name,
+                    ),
+                  }
+                : {}),
+            }
+          : {}),
       },
       body: JSON.stringify(message),
     });
     if (message.id === undefined) continue;
-    if (!response.ok) throw Error(`Bridge returned HTTP ${response.status}`);
-    process.stdout.write(JSON.stringify(await response.json()) + "\n");
+    const payload = await response.json();
+    if (!response.ok && !(payload.jsonrpc === "2.0" && payload.error))
+      throw Error(`Bridge returned HTTP ${response.status}`);
+    process.stdout.write(JSON.stringify(payload) + "\n");
   } catch (error) {
     if (message?.id !== undefined)
       process.stdout.write(

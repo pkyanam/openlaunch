@@ -160,7 +160,8 @@ interface AgentConnection {
   expiresAt: number | null;
   revoked: boolean;
   access: "read" | "act";
-  purpose?: "agent" | "device-setup";
+  purpose?: "agent" | "device-setup" | "oauth";
+  oauth?: import("./oauth-clients.ts").OAuthClientMetadata;
   canAttach?: boolean;
   deviceLimit?: number;
 }
@@ -191,6 +192,8 @@ export interface Principal {
   owner: boolean;
   readOnly?: boolean;
   connectionPurpose?: "agent" | "device-setup" | "legacy";
+  // Set only after issuer, token audience and OAuth scope verification.
+  oauthClient?: boolean;
 }
 const isDeviceSetupPrincipal = (p: Principal) =>
   p.connectionPurpose === "device-setup";
@@ -509,6 +512,101 @@ export class Hub {
             !device.revoked && device.attachedConnectionId === connection.id,
         ).length,
       }));
+  }
+  checkOAuthClientCapacity(p: Principal) {
+    this.owner(p);
+    if (
+      this.state.agentConnections!.filter((c) =>
+        connectionIsActive(c, this.now()),
+      ).length >= 20
+    )
+      throw new Fault("limit", 429, "Agent connection limit reached");
+    // Reserve the largest bounded OAuth record before contacting the provider.
+    this.capacity({
+      agentConnections: [
+        ...this.state.agentConnections!,
+        {
+          id: crypto.randomUUID(),
+          principal: "x".repeat(128),
+          name: "中".repeat(64),
+          tokenHash: "",
+          expiresAt: null,
+          revoked: false,
+          access: "read",
+          purpose: "oauth",
+          oauth: {
+            applicationId: "x".repeat(128),
+            clientId: "x".repeat(128),
+            public: false,
+            redirectUris: Array(8).fill("x".repeat(1024)),
+          },
+        },
+      ],
+    });
+  }
+  registerOAuthClient(
+    p: Principal,
+    config: import("./oauth-clients.ts").OAuthClientConfig,
+    metadata: import("./oauth-clients.ts").OAuthClientMetadata,
+  ) {
+    this.checkOAuthClientCapacity(p);
+    if (
+      !metadata.clientId ||
+      metadata.clientId.length > 128 ||
+      !metadata.applicationId ||
+      metadata.applicationId.length > 128 ||
+      this.state.agentConnections!.some(
+        (c) => c.principal === metadata.clientId,
+      )
+    )
+      throw new Fault("invalid", 400, "Invalid OAuth client registration");
+    const connection: AgentConnection = {
+      id: crypto.randomUUID(),
+      principal: metadata.clientId,
+      name: config.name,
+      tokenHash: "",
+      expiresAt: null,
+      revoked: false,
+      access: config.access,
+      purpose: "oauth",
+      canAttach: false,
+      deviceLimit: 0,
+      oauth: {
+        applicationId: metadata.applicationId,
+        clientId: metadata.clientId,
+        redirectUris: [...config.redirectUris],
+        public: config.public,
+      },
+    };
+    this.capacity({
+      agentConnections: [...this.state.agentConnections!, connection],
+    });
+    this.state.agentConnections!.push(connection);
+    this.audit("oauth.client_registered", connection.id, p.id);
+    const { tokenHash, ...safe } = connection;
+    return safe;
+  }
+  admitOAuthClient(p: Principal, builtins: string[] = []): Principal {
+    if (!p.oauthClient) return p;
+    const connection = this.state.agentConnections!.find(
+      (c) => c.purpose === "oauth" && c.principal === p.id,
+    );
+    if (connection) {
+      if (!connectionIsActive(connection, this.now()))
+        throw new Fault("unauthorized", 401, "OAuth client was revoked");
+      return {
+        ...p,
+        owner: false,
+        readOnly: p.readOnly || connection.access === "read",
+      };
+    }
+    if (!builtins.includes(p.id))
+      throw new Fault(
+        "unauthorized",
+        401,
+        "OAuth client is not registered in this workspace",
+      );
+    return { ...p, owner: false };
   }
   deviceSetupTokens(p: Principal) {
     this.owner(p);

@@ -1,9 +1,23 @@
 ---
 title: Connect an agent
-description: Connect ChatGPT, Codex or any JavaScript agent to openlaunch, approve device functions and inspect each action result.
+description: Connect any OAuth-capable MCP host or JavaScript agent to openlaunch, approve device functions and inspect each action result.
 ---
 
-ChatGPT and Codex can connect over MCP with OAuth. Other agents can use the openlaunch SDK with an owner-issued `ol_agent_` API connection. Device setup uses a separate short-lived `ol_sdk_` token and cannot authenticate an agent. Every agent connection follows the same per-device function grants; a credential alone does not grant access to a device.
+Any OAuth-capable MCP host can connect to openlaunch. Agents can also use the openlaunch SDK with an owner-issued `ol_agent_` API connection. Device setup uses a separate short-lived `ol_sdk_` token and cannot authenticate an agent. Every agent connection follows the same per-device function grants; a credential alone does not grant access to a device.
+
+## Executor and custom OAuth clients
+
+Open **Connections → OAuth clients**, enter the application name and its exact callback URLs, and choose read access or read-and-action access. **Use Executor settings** fills `https://v2.executor.sh/api/oauth/callback`. Register a public PKCE client when your host supports it; its optional secret field stays empty. A confidential client uses PKCE plus a secret shown once. Copy that secret before leaving the tab; openlaunch does not store it.
+
+Enter the client ID, optional secret, and `https://www.openlaunch.dev/mcp` in your MCP host. Request `openlaunch:read` and, for commands, `openlaunch:act`. Clients may also request openid, profile, email and offline_access within the registered ceiling. Complete OAuth sign-in and consent, then choose this application in the device's **Access** view and grant the functions it needs. OAuth consent cannot create device grants.
+
+Registered clients belong to the owner's workspace. Revoking a client immediately blocks its openlaunch access, removes its function grants and cancels undispatched commands, even if authorization-provider cleanup needs a retry. To change callback URLs or scope ceilings, revoke the client and register a replacement. Local servers without a hosted authorization provider support agent API tokens instead.
+
+## MCP compatibility
+
+The device and documentation endpoints support the [2026-07-28 MCP specification](https://modelcontextprotocol.io/specification/2026-07-28) and earlier handshake-based clients. Modern requests use per-request protocol metadata and the matching `MCP-Protocol-Version`, `Mcp-Method` and, for named calls, `Mcp-Name` headers. `server/discover` reports supported versions and implemented capabilities. The local stdio adapter forwards these fields too.
+
+Device MCP provides tools; documentation MCP provides read-only tools and page resources. Optional prompts, sampling, elicitation, subscriptions and extensions are not advertised. Device operations return queued receipts, which require a subsequent status read; they are not protocol tasks or proof of physical success. Permission-dependent discovery has a private cache scope and a zero TTL, and every invocation checks current grants.
 
 ## ChatGPT and Codex
 

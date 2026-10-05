@@ -159,3 +159,20 @@ Device setup-token revocation and device revocation are separate: revoking a set
 ## Serial-only Roomba correction
 
 The Roomba sketch now defaults to Serial1/BRC wiring without D6/D7 controls. It retains local one-second wheel/brush deadlines, Safe mode, replay/result journals and separate grants. Optional owner-selected contact builds still support D6/D7. Sensor reads drain bounded startup text before querying; a timeout still requires restart. Health exposes the wiring policy and readiness without stopping autonomous cleaning. Source/compile validation is separate from installing the new RA sketch and observing the robot. Keep the repaired ESP image and console-mux transport intact; update only the RA application using the explicitly selected artifact.
+
+## Custom OAuth clients and current MCP
+
+Connections now includes an OAuth clients panel for Executor and custom hosts.
+Owners register exact callbacks, choose public PKCE or confidential PKCE clients,
+and set a read/action ceiling. Secrets are shown once and excluded from stored
+records. Registration does not grant functions; choose the new client in a
+device's Access view. Admission is workspace-specific, and revocation removes
+grants and cancels undispatched commands even if provider cleanup fails.
+
+Both hosted MCP endpoints and the local stdio adapter support 2026-07-28 and
+legacy clients. See [MCP compatibility](MCP-COMPATIBILITY.md) for the supported
+capabilities and official-schema checks. OAuth management, console registration,
+copying, secret clearing, revocation and mobile layout were tested using
+disposable software fixtures. No production client, token or grant was created
+for this acceptance check, and no firmware was flashed. A live Executor OAuth
+login and physical Roomba operation still require owner acceptance.

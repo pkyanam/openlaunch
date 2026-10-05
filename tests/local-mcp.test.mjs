@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { z } from "zod";
 // Adapter can use a test installation path, but always selects its agent credential.
 test("local stdio adapter connects using only agent credentials and observes grants", async () => {
   const dir = await mkdtemp(join(tmpdir(), "openlaunch-stdio-"));
@@ -53,6 +54,40 @@ test("local stdio adapter connects using only agent credentials and observes gra
     const list = await client.callTool({ name: "list_devices", arguments: {} });
     assert.deepEqual(list.structuredContent.data, []);
     assert(!tools.tools.some((x) => /grant|enroll/.test(x.name)));
+    const discovery = await client.request(
+      {
+        method: "server/discover",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      },
+      z.object({
+        resultType: z.literal("complete"),
+        supportedVersions: z.array(z.string()),
+      }),
+    );
+    assert(discovery.supportedVersions.includes("2026-07-28"));
+    const modernList = await client.request(
+      {
+        method: "tools/call",
+        params: {
+          name: "list_devices",
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      },
+      z.object({
+        resultType: z.literal("complete"),
+        structuredContent: z.object({ data: z.array(z.unknown()) }),
+      }),
+    );
+    assert.deepEqual(modernList.structuredContent.data, []);
     const management = await fetch(origin + "/v1/enrollments", {
       method: "POST",
       headers: {

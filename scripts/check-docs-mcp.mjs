@@ -4,8 +4,80 @@ import { readFile, access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import Ajv2020 from "ajv/dist/2020.js";
 const root = new URL("../apps/site/dist/client/", import.meta.url);
 const { default: worker } = await import(new URL("_worker.js", root));
+const protocolSchema = JSON.parse(
+  await readFile(
+    new URL("../tests/fixtures/mcp-2026/schema.json", import.meta.url),
+    "utf8",
+  ),
+);
+const schemaValidator = new Ajv2020({ strict: false, validateFormats: false });
+schemaValidator.addSchema(protocolSchema, "mcp-2026");
+let modernId = 0;
+const modern = async (method, params, responseSchema) => {
+  const request = new Request("https://www.openlaunch.dev/docs-mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": method,
+      ...(["tools/call", "resources/read"].includes(method)
+        ? {
+            "mcp-name": `=?base64?${Buffer.from(params.name ?? params.uri).toString("base64")}?=`,
+          }
+        : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: ++modernId,
+      method,
+      params: {
+        ...params,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  const response = await worker.fetch(request, {});
+  const payload = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  const validate = schemaValidator.compile({
+    $ref: `mcp-2026#/$defs/${responseSchema}`,
+  });
+  assert(validate(payload), JSON.stringify(validate.errors));
+  return payload.result;
+};
+assert.deepEqual(
+  (await modern("server/discover", {}, "DiscoverResultResponse")).capabilities,
+  { tools: {}, resources: {} },
+);
+const modernTools = await modern("tools/list", {}, "ListToolsResultResponse");
+assert(modernTools.tools.some((tool) => tool.name === "search_docs"));
+assert(
+  !(
+    await modern(
+      "tools/call",
+      { name: "get_navigation", arguments: {} },
+      "CallToolResultResponse",
+    )
+  ).isError,
+);
+const modernResources = await modern(
+  "resources/list",
+  {},
+  "ListResourcesResultResponse",
+);
+const modernResource = await modern(
+  "resources/read",
+  { uri: modernResources.resources[0].uri },
+  "ReadResourceResultResponse",
+);
+assert(modernResource.contents[0].text.length > 50);
 const assets = {
   async fetch(request) {
     try {

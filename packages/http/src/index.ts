@@ -9,7 +9,16 @@ import {
   type DeviceCredentialDeriver,
 } from "../../core/src/index.ts";
 import { functionGuide } from "../../core/src/function-guides.ts";
-import { createMcp } from "../../mcp/src/index.ts";
+import {
+  oauthClientConfig,
+  type OAuthClientProvider,
+} from "../../core/src/oauth-clients.ts";
+import { createMcp, toolNeedsActionScope } from "../../mcp/src/index.ts";
+import {
+  handlePerRequestMcp,
+  rpcError,
+  usesPerRequestProtocol,
+} from "../../mcp/src/http-2026.ts";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 const caps = capabilityName;
 const bearer = (r: Request) =>
@@ -56,9 +65,15 @@ const body = async (r: Request) => {
       new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes),
     );
   } catch {
-    const zeroBytes = bytes.reduce((count, byte) => count + Number(byte === 0), 0);
-    throw new Fault("invalid_json", 400,
-      `Invalid JSON (bytes=${bytes.length}, zeroBytes=${zeroBytes}, first=${bytes[0] ?? -1}, last=${bytes.at(-1) ?? -1})`);
+    const zeroBytes = bytes.reduce(
+      (count, byte) => count + Number(byte === 0),
+      0,
+    );
+    throw new Fault(
+      "invalid_json",
+      400,
+      `Invalid JSON (bytes=${bytes.length}, zeroBytes=${zeroBytes}, first=${bytes[0] ?? -1}, last=${bytes.at(-1) ?? -1})`,
+    );
   }
 };
 export async function handle(
@@ -68,6 +83,9 @@ export async function handle(
   context: {
     workspace?: string;
     deviceCredentials?: DeviceCredentialDeriver;
+    oauthClients?: OAuthClientProvider;
+    oauthBuiltinClients?: string[];
+    resourceMetadata?: string;
   } = {},
 ): Promise<Response> {
   try {
@@ -120,17 +138,76 @@ export async function handle(
     if (path.startsWith("/v1/device/"))
       throw new Fault("not_found", 404, "Device route not found");
     const token = bearer(request);
-    const p = agentTokenWorkspace(token)
+    let p = agentTokenWorkspace(token)
       ? await hub.authenticateConnection(token, context.workspace ?? "")
       : await resolve(request);
+    p = hub.admitOAuthClient(p, context.oauthBuiltinClients);
     if (
       p.connectionPurpose === "device-setup" &&
       !(path === "/v1/sdk/devices" && method === "POST")
     )
-      throw new Fault("forbidden", 403, "Device setup tokens can only attach devices");
+      throw new Fault(
+        "forbidden",
+        403,
+        "Device setup tokens can only attach devices",
+      );
     if (path === "/mcp") {
       if (method !== "POST")
-        throw new Fault("method", 405, "Stateless MCP uses POST");
+        return Response.json(
+          { error: { code: "method", message: "Stateless MCP uses POST" } },
+          {
+            status: 405,
+            headers: { allow: "POST", "cache-control": "no-store" },
+          },
+        );
+      if (
+        !/^application\/json(?:\s*;|$)/i.test(
+          request.headers.get("content-type") ?? "",
+        )
+      )
+        return rpcError(
+          null,
+          -32600,
+          "Content-Type must be application/json",
+          415,
+        );
+      const accept = request.headers.get("accept") ?? "";
+      const acceptedTypes = accept
+        .split(",")
+        .map((value) => value.trim().split(";")[0]);
+      if (
+        !acceptedTypes.includes("application/json") ||
+        !acceptedTypes.includes("text/event-stream")
+      )
+        return rpcError(
+          null,
+          -32600,
+          "Accept must include application/json and text/event-stream",
+          406,
+        );
+      let message: any;
+      try {
+        message = await body(request);
+      } catch (error) {
+        if (error instanceof Fault && error.code === "invalid_json")
+          return rpcError(null, -32700, "Parse error");
+        throw error;
+      }
+      // Only trusted token scopes and live grants authorize execution; request
+      // metadata and client capabilities are self-reported protocol information.
+      if (usesPerRequestProtocol(request, message))
+        return handlePerRequestMcp(request, message, hub, p);
+      if (
+        message?.method === "tools/call" &&
+        p.readOnly &&
+        toolNeedsActionScope(
+          hub,
+          p,
+          message.params?.name,
+          message.params?.arguments,
+        )
+      )
+        throw new Fault("insufficient_scope", 403, "Write scope required");
       const server = createMcp(hub, p);
       const transport = new WebStandardStreamableHTTPServerTransport({
         enableJsonResponse: true,
@@ -138,7 +215,7 @@ export async function handle(
       await server.connect(transport);
       try {
         return await transport.handleRequest(request, {
-          parsedBody: await body(request),
+          parsedBody: message,
         });
       } finally {
         await server.close();
@@ -187,12 +264,78 @@ export async function handle(
       return json(await hub.enrollment(p, b.kind), 201);
     }
     if (path === "/v1/agent-connections" && method === "GET")
-      return json(hub.connections(p).filter((c) => c.purpose !== "device-setup"));
+      return json(
+        hub
+          .connections(p)
+          .filter((c) => !["device-setup", "oauth"].includes(c.purpose ?? "")),
+      );
+    if (path === "/v1/oauth-clients" && method === "GET")
+      return json({
+        available: !!context.oauthClients,
+        clients: hub.connections(p).filter((c) => c.purpose === "oauth"),
+      });
+    if (path === "/v1/oauth-clients" && method === "POST") {
+      // Ownership and capacity precede any provider-side registration.
+      hub.checkOAuthClientCapacity(p);
+      const config = oauthClientConfig.parse(await body(request));
+      if (!context.oauthClients)
+        throw new Fault(
+          "setup_required",
+          503,
+          "OAuth client registration is not configured for this server",
+        );
+      const created = await context.oauthClients.create(config);
+      try {
+        const client = hub.registerOAuthClient(p, config, created);
+        return json(
+          {
+            ...client,
+            ...(created.clientSecret
+              ? { clientSecret: created.clientSecret }
+              : {}),
+          },
+          201,
+        );
+      } catch (error) {
+        await context.oauthClients
+          .delete(created.applicationId)
+          .catch(() => undefined);
+        throw error;
+      }
+    }
+    const oauthRevoke = /^\/v1\/oauth-clients\/([a-f0-9-]{36})\/revoke$/.exec(
+      path,
+    );
+    if (oauthRevoke && method === "POST") {
+      hub.connections(p); // Owner-only; never expose other workspaces' provider apps.
+      const connection = hub.state.agentConnections!.find(
+        (c) => c.id === oauthRevoke[1] && c.purpose === "oauth",
+      );
+      if (!connection?.oauth)
+        throw new Fault("not_found", 404, "OAuth client not found");
+      hub.revokeConnection(p, connection.id);
+      let providerCleanupPending = true;
+      if (context.oauthClients) {
+        try {
+          await context.oauthClients.delete(connection.oauth.applicationId);
+          providerCleanupPending = false;
+        } catch {
+          /* Local admission is revoked even if the provider is unavailable. */
+        }
+      }
+      return json({ ok: true, providerCleanupPending });
+    }
     if (path === "/v1/agent-connections" && method === "POST") {
       const b = z
         .object({
           name: z.string().min(1).max(64),
-          ttlSeconds: z.number().int().min(60).max(2592000).nullable().default(86400),
+          ttlSeconds: z
+            .number()
+            .int()
+            .min(60)
+            .max(2592000)
+            .nullable()
+            .default(86400),
           access: z.enum(["read", "act"]).default("act"),
         })
         .strict()
@@ -252,7 +395,13 @@ export async function handle(
           principal: z.string().min(1).max(128),
           deviceId: z.string().uuid(),
           capabilities: z.array(caps).min(1).max(16),
-          ttlSeconds: z.number().int().min(1).max(86400).nullable().default(3600),
+          ttlSeconds: z
+            .number()
+            .int()
+            .min(1)
+            .max(86400)
+            .nullable()
+            .default(3600),
         })
         .strict()
         .parse(await body(request));
@@ -338,7 +487,17 @@ export async function handle(
     if (e instanceof Fault)
       return Response.json(
         { error: { code: e.code, message: e.message } },
-        { status: e.status, headers: { "cache-control": "no-store" } },
+        {
+          status: e.status,
+          headers: {
+            "cache-control": "no-store",
+            ...(e.status === 401 || e.code === "insufficient_scope"
+              ? {
+                  "www-authenticate": `Bearer resource_metadata="${context.resourceMetadata ?? new URL(request.url).origin + "/.well-known/oauth-protected-resource/mcp"}", scope="${e.code === "insufficient_scope" ? "openlaunch:read openlaunch:act" : "openlaunch:read"}"${e.code === "insufficient_scope" ? ', error="insufficient_scope"' : ""}`,
+                }
+              : {}),
+          },
+        },
       );
     return Response.json(
       { error: { code: "internal", message: "Internal error" } },
