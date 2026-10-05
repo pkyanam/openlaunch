@@ -29,7 +29,7 @@ openlaunch provides a broader set of structured host functions and independently
 - `linux_cli.go`: local owner policy commands, single-runtime advisory lock and systemd user-service setup.
 - Existing `main.go`: attach-only setup token exchange, child credentials, authenticated outbound polling and durable action/result journal. The `raspberry-pi-4` profile retains health-only behavior.
 
-The shared function schema permits strings up to 8192 characters only for the `linux` kind. Other manifests retain their 1024-character ceiling. HTTP body limits, embedded device manifests, result limits and pending-result reservations remain unchanged.
+The shared function schema permits strings up to 8192 characters only for the `linux` kind. Other manifests retain their 1024-character ceiling. HTTP body limits, embedded device manifests, result limits and pending-result reservations remain unchanged. Linux response reading is bounded at 64 KiB to accommodate full action receipts, which echo arguments and their internal idempotency fingerprint; the Pi profile retains its 16 KiB response ceiling.
 
 The installer and ARM64/ARMv7/x86-64 downloads come from the same CI commit as the site. No new cloud service or subscription is required. A new owner policy takes effect after runtime restart; startup publishes it before accepting new commands and fails closed if publishing or reconciling an existing result fails.
 

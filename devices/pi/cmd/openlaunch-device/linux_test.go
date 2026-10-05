@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,29 @@ import (
 )
 
 const uploadID = "ab937405-1a8d-43b9-8c74-614f9cfe8b28"
+
+func TestLinuxAcknowledgesFullSizeChunkReceiptWithoutWideningPiReads(t *testing.T) {
+	chunk := strings.Repeat("A", 8192)
+	receipt := map[string]any{"id": uploadID, "status": "succeeded", "args": map[string]any{"dataBase64": chunk}, "fingerprint": `{"args":{"dataBase64":"` + chunk + `"}}`, "result": map[string]any{"committed": true}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"data": receipt})
+	}))
+	defer server.Close()
+	var result map[string]any
+	if err := call(Config{URL: server.URL, Profile: "linux"}, "/receipt", map[string]any{}, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["status"] != "succeeded" {
+		t.Fatal("lost receipt")
+	}
+	if err := call(Config{URL: server.URL}, "/receipt", map[string]any{}, &result); err == nil {
+		t.Fatal("Pi response ceiling changed")
+	}
+	receipt["fingerprint"] = strings.Repeat("A", 65536)
+	if err := call(Config{URL: server.URL, Profile: "linux"}, "/receipt", map[string]any{}, &result); err == nil {
+		t.Fatal("Linux response ceiling missing")
+	}
+}
 
 func hostFixture(t *testing.T, write bool) (*LinuxHarness, string, string) {
 	t.Helper()

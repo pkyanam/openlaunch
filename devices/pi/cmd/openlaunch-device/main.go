@@ -145,11 +145,15 @@ func call(c Config, path string, input any, out any) error {
 		return e
 	}
 	defer response.Body.Close()
-	body, e := io.ReadAll(io.LimitReader(response.Body, 16385))
+	responseLimit := int64(16384)
+	if c.Profile == "linux" {
+		responseLimit = 65536
+	}
+	body, e := io.ReadAll(io.LimitReader(response.Body, responseLimit+1))
 	if e != nil {
 		return e
 	}
-	if len(body) > 16384 {
+	if int64(len(body)) > responseLimit {
 		return errors.New("response too large")
 	}
 	if response.StatusCode >= 300 {
