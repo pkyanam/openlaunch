@@ -12,6 +12,17 @@ Open **Connections → OAuth clients**, enter the application name and its exact
 
 Enter the client ID, optional secret, and `https://www.openlaunch.dev/mcp` in your MCP host. Request `openlaunch:read` and, for commands, `openlaunch:act`. Clients may also request openid, profile, email and offline_access within the registered ceiling. Complete OAuth sign-in and consent, then choose this application in the device's **Access** view and grant the functions it needs. OAuth consent cannot create device grants.
 
+For Executor apps, declare the command scopes explicitly in the app's `provider.ts`:
+
+```ts
+oauth: oauth2({
+  discover: "https://www.openlaunch.dev/mcp",
+  scopes: ["openlaunch:read", "openlaunch:act", "offline_access"],
+})
+```
+
+Executor's automatic discovery otherwise inherits the initial read-only Bearer challenge. An online device can therefore expose only its read functions even when its owner saved all function grants. After changing the provider, sign in again and select the resulting account in the app's profile; an existing authorization cannot gain scopes by refreshing its token. Confirm `list_functions` includes the granted write functions before requesting a command. Choose only `openlaunch:read` for an intentionally read-only app.
+
 Registered clients belong to the owner's workspace. Revoking a client immediately blocks its openlaunch access, removes its function grants and cancels undispatched commands, even if authorization-provider cleanup needs a retry. To change callback URLs or scope ceilings, revoke the client and register a replacement. Local servers without a hosted authorization provider support agent API tokens instead.
 
 ## MCP compatibility

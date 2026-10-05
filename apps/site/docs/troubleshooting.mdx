@@ -21,6 +21,8 @@ Device attachment and agent access are separate. Use OAuth or an `ol_agent_` API
 
 ChatGPT through Executor uses the registered **Executor** OAuth client, not the direct **ChatGPT** connection. Select **Executor** in **Grant an agent access**, choose functions, and **Save grant**. OAuth sign-in alone gives it no device access. For commands, the OAuth client's allowed access must also include **Read and invoke granted functions**.
 
+If Executor sees the device but only `device.health` and `roomba.sensor.read`, its OAuth authorization is read-only. Explicitly configure `openlaunch:read` and `openlaunch:act` in the Executor app, then sign in again and select that account. Changing the device grant or refreshing the old token cannot add action scope. See [Executor configuration](/agents#executor-and-custom-oauth-clients).
+
 ## My agent sees a function but has no tool to call it
 
 Call `list_functions` to get the current schemas, then `invoke_device_function` with the device ID, capability and matching arguments. This stable invocation path works when a client caches its tool list before a new grant. If the connection still shows only the original six tools, refresh its MCP tools once to obtain these two new tools. A function visible in the current agent catalog already has a grant; changing permissions will not refresh a cached tool list.
