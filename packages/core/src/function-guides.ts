@@ -32,7 +32,7 @@ const guides: readonly FunctionGuide[] = [
       required: ["mode"],
       additionalProperties: false,
     },
-    text: `Use this function when the owner asks the Roomba to begin cleaning. Choose mode "standard" for a general cleaning request; choose "spot" or "max" only when that mode is requested. Examples: standard clean → {"mode":"standard"}; spot clean → {"mode":"spot"}; max clean → {"mode":"max"}. Examples illustrate arguments and do not grant authorization to act. This starts the robot's built-in routine; it does not accept a route or room selection. The device's local enable and stop-permit inputs still apply. A queued action is pending. A succeeded result confirms serial transmission only, not that cleaning started or finished.`,
+    text: `Use this function when the owner asks the Roomba to begin cleaning. Choose mode "standard" for a general cleaning request; choose "spot" or "max" only when that mode is requested. Examples: standard clean → {"mode":"standard"}; spot clean → {"mode":"spot"}; max clean → {"mode":"max"}. Examples illustrate arguments and do not grant authorization to act. This starts the robot's built-in routine; it does not accept a route or room selection. Follow the device description for its wiring policy: serial-only builds need no D6/D7 contacts; contact-enabled builds require their local switches. A queued action is pending. A succeeded result confirms serial transmission only, not that cleaning started or finished.`,
   },
   {
     kind: "uno-r4-wifi",
@@ -44,7 +44,7 @@ const guides: readonly FunctionGuide[] = [
       required: [],
       additionalProperties: false,
     },
-    text: `Use this function when the owner asks the Roomba to return to its dock. It asks the robot to seek its dock; it does not confirm that the robot reached or connected to the dock. The device's local enable and stop-permit inputs still apply. A queued action is pending. A succeeded result confirms serial transmission only, not docking. Example arguments: {}.`,
+    text: `Use this function when the owner asks the Roomba to return to its dock. It asks the robot to seek its dock; it does not confirm that the robot reached or connected to the dock. Follow the device description for its wiring policy: serial-only builds need no D6/D7 contacts; contact-enabled builds require their local switches. A queued action is pending. A succeeded result confirms serial transmission only, not docking. Example arguments: {}.`,
   },
   {
     kind: "uno-r4-wifi",
@@ -72,7 +72,7 @@ const guides: readonly FunctionGuide[] = [
       required: ["velocityMmS", "radiusMm", "durationMs"],
       additionalProperties: false,
     },
-    text: `Use this function only when the owner requests bounded manual movement. velocityMmS is signed millimeters per second; radiusMm 0 means straight, +1 or -1 means an in-place turn, and other signed values request an arc. durationMs is limited by the declared schema to 1–1000 ms. Example: a short straight movement at 100 mm/s → {"velocityMmS":100,"radiusMm":0,"durationMs":300}. Examples illustrate arguments and do not grant authorization to act. The local enable and stop-permit inputs and firmware lease stop still apply. A queued action is pending. A succeeded result confirms serial transmission only, not physical movement.`,
+    text: `Use this function only when the owner requests bounded manual movement. velocityMmS is signed millimeters per second; radiusMm 0 means straight, +1 or -1 means an in-place turn, and other signed values request an arc. durationMs is limited by the declared schema to 1–1000 ms. Example: a short straight movement at 100 mm/s → {"velocityMmS":100,"radiusMm":0,"durationMs":300}. Examples illustrate arguments and do not grant authorization to act. The firmware lease stop and any owner-enabled local contacts still apply. Use the separately granted resume_safe function to recover Safe mode when needed; Full mode is unavailable. A queued action is pending. A succeeded result confirms serial transmission only, not physical movement.`,
   },
   {
     kind: "uno-r4-wifi",
@@ -88,7 +88,7 @@ const guides: readonly FunctionGuide[] = [
       required: ["rightMmS", "leftMmS", "durationMs"],
       additionalProperties: false,
     },
-    text: `Use this function only when the owner explicitly requests bounded wheel-speed control. rightMmS and leftMmS are independent signed wheel speeds in millimeters per second; durationMs is limited by the declared schema to 1–1000 ms. Example: both wheels forward briefly → {"rightMmS":100,"leftMmS":100,"durationMs":300}. Examples illustrate arguments and do not grant authorization to act. The local enable and stop-permit inputs and firmware lease stop still apply. A queued action is pending. A succeeded result confirms serial transmission only, not physical movement.`,
+    text: `Use this function only when the owner explicitly requests bounded wheel-speed control. rightMmS and leftMmS are independent signed wheel speeds in millimeters per second; durationMs is limited by the declared schema to 1–1000 ms. Example: both wheels forward briefly → {"rightMmS":100,"leftMmS":100,"durationMs":300}. Examples illustrate arguments and do not grant authorization to act. The firmware lease stop and any owner-enabled local contacts still apply. Use the separately granted resume_safe function to recover Safe mode when needed; Full mode is unavailable. A queued action is pending. A succeeded result confirms serial transmission only, not physical movement.`,
   },
 ];
 

@@ -5,8 +5,8 @@
  * Roomba connector, pin 4 TX goes to Uno R4 D0/Serial1 RX, pin 3 RX to D1/TX,
  * pin 5 BRC to D5, and pin 6 or 7 ground to Uno ground. The board supply may
  * use the robot's Vout on VIN; never connect battery output to the 5V pin.
- * D6 local enable must be open at boot and closed to arm; D7 e-stop OK must
- * be closed to ground. Both inputs use pullups, so open wires fail closed.
+ * The default needs no D6/D7 contacts. An owner-selected contact build
+ * requires D6 release then close and D7 closed to ground; open wires disarm.
  * Roomba drive commands persist until stopped, so every remote drive is a
  * locally timed burst of at most one second. No WiFi, HTTP, or clock calls
  * run while a burst is active.
@@ -28,7 +28,7 @@
 #include "RoombaBootstrapRecord.h"
 #include "RoombaFunctions.h"
 
-// Connect physical local-enable and e-stop-OK switches so LOW means armed.
+// Optional contact builds use separate switches so LOW means permitted.
 static const uint8_t LOCAL_ENABLE_PIN = 6;
 static const uint8_t ESTOP_OK_PIN = 7;
 static const uint8_t ROOMBA_BRC_PIN = 5;
@@ -60,7 +60,7 @@ static const int EEPROM_BOOTSTRAP_OFFSET =
 RoombaMotionRecord motionRecord;
 bool motionReady = false;
 bool roombaReady = false;
-bool enableOpenedSinceBoot = false;
+RoombaLocalControl localControl(ROOMBA_REQUIRE_LOCAL_CONTACTS);
 RoombaAutonomyGuard autonomyGuard;
 RoombaPendingResult pendingResult = {};
 RoombaBootstrapRecord bootstrapRecord = {};
@@ -135,16 +135,12 @@ class BoardDriveIO : public RoombaDriveIO {
  public:
   uint32_t nowMs() override { return millis(); }
   bool locallyArmed() override {
-    if (digitalRead(ESTOP_OK_PIN) == HIGH) {
-      enableOpenedSinceBoot = false;
-      return false;
-    }
-    if (digitalRead(LOCAL_ENABLE_PIN) == HIGH) {
-      enableOpenedSinceBoot = true;
-      return false;
-    }
-    return roombaReady && motionReady && cfg.magic == CONFIG_MAGIC &&
-           strcmp(cfg.model, "551") == 0 && enableOpenedSinceBoot;
+    const bool ready = roombaReady && motionReady && resultJournalReady &&
+        !configStorageFault && !resultJournalFault && !resultAuthRevoked &&
+        cfg.magic == CONFIG_MAGIC && strcmp(cfg.model, "551") == 0;
+    return localControl.allows(ready,
+        ROOMBA_REQUIRE_LOCAL_CONTACTS && digitalRead(LOCAL_ENABLE_PIN) == LOW,
+        ROOMBA_REQUIRE_LOCAL_CONTACTS && digitalRead(ESTOP_OK_PIN) == LOW);
   }
   void drive(int16_t velocityMmS, int16_t radiusMm) override {
     if (!roombaReady) return;
@@ -558,9 +554,12 @@ bool queueResult(JsonDocument& ack) {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LOCAL_ENABLE_PIN, INPUT_PULLUP);
-  pinMode(ESTOP_OK_PIN, INPUT_PULLUP);
-  enableOpenedSinceBoot = digitalRead(LOCAL_ENABLE_PIN) == HIGH;
+  if (ROOMBA_REQUIRE_LOCAL_CONTACTS) {
+    pinMode(LOCAL_ENABLE_PIN, INPUT_PULLUP);
+    pinMode(ESTOP_OK_PIN, INPUT_PULLUP);
+    localControl.allows(false, digitalRead(LOCAL_ENABLE_PIN) == LOW,
+        digitalRead(ESTOP_OK_PIN) == LOW);
+  }
   // Establish Safe mode and send stop before any USB or network wait so a
   // prior latched drive request is cleared as soon as this sketch starts.
   roombaReady = roomba.begin();
@@ -606,6 +605,9 @@ void emitStatus() {
   out["attachmentDiagnostic"] = lastAttachDiagnostic;
   out["storageFault"] = configStorageFault || resultJournalFault;
   out["wifiConnected"] = WiFi.status() == WL_CONNECTED;
+  out["controlWiring"] = ROOMBA_REQUIRE_LOCAL_CONTACTS ? "local_contacts" : "serial_only";
+  out["controlReady"] = driveIO.locallyArmed();
+  out["sensorLinkDesynced"] = roombaSensorLinkDesynced;
   if (cfg.magic == CONFIG_MAGIC && cfg.deviceId[0]) out["deviceId"] = cfg.deviceId;
   serializeJson(out, Serial); Serial.println();
 }
@@ -810,7 +812,9 @@ void addMovementManifest(JsonArray functions) {
   JsonObject drive = functions.add<JsonObject>();
   drive["name"] = "roomba.drive";
   drive["title"] = "Drive Roomba briefly";
-  drive["description"] = "Drive at bounded speed for at most one second; requires local enable and interlock.";
+  drive["description"] = ROOMBA_REQUIRE_LOCAL_CONTACTS
+      ? "Drive at bounded speed for at most one second with local enable and stop contacts."
+      : "Drive over serial in Safe mode at bounded speed for at most one second. No D6/D7 contacts required.";
   drive["access"] = "write";
   schema = drive["inputSchema"].to<JsonObject>();
   schema["type"] = "object";
@@ -889,7 +893,7 @@ bool requiresLocalInterlock(const char* capability) {
 
 uint16_t requiredActionTimeMs(const char* capability) {
   if (isRoombaMotionFeature(capability)) return 1000;
-  if (strcmp(capability, "roomba.sensor.read") == 0) return 115;
+  if (strcmp(capability, "roomba.sensor.read") == 0) return 225;
   if (strcmp(capability, "roomba.tone.play") == 0) return 512;
   if (strcmp(capability, "roomba.song.play") == 0) return 1600;
   if (strcmp(capability, "roomba.resume_safe") == 0) return 40;
@@ -995,12 +999,14 @@ void handleAction(JsonObject cmd) {
     return;
   }
   if (!strcmp(capability, "device.health")) {
-    driveAdapter.stop();
     JsonDocument ack, reply;
     ack["actionId"] = id; ack["status"] = "succeeded";
     ack["result"]["uptimeMs"] = millis(); ack["result"]["rssi"] = WiFi.RSSI();
     ack["result"]["board"] = "uno-r4-wifi";
     ack["result"]["model"] = cfg.model;
+    ack["result"]["controlWiring"] = ROOMBA_REQUIRE_LOCAL_CONTACTS ? "local_contacts" : "serial_only";
+    ack["result"]["controlReady"] = driveIO.locallyArmed();
+    ack["result"]["sensorLinkDesynced"] = roombaSensorLinkDesynced;
     ack["result"]["physicalVerified"] = false;
     queueResult(ack);
     return;
@@ -1017,7 +1023,7 @@ void handleAction(JsonObject cmd) {
   }
   if (requiresLocalInterlock(capability) && !driveIO.locallyArmed()) {
     driveAdapter.stop();
-    reportResult(id, false, "local_interlock_open");
+    reportResult(id, false, ROOMBA_REQUIRE_LOCAL_CONTACTS ? "local_interlock_open" : "control_not_ready");
     return;
   }
   if (strcmp(capability, "roomba.drive") == 0 && !validDriveArguments(args)) {

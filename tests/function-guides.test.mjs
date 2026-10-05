@@ -27,10 +27,14 @@ test("hosted Roomba guides match only the verified kind, name, access and full s
   const guide = functionGuide("uno-r4-wifi", clean);
   assert.match(guide, /general cleaning request/);
   assert.match(guide, /succeeded result confirms serial transmission only/);
-  assert.match(guide, /local enable and stop-permit inputs/);
+  assert.match(guide, /serial-only builds need no D6\/D7 contacts/);
+  assert.match(guide, /contact-enabled builds require their local switches/);
   assert.match(guide, /Call only on an explicit owner request/);
   assert.match(guide, /\{"mode":"spot"\}/);
-  assert.doesNotMatch(functionGuide("raspberry-pi-4", clean), /built-in routine/);
+  assert.doesNotMatch(
+    functionGuide("raspberry-pi-4", clean),
+    /built-in routine/,
+  );
   assert.doesNotMatch(
     functionGuide("uno-r4-wifi", { ...clean, access: "read" }),
     /built-in routine/,
@@ -134,7 +138,8 @@ test("unknown custom functions retain board documentation and receive schema-onl
   try {
     const { tools } = await client.listTools();
     const tool = tools.find(
-      (item) => item.name === functionToolName(device.deviceId, definition.name),
+      (item) =>
+        item.name === functionToolName(device.deviceId, definition.name),
     );
     assert(tool);
     assert.match(tool.description, /Custom board-specific behavior\./);

@@ -9,11 +9,18 @@
 #include <string.h>
 
 #include "RoombaDriveAdapter.h"
+#include "RoombaLocalControl.h"
+#include "RoombaSerialSync.h"
+
+struct RoombaSensorClock {
+  uint32_t nowMs() { return millis(); }
+  void pause() { delay(1); }
+};
 
 static const uint16_t ROOMBA_MAX_BRUSH_BURST_MS = 1000;
 
-// Tracks a robot-native autonomous run so the sketch can observe local
-// permits in its ordinary loop and enter Safe/stop if either contact opens.
+// Tracks autonomy so loss of board readiness or optional local contacts sends
+// Safe/stop. Serial-only builds do not consult D6/D7.
 class RoombaAutonomyGuard {
  public:
   void start() { active_ = true; }
@@ -111,7 +118,9 @@ inline void addRoombaFeatureManifest(JsonArray capabilities, JsonArray functions
   JsonObject brushes = functions.add<JsonObject>();
   brushes["name"] = "roomba.brushes.burst";
   brushes["title"] = "Run Roomba brushes briefly";
-  brushes["description"] = "Run selected brushes/vacuum while locally armed for at most one second; outputs are stopped before return.";
+  brushes["description"] = ROOMBA_REQUIRE_LOCAL_CONTACTS
+      ? "Run selected brushes/vacuum with local contacts enabled for at most one second; outputs are stopped before return."
+      : "Run selected brushes/vacuum over serial in Safe mode for at most one second; outputs are stopped before return. No D6/D7 contacts required.";
   brushes["access"] = "write";
   schema = brushes["inputSchema"].to<JsonObject>();
   schema["type"] = "object";
@@ -127,7 +136,9 @@ inline void addRoombaFeatureManifest(JsonArray capabilities, JsonArray functions
   JsonObject resume = functions.add<JsonObject>();
   resume["name"] = "roomba.resume_safe";
   resume["title"] = "Resume Roomba Safe mode";
-  resume["description"] = "Re-enter Safe mode after docking/charging; requires both local interlocks.";
+  resume["description"] = ROOMBA_REQUIRE_LOCAL_CONTACTS
+      ? "Re-enter Safe mode with local enable and stop contacts armed. Full mode is unavailable."
+      : "Explicitly re-enter Safe mode over serial and stop outputs. Full mode is unavailable; no D6/D7 contacts required.";
   resume["access"] = "write";
   schema = resume["inputSchema"].to<JsonObject>();
   schema["type"] = "object";
@@ -138,7 +149,9 @@ inline void addRoombaFeatureManifest(JsonArray capabilities, JsonArray functions
   JsonObject direct = functions.add<JsonObject>();
   direct["name"] = "roomba.drive_direct";
   direct["title"] = "Drive Roomba wheels briefly";
-  direct["description"] = "Run a bounded independent-wheel motion burst; stops within one second and requires local interlocks.";
+  direct["description"] = ROOMBA_REQUIRE_LOCAL_CONTACTS
+      ? "Run a bounded independent-wheel burst with local contacts enabled; stops within one second."
+      : "Run a bounded independent-wheel burst over serial in Safe mode; stops within one second. No D6/D7 contacts required.";
   direct["access"] = "write";
   schema = direct["inputSchema"].to<JsonObject>();
   schema["type"] = "object";
@@ -160,7 +173,9 @@ inline void addRoombaFeatureManifest(JsonArray capabilities, JsonArray functions
     action["title"] = autonomousTitles[i];
     action["description"] = i == 2
         ? "Enter Safe mode and stop drive and brush outputs."
-        : "Start a built-in autonomous behavior; requires local enable and interlock.";
+        : ROOMBA_REQUIRE_LOCAL_CONTACTS
+        ? "Start a built-in autonomous behavior with local enable and stop contacts armed."
+        : "Start a built-in autonomous behavior over serial using the robot's native safety behavior. No D6/D7 contacts required.";
     action["access"] = "write";
     JsonObject input = action["inputSchema"].to<JsonObject>();
     input["type"] = "object";
@@ -268,16 +283,12 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
       error = "serial_link_desynced";
       return true;
     }
-    uint8_t drained = 0;
-    if (serial && serial->isActive()) {
-      while (serial->available() > 0 && drained < 64) {
-        serial->read();
-        ++drained;
-      }
-    }
-    const bool backlog = serial && serial->available() > 0;
-    const bool valid = !backlog &&
+    RoombaSensorClock clock;
+    const RoombaSerialSyncResult sync = synchronizeRoombaSerial(serial, clock);
+    const bool backlog = !sync.ready;
+    const bool valid = sync.ready &&
         roomba.sensors().getSensor(static_cast<uint8_t>(id), bytes, length);
+    result["discardedRxBytes"] = sync.discardedBytes;
     result["packetId"] = id;
     result["valid"] = valid;
     result["transport"] = valid ? "serial_response_received" :
@@ -289,7 +300,9 @@ inline bool handleRoombaFeature(const char* capability, JsonObjectConst args,
     }
     result["physicalVerified"] = false;
     if (!valid) {
-      roombaSensorLinkDesynced = true;
+      // Backlog sent no query, so retrying its drain is safe. A timeout can
+      // leave a delayed reply: require a restart before another query.
+      if (!backlog) roombaSensorLinkDesynced = true;
       error = backlog ? "serial_rx_backlog" : "serial_timeout";
     }
     return true;

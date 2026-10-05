@@ -3,23 +3,28 @@
 
 #include <stdint.h>
 
-inline unsigned long millis() { return 1234UL; }
+static unsigned long testMillis = 1234UL;
+inline unsigned long millis() { return testMillis; }
+inline void delay(unsigned long ms) { testMillis += ms; }
 
 class RoombaSerial {
  public:
   bool active = true;
   int pending = 0;
+  bool continuous = false;
   bool isActive() const { return active; }
-  int available() { return pending; }
-  int read() { if (pending > 0) --pending; return 0; }
+  int available() { return continuous ? 1 : pending; }
+  int read() { if (!continuous && pending > 0) --pending; return 0; }
 };
 
 class RoombaSensors {
  public:
   bool reply = true;
   uint8_t requestedId = 0, requestedLength = 0;
+  int queries = 0;
   bool getSensor(uint8_t id, uint8_t* bytes, uint8_t length) {
     requestedId = id; requestedLength = length;
+    ++queries;
     if (!reply) return false;
     for (uint8_t i = 0; i < length; ++i) bytes[i] = static_cast<uint8_t>(i + 1);
     return true;

@@ -142,7 +142,7 @@ export const roombaFunctions = [
     name: "roomba.resume_safe",
     title: "Resume Roomba safe mode",
     description:
-      "Re-enter Safe mode after a local physical enable is held. This does not enable Full mode or start autonomous cleaning.",
+      "Explicitly re-enter Safe mode over serial and stop outputs. This does not enable Full mode or start autonomous cleaning.",
     access: "write",
     inputSchema: {
       type: "object",
@@ -155,7 +155,7 @@ export const roombaFunctions = [
     name: "roomba.clean",
     title: "Start Roomba cleaning",
     description:
-      "Start the robot's built-in autonomous cleaning mode. Requires the local enable and e-stop interlock; completion confirms command transmission only.",
+      "Start the robot's built-in autonomous cleaning mode. Serial-only wiring needs no D6/D7 contacts; completion confirms command transmission only.",
     access: "write",
     inputSchema: {
       type: "object",
@@ -175,7 +175,7 @@ export const roombaFunctions = [
     name: "roomba.dock",
     title: "Send Roomba to the dock",
     description:
-      "Start the robot's built-in dock-seeking behavior. Requires the local enable and e-stop interlock; docking completion is not reported.",
+      "Start the robot's built-in dock-seeking behavior. Serial-only wiring needs no D6/D7 contacts; docking completion is not reported.",
     access: "write",
     inputSchema: {
       type: "object",
@@ -201,7 +201,7 @@ export const roombaFunctions = [
     name: "roomba.drive",
     title: "Drive Roomba briefly",
     description:
-      "Drive at a bounded velocity and radius for at most one second. A local enable and physical safety interlock are required.",
+      "Drive at a bounded velocity and radius for at most one second. Uses Safe mode and a local stop deadline; serial-only wiring needs no D6/D7 contacts.",
     access: "write",
     inputSchema: {
       type: "object",

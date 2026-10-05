@@ -26,6 +26,11 @@ c++ -std=c++11 -Wall -Wextra -Werror \
   "$test_dir/test_bootstrap_record.cpp" -o "$out_dir/test_bootstrap_record"
 "$out_dir/test_bootstrap_record"
 
+c++ -std=c++11 -Wall -Wextra -Werror \
+  -I"$repo_dir/firmware/uno-r4-wifi/openlaunch_roomba" \
+  "$test_dir/test_serial_control.cpp" -o "$out_dir/test_serial_control"
+"$out_dir/test_serial_control"
+
 json_dir="$repo_dir/build/arduino-dependencies/libraries/ArduinoJson/src"
 c++ -std=c++11 -Wall -Wextra -Werror \
   -I"$test_dir/stubs" \

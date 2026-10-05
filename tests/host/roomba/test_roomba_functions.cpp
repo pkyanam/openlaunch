@@ -35,10 +35,14 @@ int main() {
 
   ArduRoomba roomba;
   TestIO io;
+  RoombaLocalControl serialOnly(ROOMBA_REQUIRE_LOCAL_CONTACTS);
+  io.armed = serialOnly.allows(true, false, false);
+  assert(io.armed); // Default harness has neither D6 nor D7 connected.
   const char* error = nullptr;
 
   JsonDocument argsDoc, resultDoc;
   JsonObjectConst args = argsWith(argsDoc, "packetId", 42);
+  roomba.serialPort.pending = 512; // Startup text exceeded the old 64-byte cap.
   bool handled = handleRoombaFeature("roomba.sensor.read", args, roomba, io,
       resultDoc.to<JsonObject>(), error);
   assert(handled && error == nullptr);
@@ -46,6 +50,24 @@ int main() {
   assert(roomba.sensorInterface.requestedLength == 2);
   assert(resultDoc["valid"] == true);
   assert(resultDoc["bytes"][0] == 1 && resultDoc["bytes"][1] == 2);
+  assert(resultDoc["discardedRxBytes"] == 512);
+
+  // Continuous noise is bounded, sends no query, and can recover once quiet.
+  argsDoc.clear(); resultDoc.clear();
+  args = argsWith(argsDoc, "packetId", 35);
+  roomba.serialPort.continuous = true;
+  const int queriesBeforeBacklog = roomba.sensorInterface.queries;
+  handled = handleRoombaFeature("roomba.sensor.read", args, roomba, io,
+      resultDoc.to<JsonObject>(), error);
+  assert(handled && strcmp(error, "serial_rx_backlog") == 0);
+  assert(roomba.sensorInterface.queries == queriesBeforeBacklog);
+  assert(!roombaSensorLinkDesynced);
+  roomba.serialPort.continuous = false;
+  argsDoc.clear(); resultDoc.clear();
+  args = argsWith(argsDoc, "packetId", 35);
+  handled = handleRoombaFeature("roomba.sensor.read", args, roomba, io,
+      resultDoc.to<JsonObject>(), error);
+  assert(handled && error == nullptr && resultDoc["valid"] == true);
 
   argsDoc.clear(); resultDoc.clear();
   roomba.sensorInterface.reply = false;
@@ -55,7 +77,16 @@ int main() {
   assert(handled && strcmp(error, "serial_timeout") == 0);
   assert(resultDoc["valid"] == false);
   assert(resultDoc["transport"] == "serial_timeout");
-  assert(resultDoc["sampledAtMs"] == 1234);
+  assert(resultDoc["sampledAtMs"].as<unsigned long>() >= 1234);
+  assert(roombaSensorLinkDesynced);
+  const int queriesBeforeRetry = roomba.sensorInterface.queries;
+  roomba.sensorInterface.reply = true;
+  argsDoc.clear(); resultDoc.clear();
+  args = argsWith(argsDoc, "packetId", 35);
+  handled = handleRoombaFeature("roomba.sensor.read", args, roomba, io,
+      resultDoc.to<JsonObject>(), error);
+  assert(handled && strcmp(error, "serial_link_desynced") == 0);
+  assert(roomba.sensorInterface.queries == queriesBeforeRetry);
 
   argsDoc.clear(); resultDoc.clear();
   roomba.sensorInterface.reply = true;
@@ -96,7 +127,7 @@ int main() {
   assert(error == nullptr && roomba.actuatorInterface.defineCount == 1);
   assert(!roomba.actuatorInterface.playedToneAsSong);
 
-  io.armed = true; io.disarmAt = 0;
+  io.armed = serialOnly.allows(true, false, false); io.disarmAt = 0;
   argsDoc.clear(); resultDoc.clear();
   JsonObject clean = argsDoc.to<JsonObject>(); clean["mode"] = "standard";
   assert(handleRoombaFeature("roomba.clean", clean, roomba, io,
@@ -122,6 +153,31 @@ int main() {
   assert(handleRoombaFeature("roomba.dock", dock, roomba, io,
       resultDoc.to<JsonObject>(), error));
   assert(error == nullptr && roomba.actuatorInterface.dockCount == 1);
+
+  // The standard serial-only harness supports recovery and bounded manual
+  // outputs too, without pretending that unconnected D6/D7 contacts are armed.
+  io.armed = serialOnly.allows(true, false, false);
+  argsDoc.clear(); resultDoc.clear();
+  JsonObject recovery = argsDoc.to<JsonObject>();
+  assert(handleRoombaFeature("roomba.resume_safe", recovery, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(error == nullptr && roomba.resumeCount == 1);
+  argsDoc.clear(); resultDoc.clear();
+  JsonObject wheels = argsDoc.to<JsonObject>();
+  wheels["rightMmS"] = 100; wheels["leftMmS"] = 100; wheels["durationMs"] = 1000;
+  const int stoppedBeforeWheels = roomba.stopCount;
+  assert(handleRoombaFeature("roomba.drive_direct", wheels, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(error == nullptr && roomba.movementInterface.directCount == 1);
+  assert(roomba.stopCount == stoppedBeforeWheels + 1);
+  argsDoc.clear(); resultDoc.clear();
+  brushArgs = argsDoc.to<JsonObject>();
+  brushArgs["mainBrush"] = true; brushArgs["sideBrush"] = true;
+  brushArgs["vacuum"] = true; brushArgs["durationMs"] = 1000;
+  assert(handleRoombaFeature("roomba.brushes.burst", brushArgs, roomba, io,
+      resultDoc.to<JsonObject>(), error));
+  assert(error == nullptr && !roomba.actuatorInterface.mainBrush &&
+      !roomba.actuatorInterface.sideBrush && !roomba.actuatorInterface.vacuum);
 
   // Pause exits autonomous Passive mode to Safe before stopping drive/brushes.
   argsDoc.clear(); resultDoc.clear();
