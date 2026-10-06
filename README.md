@@ -53,7 +53,7 @@ The stable MCP tools include `list_devices`, `list_functions`, `invoke_device_fu
 
 All three surfaces use the same live function schemas, authorization and action receipts. The [end-to-end API guide](https://www.openlaunch.dev/docs/api) explains the workflow; the [endpoint reference](https://www.openlaunch.dev/docs/reference) includes request/response schemas, errors and executable examples. Download [the canonical OpenAPI contract](https://www.openlaunch.dev/openapi.json) for your own integration; `/device-api.json` remains equivalent.
 
-The [integration declaration](https://www.openlaunch.dev/.well-known/integrations.json) inventories the device API, MCP, `ol` and the separate public documentation services for [integrations.sh](https://integrations.sh/openlaunch.dev/). Machine-readable API catalogs, OAuth metadata and [agent skills](https://www.openlaunch.dev/.well-known/agent-skills/index.json) come from the same site build. See [publishing and verification](docs/INTEGRATIONS-PUBLISHING.md) for maintenance.
+The [integration declaration](https://www.openlaunch.dev/.well-known/integrations.json) inventories the device API, MCP, `ol` and the separate public documentation services for [integrations.sh](https://integrations.sh/www.openlaunch.dev/). Machine-readable API catalogs, OAuth metadata and [agent skills](https://www.openlaunch.dev/.well-known/agent-skills/index.json) come from the same site build. See [publishing and verification](docs/INTEGRATIONS-PUBLISHING.md) for maintenance.
 
 Install the Node CLI on macOS or Linux with Node 24+, npm, curl and Python 3:
 

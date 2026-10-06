@@ -54,7 +54,7 @@ export function publishDiscovery(root, origin) {
       docs: `${origin}/docs/agents`,
       basis,
       auth: agentAuth,
-      notes: grantNotes,
+      notes: `${grantNotes} Other MCP hosts may need an owner-registered OAuth client with exact callback URLs in Connections → OAuth clients; discovery does not bypass client admission.`,
     },
     {
       slug: "openlaunch-cli",
@@ -122,7 +122,11 @@ export function publishDiscovery(root, origin) {
   });
 
   // Retain Blume's docs schema and card at explicit alternate URLs.
-  write("docs-openapi.json", read("openapi.json"));
+  const docsContract = json("openapi.json");
+  // Blume's Node runtime implements JSON search, but our Pages Worker serves
+  // static docs JSON and live docs MCP. Do not advertise an unserved endpoint.
+  delete docsContract.paths["/api/docs/search"];
+  writeJson("docs-openapi.json", docsContract);
   write("openapi.json", read("device-api.json"));
   const docsCardPath = ".well-known/mcp/docs-server-card.json";
   write(docsCardPath, read(".well-known/mcp/server-card.json"));
@@ -246,6 +250,7 @@ export function publishDiscovery(root, origin) {
         },
       );
     } else {
+      delete rewritten.artifacts.api.search;
       rewritten.artifacts.deviceApi = {
         openapi: `${origin}/openapi.json`,
         url: origin,

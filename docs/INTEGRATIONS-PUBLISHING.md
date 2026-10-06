@@ -9,7 +9,8 @@ identifiers or function grants appear in public discovery.
 
 - `/openapi.json` is the canonical device/owner/setup API contract.
   `/device-api.json` remains equivalent. `/docs-openapi.json` retains Blume's
-  public documentation API contract.
+  public documentation API contract, omitting the Node-only JSON search endpoint
+  that Pages does not serve. Documentation search remains available through MCP.
 - `/.well-known/integrations.json` is the inline v3 declaration of five surfaces:
   device API, device MCP, `ol`, docs API and docs MCP. API-token and OAuth access
   are alternatives; only agent API tokens authenticate `ol`.
@@ -34,10 +35,10 @@ pass, then `python3 scripts/verify-hosted.py` checks the exact deployed commit,
 discovery response headers, OAuth wiring, docs compatibility and skill hashes.
 
 After an approved production deployment, open
-<https://integrations.sh/openlaunch.dev/> and select **Map integration surface**.
+<https://integrations.sh/www.openlaunch.dev/> and select **Map integration surface**.
 Inspect the stored listing for all five declared surfaces, their auth alternatives,
 canonical endpoints, install instructions and granted-function constraints.
-The read-only detector at <https://integrations.sh/api/openlaunch.dev/detect>
+The read-only detector at <https://integrations.sh/api/www.openlaunch.dev/detect>
 must recognize the owner declaration and the real device API/MCP. Mapping writes
 the registry listing; it does not create tokens, enroll devices or grant functions.
 Repeat mapping after changing public discovery, and check the listing rather than

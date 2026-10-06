@@ -88,6 +88,10 @@ assert.deepEqual(contract.paths["/v1/grants"].post.security, [
 ]);
 const docsContract = await json("docs-openapi.json");
 assert(docsContract.paths["/api/docs/pages.json"]);
+assert(
+  !docsContract.paths["/api/docs/search"],
+  "Pages does not implement Blume's Node JSON search endpoint",
+);
 assert(!docsContract.paths["/v1/devices"], "docs API must remain separate");
 const card = await json(".well-known/mcp/server-card.json");
 assert.equal(card.url, bySlug["openlaunch-mcp"].url);
@@ -162,6 +166,10 @@ for (const path of [".well-known/ai-catalog.json", ".well-known/ard.json"]) {
 assert.equal(
   (await json("agent-readability.json")).artifacts.api.openapi,
   `${origin}/docs-openapi.json`,
+);
+assert.equal(
+  (await json("agent-readability.json")).artifacts.api.search,
+  undefined,
 );
 const llms = (await read("llms.txt")).toString();
 assert(llms.includes(`${origin}/docs-openapi.json`));
