@@ -11,6 +11,17 @@ import {
   useAuth,
   HandleSSOCallback,
 } from "@clerk/react";
+import { AgentIdCliConsent, AgentIdEntry } from "./agentid";
+import { AuthCardFrame } from "./auth-frame";
+import { AgentsArea } from "./AgentsArea";
+import {
+  type AccountSummary,
+  type WorkspaceMembership,
+  agentIdCarryPath,
+  agentIdDestination,
+  isAgentIdEntry,
+  readCliRequest,
+} from "./workspace";
 import type { FunctionDefinition } from "../../../packages/core/src/functions.ts";
 type Device = {
   id: string;
@@ -105,6 +116,7 @@ const connectionTabs = [
   "Prompt",
   "MCP URL",
   "Command",
+  "Agents",
   "OAuth clients",
   "API token",
 ] as const;
@@ -176,7 +188,21 @@ function ConsoleNavigation({
     </>
   );
 }
-function App({ session }: { session?: () => Promise<string | null> }) {
+function App({
+  session,
+  account,
+  reloadAccount,
+  workspaceNotice,
+  dismissWorkspaceNotice,
+}: {
+  session?: () => Promise<string | null>;
+  account?: AccountSummary | null;
+  reloadAccount?: (workspace?: string) => Promise<void>;
+  workspaceNotice?: string;
+  dismissWorkspaceNotice?: () => void;
+}) {
+  const isManager =
+    !account || account.principal.owner || account.principal.administrator;
   const [token, setToken] = useState(""),
     [devices, setDevices] = useState<Device[]>([]),
     [deviceSearch, setDeviceSearch] = useState(""),
@@ -219,8 +245,10 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [devicesLoadState, setDevicesLoadState] = useState<
     "idle" | "loading" | "loaded" | "error"
   >("idle");
-  const [connectionTab, setConnectionTab] =
-    useState<(typeof connectionTabs)[number]>("Prompt");
+  const [connectionTab, setConnectionTab] = useState<
+    (typeof connectionTabs)[number]
+  >(workspaceNotice ? "Agents" : "Prompt");
+  const [policyPrincipal, setPolicyPrincipal] = useState("");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<
     "Functions" | "Access" | "Details"
@@ -282,6 +310,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [connectionAccess, setConnectionAccess] = useState<"read" | "act">(
     "act",
   );
+  const [connectionRole, setConnectionRole] = useState<
+    "operator" | "administrator"
+  >("operator");
   const [connectionSecret, setConnectionSecret] = useState<string | null>(null);
   const [secretContext, setSecretContext] = useState<"agents" | "device">(
     "agents",
@@ -313,7 +344,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       : ` setup --url ${quoteShellValue(window.location.origin)}`,
   );
   const mcpServerUrl = `${window.location.origin}/mcp`;
-  const connectPrompt = `Connect to the openlaunch MCP server at ${mcpServerUrl} using OAuth. Use only functions I have granted. Check action results before reporting success.`;
+  const connectPrompt = `Connect to the openlaunch MCP server at ${mcpServerUrl} using OAuth. Inspect your effective access and available devices. Use permitted functions and check action results before reporting success.`;
   const codexConnectCommand = `codex mcp add openlaunch --url ${mcpServerUrl} --oauth-client-registration cimd`;
   const unoSetupCommand = hostedSetupCommand("uno", setupOriginOption);
   const esp32SetupCommand = hostedSetupCommand(
@@ -338,6 +369,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
       headers: {
         Authorization: `Bearer ${session ? await session() : token}`,
         "Content-Type": "application/json",
+        ...(account?.workspace
+          ? { "x-openlaunch-target-workspace": account.workspace }
+          : {}),
       },
       ...(data ? { body: JSON.stringify(data) } : {}),
     });
@@ -352,6 +386,15 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         kind: (data as { kind: string }).kind,
       };
     return b.data;
+  }
+  async function loadHistory() {
+    if (isManager) return api("/v1/actions");
+    const results = await Promise.allSettled(
+      receipts.map((receipt) => api(`/v1/actions/${receipt.id}`)),
+    );
+    return results.map((result, index) =>
+      result.status === "fulfilled" ? result.value : receipts[index],
+    );
   }
   async function downloadHistory() {
     const history = await api("/v1/actions/export");
@@ -425,7 +468,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     const update = async () => {
       if (document.visibilityState === "hidden") return;
       try {
-        const history = await api("/v1/actions");
+        const history = await loadHistory();
         if (cancelled) return;
         setReceipts(history);
         setSelectedReceipt((receipt: any) =>
@@ -484,6 +527,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     page,
     !!session,
     token,
+    isManager,
     action?.id,
     action?.status,
     receipts.some((item) => ["queued", "received"].includes(item.status)),
@@ -492,6 +536,16 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     setDevicesLoadState("loading");
     return run(async () => {
       try {
+        const results = await Promise.allSettled([
+          api("/v1/devices"),
+          isManager ? api("/v1/agent-connections") : Promise.resolve([]),
+          isManager ? api("/v1/device-setup-tokens") : Promise.resolve([]),
+          isManager ? api("/v1/actions") : Promise.resolve(receipts),
+          isManager ? api("/v1/grants") : Promise.resolve([]),
+          isManager
+            ? api("/v1/oauth-clients")
+            : Promise.resolve({ clients: [], available: false }),
+        ]);
         const [
           inventory,
           agentConnections,
@@ -499,22 +553,28 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           activity,
           savedGrants,
           oauthClients,
-        ] = await Promise.all([
-          api("/v1/devices"),
-          api("/v1/agent-connections"),
-          api("/v1/device-setup-tokens"),
-          api("/v1/actions"),
-          api("/v1/grants"),
-          api("/v1/oauth-clients"),
-        ]);
+        ] = results.map((result) =>
+          result.status === "fulfilled" ? result.value : null,
+        );
+        if (inventory === null) {
+          setDevicesLoadState("error");
+          throw results[0].status === "rejected" &&
+            results[0].reason instanceof Error
+            ? results[0].reason
+            : new Error("Devices could not be loaded.");
+        }
         setDevices(inventory);
         setDevicesLoadState("loaded");
-        setConnections(agentConnections);
-        setOAuthConnections(oauthClients.clients);
-        setOAuthRegistrationAvailable(oauthClients.available);
-        setDeviceSetupTokens(setupTokens);
-        setReceipts(activity);
-        setGrants(savedGrants);
+        // Owner/admin-only listings stay optional: operators keep a working
+        // device inventory even when these endpoints are not authorized.
+        if (agentConnections !== null) setConnections(agentConnections);
+        if (setupTokens !== null) setDeviceSetupTokens(setupTokens);
+        if (activity !== null) setReceipts(activity);
+        if (savedGrants !== null) setGrants(savedGrants);
+        if (oauthClients !== null) {
+          setOAuthConnections(oauthClients.clients);
+          setOAuthRegistrationAvailable(oauthClients.available);
+        }
         if (pairingBaseline !== null) {
           const paired = (inventory as Device[]).find(
             (device) => !pairingBaseline.includes(device.id),
@@ -587,7 +647,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         setPairingBaseline(devices.map((device) => device.id));
         setSetupConnection(connection);
         setNotice(
-          "Use the selected device setup token when prompted. It cannot make agent requests; device access still needs a saved grant.",
+          "Use the selected device setup token when prompted. It attaches the device; agent access follows each connection's policy.",
         );
       }
     });
@@ -690,6 +750,25 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             <span>openlaunch</span>
           </a>
           <p className="sidebar-label">Your workspace</p>
+          {account && (
+            <button
+              type="button"
+              className="workspace-shortcut secondary"
+              onClick={() => {
+                setConnectionTab("Agents");
+                navigatePage("Connections");
+              }}
+            >
+              <span>{account.workspace.slice(0, 10)}…</span>
+              <small>
+                {account.principal.owner
+                  ? "Owner"
+                  : account.principal.administrator
+                    ? "Administrator"
+                    : "Operator"}
+              </small>
+            </button>
+          )}
           <nav className="console-nav" aria-label="Console sections">
             <ConsoleNavigation page={page} onSelect={navigatePage} />
           </nav>
@@ -775,13 +854,13 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </button>
             </section>
           )}
-          {notice && (
+          {(notice || workspaceNotice) && (
             <div
               role={noticeError ? "alert" : "status"}
               aria-live={noticeError ? "assertive" : "polite"}
               className={`notice ${noticeError ? "notice-error" : ""}`}
             >
-              <span>{notice}</span>
+              <span>{notice || workspaceNotice}</span>
               <button
                 type="button"
                 className="notice-dismiss"
@@ -789,6 +868,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 onClick={() => {
                   setNotice("");
                   setNoticeError(false);
+                  dismissWorkspaceNotice?.();
                 }}
               >
                 ×
@@ -798,6 +878,19 @@ function App({ session }: { session?: () => Promise<string | null> }) {
 
           {page === "Devices" && (
             <>
+              {session && !isManager && (
+                <section className="panel delegation-note" role="note">
+                  <div>
+                    <h2>Operator access</h2>
+                    <p>
+                      You can view devices, their functions and status, and run
+                      approved functions. Device setup, credentials and access
+                      changes are handled by the workspace owner — ask them for
+                      changes.
+                    </p>
+                  </div>
+                </section>
+              )}
               <div className="page-header">
                 <div>
                   <h1>
@@ -831,7 +924,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     Refresh
                   </button>
                   <button
-                    disabled={busy || (!session && !token)}
+                    disabled={busy || (!session && !token) || !isManager}
                     onClick={() => {
                       setEnrollment(null);
                       setSetupConnection(null);
@@ -922,7 +1015,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     approved separately for each device.
                   </p>
                   <button
-                    disabled={busy || (!session && !token)}
+                    disabled={busy || (!session && !token) || !isManager}
                     onClick={() => {
                       setSetupConnection(null);
                       setEnrollment(null);
@@ -1137,12 +1230,22 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   )}
                   {detailTab === "Access" && (
                     <div className="access-panel">
-                      <h3>Saved agent access</h3>
+                      <h3>Selected-function grants</h3>
                       <p>
-                        Only saved grants that have not expired or been revoked
-                        authorize an agent. Unsaved selections below have no
-                        effect.
+                        These grants apply to connections using
+                        selected-function access. All-functions policies already
+                        include this device unless excluded. Unsaved selections
+                        have no effect.
                       </p>
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setPage("Connections");
+                          setConnectionTab("Agents");
+                        }}
+                      >
+                        Manage access policies
+                      </button>
                       {grants.filter(
                         (grant) => grant.deviceId === selectedDevice.id,
                       ).length ? (
@@ -1283,7 +1386,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                             </label>
                             <p>Uses the access expiry selected below.</p>
                             <button
-                              disabled={busy}
+                              disabled={busy || !isManager}
                               onClick={() =>
                                 run(async () => {
                                   if (
@@ -1367,6 +1470,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                         <button
                           disabled={
                             busy ||
+                            !isManager ||
                             !(grantCapabilities[selectedDevice.id] ?? []).length
                           }
                           onClick={() =>
@@ -1423,7 +1527,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       </p>
                       <button
                         className="danger"
-                        disabled={busy}
+                        disabled={busy || !isManager}
                         onClick={() =>
                           run(async () => {
                             if (
@@ -1461,6 +1565,18 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   <p>Connect an agent through MCP, OAuth, or an API token.</p>
                 </div>
               </div>
+              {session && !isManager && (
+                <section className="panel delegation-note" role="note">
+                  <div>
+                    <h2>Operator access</h2>
+                    <p>
+                      You can review connections and agent access, and join
+                      workspaces. Creating or revoking credentials is handled by
+                      the workspace owner — ask them for changes.
+                    </p>
+                  </div>
+                </section>
+              )}
               <section
                 className="panel connection-panel"
                 aria-labelledby="connection-panel-title"
@@ -1611,6 +1727,26 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       </div>
                     </div>
                   )}
+                  {connectionTab === "Agents" && account && (
+                    <AgentsArea
+                      api={api}
+                      run={run}
+                      busy={busy}
+                      notify={setNotice}
+                      confirm={confirmAction}
+                      account={account}
+                      devices={devices}
+                      connections={connections}
+                      oauthConnections={oauthConnections}
+                      initialPrincipal={policyPrincipal}
+                      onSelectWorkspace={(workspace) =>
+                        reloadAccount?.(workspace)
+                      }
+                      onWorkspaceDataChanged={() => {
+                        void refresh();
+                      }}
+                    />
+                  )}
                   {connectionTab === "OAuth clients" && (
                     <OAuthClients
                       available={oauthRegistrationAvailable}
@@ -1639,17 +1775,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       confirm={confirmAction}
                       grantAccess={(value) => {
                         setPrincipal(value);
-                        setPage("Devices");
-                        setDetailTab("Access");
+                        setPolicyPrincipal(value);
+                        setConnectionTab("Agents");
                       }}
                     />
                   )}
                   {connectionTab === "API token" && (
                     <div className="connection-method api-token-method">
                       <p>
-                        Agent API tokens can call MCP and the API, but cannot
-                        attach devices. They remain limited by your saved
-                        function grants.
+                        New agent tokens can use all device functions by
+                        default. Exclude devices or functions in the Agents tab.
+                        Setup credentials remain separate.
                       </p>
                       <form
                         onSubmit={(event) => {
@@ -1662,6 +1798,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                 name: connectionName,
                                 ttlSeconds: connectionLifetime,
                                 access: connectionAccess,
+                                role: connectionRole,
                               },
                             );
                             setConnectionSecret(connection.token);
@@ -1717,10 +1854,34 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               }
                             >
                               <option value="act">
-                                Request functions approved for this token
+                                Read and control device functions
                               </option>
                               <option value="read">
                                 Read health and action results only
+                              </option>
+                            </select>
+                          </label>
+                          <label>
+                            Workspace role
+                            <select
+                              value={connectionRole}
+                              onChange={(event) =>
+                                setConnectionRole(
+                                  event.target.value as
+                                    "operator" | "administrator",
+                                )
+                              }
+                            >
+                              <option value="operator">
+                                Operator · device functions
+                              </option>
+                              <option
+                                value="administrator"
+                                disabled={
+                                  !account?.principal.owner && !!session
+                                }
+                              >
+                                Administrator · setup and access management
                               </option>
                             </select>
                           </label>
@@ -1729,6 +1890,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                           type="submit"
                           disabled={
                             busy ||
+                            !isManager ||
                             !connectionName.trim() ||
                             connectionSecret !== null
                           }
@@ -1804,7 +1966,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                   <button
                                     type="button"
                                     className="secondary"
-                                    disabled={busy}
+                                    disabled={busy || !isManager}
                                     onClick={() =>
                                       run(async () => {
                                         if (
@@ -1883,7 +2045,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                     <button
                                       type="button"
                                       className="secondary"
-                                      disabled={busy}
+                                      disabled={busy || !isManager}
                                       onClick={() =>
                                         run(async () => {
                                           if (
@@ -1956,7 +2118,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                     <button
                                       type="button"
                                       className="secondary"
-                                      disabled={busy}
+                                      disabled={busy || !isManager}
                                       onClick={() =>
                                         run(async () => {
                                           if (
@@ -2004,8 +2166,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 <div>
                   <h1>Activity</h1>
                   <p>
-                    Inspect action receipts from the owner API. “Queued” means
-                    accepted for delivery, not completed.
+                    Inspect action receipts. “Queued” means accepted for
+                    delivery, not completed.
                   </p>
                 </div>
                 <div className="button-row">
@@ -2014,7 +2176,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     disabled={busy || (!session && !token)}
                     onClick={() =>
                       run(async () => {
-                        setReceipts(await api("/v1/actions"));
+                        setReceipts(await loadHistory());
                         setNotice("");
                       })
                     }
@@ -2023,7 +2185,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   </button>
                   <button
                     className="secondary"
-                    disabled={busy || (!session && !token)}
+                    disabled={busy || (!session && !token) || !isManager}
                     onClick={() => run(downloadHistory)}
                   >
                     Download full history
@@ -2081,16 +2243,36 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               ))
                             )
                               return;
-                            setBroadcastResults(
-                              await api("/v1/broadcasts", "POST", {
+                            const results = await api(
+                              "/v1/broadcasts",
+                              "POST",
+                              {
                                 deviceIds: broadcastDevices,
                                 capability: broadcastFunction,
                                 arguments: args,
                                 idempotencyKey: crypto.randomUUID(),
                                 ttlSeconds: 60,
-                              }),
+                              },
                             );
-                            setReceipts(await api("/v1/actions"));
+                            setBroadcastResults(results);
+                            if (isManager)
+                              setReceipts(await api("/v1/actions"));
+                            else
+                              setReceipts((items) => {
+                                const actions = results.flatMap(
+                                  (result: any) =>
+                                    result.action ? [result.action] : [],
+                                );
+                                return [
+                                  ...actions,
+                                  ...items.filter(
+                                    (item) =>
+                                      !actions.some(
+                                        (action: any) => action.id === item.id,
+                                      ),
+                                  ),
+                                ].slice(0, 100);
+                              });
                           })
                         }
                       />
@@ -2107,8 +2289,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               <section className="panel">
                 <h2>Action receipts</h2>
                 <p>
-                  Showing the latest 100 actions. Download full history for all
-                  saved receipts, including function arguments and results.
+                  {isManager
+                    ? "Showing the latest 100 actions. Download full history for all saved receipts, including function arguments and results."
+                    : "Showing actions requested in this session. Inspect each receipt for its device-reported result."}
                 </p>
                 {receipts.length ? (
                   <ul className="activity-list">
@@ -2281,7 +2464,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                             {},
                           );
                           setSelectedReceipt(updated);
-                          setReceipts(await api("/v1/actions"));
+                          setReceipts(await loadHistory());
                         })
                       }
                     >
@@ -3080,53 +3263,6 @@ function FunctionForm({
     </form>
   );
 }
-function AuthFooter({
-  includeLegalLinks = true,
-}: {
-  includeLegalLinks?: boolean;
-}) {
-  return (
-    <nav className="auth-footer" aria-label="Account resources">
-      <a href="/docs">Documentation</a>
-      {includeLegalLinks && (
-        <>
-          <a href="/docs/terms">Terms</a>
-          <a href="/docs/privacy">Privacy</a>
-        </>
-      )}
-    </nav>
-  );
-}
-
-function AuthCardFrame({
-  children,
-  signedIn = false,
-  includeLegalLinks = true,
-}: {
-  children: React.ReactNode;
-  signedIn?: boolean;
-  includeLegalLinks?: boolean;
-}) {
-  return (
-    <main className="auth-screen">
-      <section className="auth-card account-status-card">
-        <a className="auth-brand" href="/">
-          <img src={logoUrl} width="48" height="42" alt="" />
-          <span>openlaunch</span>
-        </a>
-        {signedIn && (
-          <div className="auth-account-control">
-            <span>Signed in</span>
-            <UserButton />
-          </div>
-        )}
-        {children}
-        <AuthFooter includeLegalLinks={includeLegalLinks} />
-      </section>
-    </main>
-  );
-}
-
 function HostedSignIn() {
   const callback = new URLSearchParams(window.location.search).get("sso");
   if (callback === "callback")
@@ -3137,17 +3273,18 @@ function HostedSignIn() {
         </p>
         <HandleSSOCallback
           navigateToApp={({ decorateUrl }) => {
-            window.location.assign(decorateUrl("/console/"));
+            window.location.assign(decorateUrl(agentIdDestination()));
           }}
           navigateToSignIn={() =>
-            window.location.assign("/console/?sso=verify")
+            window.location.assign(agentIdCarryPath("/console/?sso=verify"))
           }
           navigateToSignUp={() =>
-            window.location.assign("/console/?sso=verify")
+            window.location.assign(agentIdCarryPath("/console/?sso=verify"))
           }
         />
       </AuthCardFrame>
     );
+  if (isAgentIdEntry()) return <AgentIdEntry paused={callback === "verify"} />;
   return (
     <AuthCardFrame includeLegalLinks={false}>
       <h1>Sign in to openlaunch</h1>
@@ -3183,18 +3320,25 @@ function HostedSignIn() {
 }
 function HostedApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
-  const [account, setAccount] = useState<{
-    deviceControlsEnabled: boolean;
-  } | null>(null);
+  const [account, setAccount] = useState<AccountSummary | null>(null);
   const [accountError, setAccountError] = useState("");
+  const [workspaceNotice, setWorkspaceNotice] = useState("");
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     let active = true;
     (async () => {
       try {
         const token = await getToken();
+        const target = new URLSearchParams(window.location.search).get(
+          "workspace",
+        );
+        if (target && !/^[a-f0-9]{64}$/.test(target))
+          throw new Error("Invalid workspace ID");
         const response = await fetch("/v1/account", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(target ? { "x-openlaunch-target-workspace": target } : {}),
+          },
         });
         const body = await response.json();
         if (!response.ok)
@@ -3230,6 +3374,41 @@ function HostedApp() {
         </p>
         <p>Reload this page to retry the account check.</p>
         <div className="auth-actions">
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const token = await getToken();
+                const headers = {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                };
+                const response = await fetch("/v1/workspaces", { headers });
+                const body = await response.json();
+                const home = body.data?.find(
+                  (item: WorkspaceMembership) => item.role === "owner",
+                );
+                if (!response.ok || !home)
+                  throw new Error("Unable to find your workspace");
+                const selected = await fetch("/v1/workspaces/select", {
+                  method: "POST",
+                  headers,
+                  body: JSON.stringify({ workspace: home.workspace }),
+                });
+                if (!selected.ok)
+                  throw new Error("Unable to return to your workspace");
+                window.location.assign("/console/");
+              } catch (error) {
+                setAccountError(
+                  error instanceof Error
+                    ? error.message
+                    : "Unable to switch workspace",
+                );
+              }
+            }}
+          >
+            Return to my workspace
+          </button>
           <button type="button" onClick={() => window.location.reload()}>
             Reload and retry
           </button>
@@ -3256,7 +3435,36 @@ function HostedApp() {
         </p>
       </AuthCardFrame>
     );
-  return <App session={getToken} />;
+  if (readCliRequest()) return <AgentIdCliConsent />;
+  return (
+    <App
+      key={account.workspace}
+      session={getToken}
+      account={account}
+      workspaceNotice={workspaceNotice}
+      dismissWorkspaceNotice={() => setWorkspaceNotice("")}
+      reloadAccount={async (workspace) => {
+        const token = await getToken();
+        const response = await fetch("/v1/account", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(workspace
+              ? { "x-openlaunch-target-workspace": workspace }
+              : {}),
+          },
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          setAccountError(body.error?.message ?? "Unable to switch workspace");
+          return;
+        }
+        setAccount(body.data);
+        setWorkspaceNotice(
+          `Workspace switched. For CLI access, run ol login --agentid --workspace ${body.data.workspace}.`,
+        );
+      }}
+    />
+  );
 }
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 createRoot(document.getElementById("root")!).render(

@@ -11,7 +11,7 @@ In the [console](https://www.openlaunch.dev/console/), choose **Devices → Add 
 curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
 ```
 
-Enter the setup token at the hidden prompt. The installer downloads a SHA-256-verified native binary for ARM64, ARMv7 or x86-64 Linux. It needs Bash, curl and Python 3, with no Go, Node.js, sudo or incoming network port. The downloads and checksum manifest are published by the same CI deployment as the website.
+Enter the setup token at the hidden prompt, or set `OPENLAUNCH_SDK_TOKEN` in the environment first to run the installer noninteractively (useful for agents and headless hosts). Set it privately in the shell or a secret store; never put it in command arguments or logs. The installer downloads a SHA-256-verified native binary for ARM64, ARMv7 or x86-64 Linux. It needs Bash, curl and Python 3, with no Go, Node.js, sudo or incoming network port. The downloads and checksum manifest are published by the same CI deployment as the website.
 
 Open a new terminal and start it:
 
@@ -52,7 +52,7 @@ openlaunch-host enable-control
 
 That is the setup for Raspberry Pi OS's Wayland/labwc desktop. For an X11 desktop, install `scrot xdotool` instead. Chromium or Firefox and a systemd user session must also be installed. The command checks the local session and tools before saving a new policy; unsupported desktops return an error. It captures only local display settings, so SSH and the persistent user service can use the same desktop later. It does not create a desktop or control the login screen. If the display/socket changes, rerun `enable-control` from the active desktop.
 
-Stop a foreground runner with Ctrl-C, then run `openlaunch-host start`. If you installed the service, use `openlaunch-host service restart`. In the console, open your device's **Access** tab and approve its new functions for your agent. Enabling control changes the manifest and removes previous grants; installation alone never grants access. A read-only connection still cannot execute commands or send input.
+Stop a foreground runner with Ctrl-C, then run `openlaunch-host start`. If you installed the service, use `openlaunch-host service restart`. In the console, open your device's **Access** tab and approve its new functions for selected-functions connections; all-functions policies already cover them. Enabling control changes the manifest and removes previous grants; installation alone never grants access, and these local controls stay an explicit owner opt-in regardless of any cloud policy. A read-only connection still cannot execute commands or send input.
 
 You can now ask your agent to open a browser, inspect a screenshot and interact with the desktop. All three agent surfaces use the same functions and grants:
 
@@ -102,7 +102,7 @@ For a foreground runtime, stop it with Ctrl-C and run `openlaunch-host start` ag
 
 ## Connect an agent
 
-Create a separate OAuth connection or agent API credential in **Connections**, then grant this Linux device's functions in **Devices → Access**. The setup token only attaches the device. The device's private credential only polls and reports results. Neither credential authorizes an agent.
+Create a separate OAuth connection or agent API credential in **Connections**, then grant this Linux device's functions in **Devices → Access** if that connection uses selected-functions mode; new connections and invited agent members default to an all-functions policy that already covers this device and its functions. The setup token only attaches the device. The device's private credential only polls and reports results. Neither credential authorizes an agent by itself.
 
 API, MCP and `ol` discover the same live, grant-filtered definitions. The MCP `invoke_device_function` tool invokes these functions even when a client caches its initial tools. With the [ol CLI](/cli):
 

@@ -15,6 +15,12 @@ export interface ClientOptions {
   token: string;
   /** Optional workspace routing ID for self-hosted/local bridges. */
   workspace?: string;
+  /**
+   * Target workspace for Clerk identity-backed logins only (AgentID browser
+   * login). API tokens have their workspace embedded and fixed; combining
+   * them with this selector is rejected.
+   */
+  targetWorkspace?: string;
   /** Inject fetch for tests, runtimes, or a custom transport. */
   fetch?: typeof fetch;
 }
@@ -204,6 +210,54 @@ export interface DeviceFunction {
   guide: string;
 }
 
+/** Workspace access policy for an agent principal. */
+export interface AccessPolicy {
+  principal: string;
+  mode: "all" | "selected";
+  excludedDevices: string[];
+  excludedFunctions: Array<{ deviceId: string | null; capability: string }>;
+  role: "operator" | "administrator";
+  expiresAt: number | null;
+}
+
+/** Loose shapes for management endpoints; the server defines the full contract. */
+export interface AccountInfo {
+  workspace?: string;
+  principal?: unknown;
+  [key: string]: unknown;
+}
+export interface WorkspaceInfo {
+  /** Workspace hash ID; the field is named `workspace`, not `id`. */
+  workspace: string;
+  principalId?: string;
+  name?: string;
+  role?: string;
+  [key: string]: unknown;
+}
+export interface WorkspaceAgentInfo {
+  id: string;
+  identityId?: string;
+  name?: string;
+  role?: string;
+  joinedAt?: number;
+  revoked?: boolean;
+  [key: string]: unknown;
+}
+export interface InvitationInfo {
+  /** The private invitation code, shown once; the field is named `invitation`. */
+  invitation: string;
+  expiresAt?: number | null;
+  [key: string]: unknown;
+}
+export interface ConnectionInfo {
+  id: string;
+  token?: string;
+  name?: string;
+  access?: string;
+  expiresAt?: number | null;
+  [key: string]: unknown;
+}
+
 export class OpenLaunchError extends Error {
   readonly name = "OpenLaunchError";
   constructor(
@@ -312,17 +366,124 @@ function validateIdempotencyKey(key: string) {
     throw new TypeError("idempotencyKey must be 1–128 characters");
 }
 
+const isNonEmptyString = (value: unknown, max: number): value is string =>
+  typeof value === "string" && value.length >= 1 && value.length <= max;
+
+const isWorkspaceId = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+
+function validateAccessPolicy(policy: AccessPolicy): AccessPolicy {
+  if (!policy || typeof policy !== "object")
+    throw new TypeError("access policy must be an object");
+  const value = policy as Partial<AccessPolicy>;
+  if (!isNonEmptyString(value.principal, 128))
+    throw new TypeError("access policy principal must be 1–128 characters");
+  if (value.mode !== "all" && value.mode !== "selected")
+    throw new TypeError("access policy mode must be 'all' or 'selected'");
+  if (
+    !Array.isArray(value.excludedDevices) ||
+    value.excludedDevices.some((id) => !isNonEmptyString(id, 128))
+  )
+    throw new TypeError("excludedDevices must be device IDs");
+  if (
+    !Array.isArray(value.excludedFunctions) ||
+    value.excludedFunctions.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== "object" ||
+        !(entry.deviceId === null || isNonEmptyString(entry.deviceId, 128)) ||
+        !isNonEmptyString(entry.capability, 128),
+    )
+  )
+    throw new TypeError(
+      "excludedFunctions entries must be {deviceId: string|null, capability}",
+    );
+  if (value.role !== "operator" && value.role !== "administrator")
+    throw new TypeError("access policy role must be operator or administrator");
+  if (
+    !(
+      value.expiresAt === null ||
+      (typeof value.expiresAt === "number" &&
+        Number.isSafeInteger(value.expiresAt) &&
+        value.expiresAt >= 0)
+    )
+  )
+    throw new TypeError("access policy expiresAt must be a timestamp or null");
+  return {
+    principal: value.principal,
+    mode: value.mode,
+    excludedDevices: [...value.excludedDevices],
+    excludedFunctions: value.excludedFunctions.map((entry) => ({
+      deviceId: entry.deviceId,
+      capability: entry.capability,
+    })),
+    role: value.role,
+    expiresAt: value.expiresAt as number | null,
+  };
+}
+
+function validateTtlSeconds(value: unknown, max: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > max
+  )
+    throw new TypeError(`ttlSeconds must be an integer between 1 and ${max}`);
+  return value;
+}
+
+function validateInvitationCode(code: unknown): string {
+  if (typeof code !== "string" || !code || /\s/.test(code) || code.length > 256)
+    throw new TypeError("invitation code is required");
+  return code;
+}
+
 /** Create an agent client authenticated with OAuth or an agent API connection. */
 export function createClient(options: ClientOptions) {
   if (!options.token || /\s/.test(options.token))
     throw new TypeError("token must be a non-empty bearer credential");
+  const targetWorkspace = options.targetWorkspace;
+  // API tokens are always bound to the workspace embedded in the token. An
+  // equal targetWorkspace is accepted (no selector is needed); a different
+  // one must never be routed via a header, and requires a new AgentID login.
+  const embeddedWorkspace = sdkTokenWorkspace(options.token);
+  if (targetWorkspace !== undefined) {
+    if (!isWorkspaceId(targetWorkspace))
+      throw new TypeError(
+        "targetWorkspace must be the 64-character workspace ID",
+      );
+    if (embeddedWorkspace && embeddedWorkspace !== targetWorkspace)
+      throw new TypeError(
+        `API tokens are bound to workspace ${embeddedWorkspace}; to target ${targetWorkspace} run ol login --agentid --workspace ${targetWorkspace}`,
+      );
+  }
   const base = normalizeUrl(options.url);
-  const request = transport(base, options.fetch ?? globalThis.fetch, {
+  const raw = transport(base, options.fetch ?? globalThis.fetch, {
     authorization: `Bearer ${options.token}`,
     ...(options.workspace
       ? { "x-openlaunch-workspace": options.workspace }
       : {}),
   });
+  // target===undefined selects the client default; null suppresses the header
+  // for requests that act on the identity itself (e.g. joining by invitation).
+  // API tokens never need the selector: their workspace is embedded.
+  const defaultSelector = embeddedWorkspace ? undefined : targetWorkspace;
+  const request = <T>(
+    path: string,
+    init: RequestInit = {},
+    target?: string | null,
+  ): Promise<T> => {
+    const selected = target === undefined ? defaultSelector : target;
+    if (selected === undefined || selected === null) return raw<T>(path, init);
+    if (!isWorkspaceId(selected))
+      throw new TypeError("workspace must be the 64-character workspace ID");
+    return raw<T>(path, {
+      ...init,
+      headers: { "x-openlaunch-target-workspace": selected },
+    });
+  };
   return {
     listDevices: () => request<Device[]>("/v1/devices"),
     /** List only functions that this credential may currently use. */
@@ -370,6 +531,114 @@ export function createClient(options: ClientOptions) {
         }),
       );
     },
+    /** Identity and workspace management endpoints. */
+    getAccount: () => request<AccountInfo>("/v1/account"),
+    getOnboarding: () => request<Record<string, unknown>>("/v1/onboarding"),
+    getAccess: () => request<Record<string, unknown>>("/v1/access"),
+    listAccessPolicies: () => request<AccessPolicy[]>("/v1/access-policies"),
+    saveAccessPolicy: (policy: AccessPolicy) =>
+      request<AccessPolicy>(
+        "/v1/access-policies",
+        json("POST", validateAccessPolicy(policy)),
+      ),
+    listDeviceSetupTokens: () =>
+      request<ConnectionInfo[]>("/v1/device-setup-tokens"),
+    createDeviceSetupToken: (
+      input: { name?: string; ttlSeconds?: number; deviceLimit?: number } = {},
+    ) => {
+      const ttlSeconds = validateTtlSeconds(input.ttlSeconds, 86_400);
+      if (ttlSeconds !== undefined && ttlSeconds < 60)
+        throw new TypeError("Setup-token lifetime must be 60–86400 seconds");
+      return request<ConnectionInfo>(
+        "/v1/device-setup-tokens",
+        json("POST", {
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
+          ...(input.deviceLimit === undefined
+            ? {}
+            : { deviceLimit: input.deviceLimit }),
+        }),
+      );
+    },
+    revokeDeviceSetupToken: (connectionId: string) =>
+      request<Record<string, unknown>>(
+        `/v1/device-setup-tokens/${encodeURIComponent(connectionId)}/revoke`,
+        json("POST"),
+      ),
+    listAgentConnections: () =>
+      request<ConnectionInfo[]>("/v1/agent-connections"),
+    createAgentConnection: (input: {
+      name: string;
+      ttlSeconds?: number | null;
+      access?: "read" | "act";
+    }) => {
+      if (!isNonEmptyString(input.name, 128))
+        throw new TypeError("name must be 1–128 characters");
+      const ttlSeconds = validateTtlSeconds(
+        input.ttlSeconds === null ? undefined : input.ttlSeconds,
+        2_592_000,
+      );
+      return request<ConnectionInfo>(
+        "/v1/agent-connections",
+        json("POST", {
+          name: input.name,
+          ...(input.ttlSeconds === null ? { ttlSeconds: null } : {}),
+          ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
+          ...(input.access === undefined ? {} : { access: input.access }),
+        }),
+      );
+    },
+    revokeAgentConnection: (connectionId: string) =>
+      request<Record<string, unknown>>(
+        `/v1/agent-connections/${encodeURIComponent(connectionId)}/revoke`,
+        json("POST"),
+      ),
+    revokeDevice: (deviceId: string) =>
+      request<Record<string, unknown>>(
+        `/v1/devices/${encodeURIComponent(deviceId)}/revoke`,
+        json("POST"),
+      ),
+    listWorkspaces: () => request<WorkspaceInfo[]>("/v1/workspaces"),
+    listWorkspaceAgents: (workspace?: string) =>
+      request<WorkspaceAgentInfo[]>("/v1/workspace/agents", {}, workspace),
+    inviteWorkspaceAgent: (
+      input: {
+        name: string;
+        role: "operator" | "administrator";
+        ttlSeconds?: number;
+      },
+      workspace?: string,
+    ) => {
+      if (!isNonEmptyString(input.name, 128))
+        throw new TypeError("name must be 1–128 characters");
+      if (input.role !== "operator" && input.role !== "administrator")
+        throw new TypeError("role must be operator or administrator");
+      const ttlSeconds = validateTtlSeconds(input.ttlSeconds, 3_600);
+      if (ttlSeconds !== undefined && ttlSeconds < 60)
+        throw new TypeError("Invitation lifetime must be 60–3600 seconds");
+      return request<InvitationInfo>(
+        "/v1/workspace/invitations",
+        json("POST", {
+          name: input.name,
+          role: input.role,
+          ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
+        }),
+        workspace,
+      );
+    },
+    revokeWorkspaceAgent: (agentId: string, workspace?: string) =>
+      request<Record<string, unknown>>(
+        `/v1/workspace/agents/${encodeURIComponent(agentId)}/revoke`,
+        json("POST"),
+        workspace,
+      ),
+    acceptWorkspaceInvitation: (code: string) =>
+      request<Record<string, unknown>>(
+        "/v1/workspaces/accept",
+        json("POST", { invitation: validateInvitationCode(code) }),
+        // Joining acts on the identity itself; no workspace selector.
+        null,
+      ),
   };
 }
 

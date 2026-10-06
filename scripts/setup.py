@@ -148,7 +148,11 @@ def main(args):
             try:
                 tty = open('/dev/tty', 'r')
             except OSError:
-                raise ValueError('Run setup in an interactive terminal.') from None
+                # Agents can run an explicit helper with credentials supplied
+                # through its private stdin/environment interface. Only the
+                # selection menu itself requires a terminal.
+                if not args:
+                    raise ValueError('Choose a setup mode, or run the menu in an interactive terminal.') from None
         if not args:
             for i, (label, _) in enumerate(MODES.values(), 1):
                 print(f'{i}. {label}')
@@ -166,6 +170,8 @@ def main(args):
                 return 0
             raise ValueError(mode + ' setup takes no extra arguments.')
         if mode == 'esp32' and '--port' not in forwarded and '--help' not in forwarded:
+            if tty is None:
+                raise ValueError('ESP32 setup requires an explicit --port when running without a terminal.')
             print('Confirmed ESP32 USB port (for example /dev/cu.usbmodem123): ',
                   end='', flush=True)
             port = tty.readline().strip()

@@ -95,7 +95,15 @@ test("owner-managed OAuth registration returns the secret once, admits only its 
     true,
   );
   assert.equal(authenticated.principal.owner, false);
-  const restored = new Hub(JSON.parse(saved));
+  const restored = new Hub((() => {
+    // Pre-upgrade persisted fixture: registered clients stored no access
+    // policies and the workspace predated the agent-access default, so
+    // legacy grant rules applied.
+    const preUpgrade = JSON.parse(saved);
+    delete preUpgrade.accessPolicies;
+    delete preUpgrade.agentAccessDefault;
+    return preUpgrade;
+  })());
   const p = restored.admitOAuthClient(authenticated.principal);
   assert.equal(p.owner, false);
   assert.throws(

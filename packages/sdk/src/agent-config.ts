@@ -3,10 +3,28 @@ import { chmod, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { sdkTokenWorkspace } from "./index.js";
 
-export type AgentConfig = { version: 1; url: string; token: string };
+/** Manual login: an agent API credential whose workspace is embedded in the token. */
+export type ManualAgentConfig = { version: 1; url: string; token: string };
+/** AgentID browser login: an identity-backed credential that needs a workspace selector. */
+export type AgentIdAgentConfig = {
+  version: 2;
+  mode: "agentid";
+  url: string;
+  token: string;
+  workspace: string;
+  connectionId: string;
+  expiresAt: number | null;
+  access: string;
+  role: string;
+};
+export type AgentConfig = ManualAgentConfig | AgentIdAgentConfig;
 export const agentConfigDirectory = () =>
   join(homedir(), ".config", "openlaunch");
+
+const CREDENTIAL_ERROR =
+  "Use an ol_agent_ API credential from Connections; setup and owner credentials cannot log in to ol";
 
 function ownedPrivate(stat: Stats) {
   return (
@@ -15,19 +33,9 @@ function ownedPrivate(stat: Stats) {
   );
 }
 
-export function validateAgentConfig(value: unknown): AgentConfig {
-  const config = value as Partial<AgentConfig> | null;
-  if (
-    !config ||
-    config.version !== 1 ||
-    typeof config.url !== "string" ||
-    typeof config.token !== "string" ||
-    !/^ol_agent_[a-f0-9]{64}_[a-f0-9]{64}$/.test(config.token)
-  )
-    throw new Error(
-      "Use an ol_agent_ API credential from Connections; setup and owner credentials cannot log in to ol",
-    );
-  const url = new URL(config.url);
+/** Accept only HTTPS origins, or literal loopback HTTP for local development. */
+function validateOrigin(value: string): string {
+  const url = new URL(value);
   if (
     url.username ||
     url.password ||
@@ -43,7 +51,58 @@ export function validateAgentConfig(value: unknown): AgentConfig {
     throw new Error(
       "Use an HTTPS service origin or literal loopback HTTP origin",
     );
-  return { version: 1, url: url.origin, token: config.token };
+  return url.origin;
+}
+
+const isFiniteTimestamp = (value: unknown): value is number | null =>
+  value === null ||
+  (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+
+const isBoundedIdentifier = (value: unknown, max: number): value is string =>
+  typeof value === "string" &&
+  value.length >= 1 &&
+  value.length <= max &&
+  /^[a-zA-Z0-9_-]+$/.test(value);
+
+export function validateAgentConfig(value: unknown): AgentConfig {
+  if (!value || typeof value !== "object") throw new Error(CREDENTIAL_ERROR);
+  const config = value as Record<string, unknown>;
+  if (config.version === 2) {
+    if (
+      config.mode !== "agentid" ||
+      typeof config.url !== "string" ||
+      typeof config.token !== "string" ||
+      !/^ol_agent_[a-f0-9]{64}_[a-f0-9]{64}$/.test(config.token) ||
+      typeof config.workspace !== "string" ||
+      config.workspace !== sdkTokenWorkspace(config.token) ||
+      !isBoundedIdentifier(config.connectionId, 128) ||
+      !isFiniteTimestamp(config.expiresAt) ||
+      (config.access !== "read" && config.access !== "act") ||
+      (config.role !== "operator" && config.role !== "administrator")
+    )
+      throw new Error(
+        "Saved AgentID login is incomplete or invalid; run ol login --agentid again",
+      );
+    return {
+      version: 2,
+      mode: "agentid",
+      url: validateOrigin(config.url),
+      token: config.token,
+      workspace: config.workspace,
+      connectionId: config.connectionId,
+      expiresAt: config.expiresAt as number | null,
+      access: config.access,
+      role: config.role,
+    };
+  }
+  if (
+    config.version !== 1 ||
+    typeof config.url !== "string" ||
+    typeof config.token !== "string" ||
+    !/^ol_agent_[a-f0-9]{64}_[a-f0-9]{64}$/.test(config.token)
+  )
+    throw new Error(CREDENTIAL_ERROR);
+  return { version: 1, url: validateOrigin(config.url), token: config.token };
 }
 
 export async function readAgentConfig(

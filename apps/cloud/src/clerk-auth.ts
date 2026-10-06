@@ -31,6 +31,8 @@ export async function principalFromIdentity(
     if (path === "/mcp") throw Error("Agent OAuth token required");
     return {
       workspace,
+      identityId: workspace,
+      tokenType: "session_token" as const,
       principal: { id: "owner", owner: true } satisfies Principal,
     };
   }
@@ -47,6 +49,8 @@ export async function principalFromIdentity(
     throw new Fault("insufficient_scope", 403, "Read scope required");
   return {
     workspace,
+    identityId: workspace,
+    tokenType: "oauth_token" as const,
     principal: {
       id: identity.clientId,
       owner: false,

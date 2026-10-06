@@ -34,7 +34,7 @@ export function OAuthClients({
   const [name, setName] = useState("");
   const [callbacks, setCallbacks] = useState("");
   const [isPublic, setPublic] = useState(true);
-  const [access, setAccess] = useState<"read" | "act">("read");
+  const [access, setAccess] = useState<"read" | "act">("act");
   const [created, setCreated] = useState<
     (OAuthConnection & { clientSecret?: string }) | null
   >(null);
@@ -54,8 +54,9 @@ export function OAuthClients({
         use PKCE and an OAuth consent screen.
       </p>
       <p>
-        OAuth sign-in does not grant device access. Choose function grants
-        separately on Devices.
+        New linked clients can use all available device functions by default.
+        Exclude devices or functions in Access. Existing restrictions remain in
+        place.
       </p>
       {!available ? (
         <p role="status" aria-live="polite">
@@ -82,7 +83,7 @@ export function OAuthClients({
                   setShowSecret(false);
                   await load();
                   notify(
-                    "OAuth client registered. Copy its details into your application, then grant device functions.",
+                    "OAuth client registered with all functions available by default. Copy its details into your application, then configure exclusions if needed.",
                   );
                 });
               }}

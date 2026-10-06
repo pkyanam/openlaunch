@@ -11,11 +11,13 @@ Setup exchanges the token for a separate private credential stored by the device
 
 ## Connect an agent separately
 
-Use an admitted OAuth connection such as ChatGPT or Codex, or create a named agent API connection in **Connections**. Agent API credentials use the `ol_agent_` prefix and have read or action access. They cannot pair devices. Keep agent credentials out of device setup and device identity storage.
+Use an admitted OAuth connection such as ChatGPT or Codex, or create a named agent API connection in **Connections**. Agent API credentials use the `ol_agent_` prefix and have read or action access. They cannot pair devices. Keep agent credentials out of device setup and device identity storage. A new connection starts with action access to all current and future workspace functions; you can exclude specific devices or functions in its access policy, and an explicitly read-only connection stays read-only. Existing connections keep their previously selected mode and grants until you explicitly broaden them.
+
+You can also invite an agent as a named workspace member with **Connections → Agents**: a one-time invitation admits that exact verified AgentID identity with an operator or administrator role. See [agent connections](/agents) for the full flow.
 
 ## Grant device functions
 
-An attached device appears in **Devices**. Open its **Access** view and choose which agent connection may call which functions. A grant can have a time limit or remain active until you revoke it. Pairing alone does not grant function access, and an agent credential cannot approve its own grants. A changed function manifest clears earlier grants; review and grant the updated functions again.
+An attached device appears in **Devices**. Open its **Access** view and choose which agent connection may call which functions. A grant can have a time limit or remain active until you revoke it. The setup token itself cannot operate anything, and an agent credential cannot approve its own grants. What changes with pairing is inventory: a newly attached device becomes callable by connections and members with an all-functions access policy — the default for new connections and invited agent members — unless you exclude that device or function. Connections in selected-functions mode still need an explicit grant, and a changed function manifest clears earlier grants; review and grant the updated functions again for those connections.
 
 Revoking an agent connection removes its grants and stops its agent requests. Revoking a setup token prevents future use of that token, but does not invalidate a child credential already issued to a paired device. Remove a device from **Devices** to revoke its child credential. You can revoke one device grant without revoking the agent connection or removing the device.
 

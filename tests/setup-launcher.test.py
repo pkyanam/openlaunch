@@ -155,6 +155,13 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(setup.main(['--help']), 0)
             fetch.assert_not_called()
 
+    def test_explicit_agent_setup_runs_without_a_terminal(self):
+        manifest = json.dumps({'commit': COMMIT}).encode()
+        with patch('builtins.open', side_effect=OSError('no tty')), patch.object(setup, 'fetch', return_value=manifest), patch.object(setup, 'helper_command', return_value=['fixture-helper']) as helper, patch.object(setup.subprocess, 'call', return_value=0) as call:
+            self.assertEqual(setup.main(['linux']), 0)
+            helper.assert_called_once()
+            call.assert_called_once_with(['fixture-helper'], stdin=None)
+
     def test_menu_reads_a_real_terminal_even_when_stdin_is_a_pipe(self):
         pid, fd = pty.fork()
         if pid == 0:

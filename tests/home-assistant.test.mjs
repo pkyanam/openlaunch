@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { Hub, emptyState, manifestSchema } from "../packages/core/src/index.ts";
 import { createDeviceCredentialDeriver } from "../packages/core/src/device-credentials.ts";
 import { handle } from "../packages/http/src/index.ts";
-import { createToolCatalog } from "../packages/mcp/src/index.ts";
+import { createToolCatalog, MANAGEMENT_TOOL_NAMES } from "../packages/mcp/src/index.ts";
 import {
   HomeAssistant,
   discoverHA,
@@ -327,7 +327,10 @@ test("MCP generic invocation accepts HA objects, enforces the grant and keeps la
   hub.gatewayGrants(owner, identity.deviceId, agent.id, "control", true);
   const child = hub.list(agent).find((d) => d.kind === "home-assistant.entity");
   const tools = createToolCatalog(hub, agent);
-  assert.ok(tools.length < 15);
+  // Static management tools aside, the HA catalog must not be enumerated as
+  // per-device tools in tools/list.
+  const management = new Set(MANAGEMENT_TOOL_NAMES);
+  assert.ok(tools.filter((tool) => !management.has(tool.name)).length < 15);
   const invoke = tools.find((t) => t.name === "invoke_device_function");
   const input = {
     deviceId: child.id,

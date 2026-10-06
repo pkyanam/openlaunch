@@ -128,6 +128,7 @@ export async function setupHomeAssistant(options: Options = {}) {
   const supervisor = options.supervisor ?? !!process.env.SUPERVISOR_TOKEN;
   const haUrl =
     options.haUrl ??
+    process.env.OPENLAUNCH_HA_URL ??
     (supervisor
       ? "http://supervisor"
       : (await prompt(
@@ -137,11 +138,13 @@ export async function setupHomeAssistant(options: Options = {}) {
     options.haToken ??
     (supervisor
       ? process.env.SUPERVISOR_TOKEN
-      : await askSecret(
+      : (process.env.OPENLAUNCH_HA_TOKEN ??
+        (await askSecret(
           "Home Assistant long-lived access token: ",
           process.stdin,
           process.stdout,
-        ));
+          "OPENLAUNCH_HA_TOKEN",
+        ))));
   const ha = new HomeAssistant(haUrl, haToken ?? "", options.fetch, supervisor);
   const snapshot = await ha.snapshot();
   const url = normalizeOrigin(options.url ?? "https://www.openlaunch.dev");
@@ -345,7 +348,7 @@ export async function runHomeAssistant(options: Options = {}) {
   let byId = new Map<string, HAChild>();
   let nextRefresh = 0;
   output.write(
-    "Home Assistant gateway running. Grant access in the openlaunch console. Ctrl-C stops this runner.\n",
+    "Home Assistant gateway running. Manage agent access in the openlaunch console. Ctrl-C stops this runner.\n",
   );
   try {
     while (!stopped) {

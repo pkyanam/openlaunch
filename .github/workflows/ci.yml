@@ -58,6 +58,7 @@ jobs:
         env:
           CF_SEND_TELEMETRY: "false"
       - run: npm run test:cloud-storage
+      - run: npm run test:agent-onboarding
       - run: npm run build --workspace @openlaunch/web
       - run: cd devices/pi && go test ./... && go build -o ../../dist/openlaunch-device-host ./cmd/openlaunch-device
       - run: node scripts/e2e.mjs

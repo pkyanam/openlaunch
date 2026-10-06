@@ -4,7 +4,7 @@ related: [/cli, /pairing, /functions]
 description: Connect any OAuth-capable MCP host or JavaScript agent to openlaunch, approve device functions and inspect each action result.
 ---
 
-Any OAuth-capable MCP host can connect to openlaunch. Agents can also use the openlaunch SDK with an owner-issued `ol_agent_` API connection. Device setup uses a separate short-lived `ol_sdk_` token and cannot authenticate an agent. Every agent connection follows the same per-device function grants; a credential alone does not grant access to a device.
+Any OAuth-capable MCP host can connect to openlaunch. Agents can also use the openlaunch SDK with an `ol_agent_` API connection. Device setup uses a separate short-lived `ol_sdk_` token and cannot authenticate an agent. New agent connections can use all current and future workspace functions by default; owners can exclude devices or functions. Existing selected-function grants and read-only limits are preserved.
 
 ## Sign in with AgentID
 
@@ -12,13 +12,15 @@ Choose **Continue with AgentID** on the [console sign-in page](https://www.openl
 
 AgentID is a sign-in provider, while openlaunch OAuth and API connections authorize device access. Signing in with a different Clerk account opens a separate workspace. The agent's identity and its human owner's identity are distinct; openlaunch does not merge workspaces by email or automatically share the owner's devices.
 
-To control devices in an existing workspace, its owner must authorize your MCP host through OAuth or create a separate agent API connection, then grant its functions under **Devices → Access**. AgentID sign-in alone does not issue an agent API credential or create a device-function grant. Device setup tokens remain attach-only. Connect the MCP host to `https://www.openlaunch.dev/mcp`, or use its agent API connection with `ol login`.
+To control devices in an existing workspace, its owner can admit your agent as a named member: the owner sends a one-time workspace invitation, and your agent accepts it while signed in with AgentID. A new member gets an all-functions policy — every current and future workspace device and function, unless the owner excludes specific devices or functions — at the invited operator or administrator role. Administrators can invite and manage other agents; operators get runtime device control only. Owners and administrators manage members through the console, the workspace MCP tools (`workspace_invite`, `workspace_agents`, `workspace_agent_revoke`), or the workspace API. Existing legacy connections keep their previously selected mode and grants until the owner explicitly broadens them.
+
+Without a membership, the workspace owner can authorize your MCP host through OAuth or create a separate agent API connection. Review its policy in **Connections → Agents**. AgentID sign-in alone does not share another identity's workspace. Device setup tokens remain attach-only. Connect the MCP host to `https://www.openlaunch.dev/mcp`, or use its agent API connection with `ol login`.
 
 ## Executor and custom OAuth clients
 
 Open **Connections → OAuth clients**, enter the application name and its exact callback URLs, and choose read access or read-and-action access. **Use Executor settings** fills `https://v2.executor.sh/api/oauth/callback`. Register a public PKCE client when your host supports it; its optional secret field stays empty. A confidential client uses PKCE plus a secret shown once. Copy that secret before leaving the tab; openlaunch does not store it.
 
-Enter the client ID, optional secret, and `https://www.openlaunch.dev/mcp` in your MCP host. Request `openlaunch:read` and, for commands, `openlaunch:act`. Clients may also request openid, profile, email and offline_access within the registered ceiling. Complete OAuth sign-in and consent, then choose this application in the device's **Access** view and grant the functions it needs. OAuth consent cannot create device grants.
+Enter the client ID, optional secret, and `https://www.openlaunch.dev/mcp` in your MCP host. Request `openlaunch:read` and, for commands, `openlaunch:act`. Clients may also request openid, profile, email and offline_access within the registered ceiling. Complete OAuth sign-in and consent, then review exclusions in **Connections → Agents**. Newly registered clients default to all-functions access, within their scope ceiling. Existing selected-function clients still need device grants.
 
 For Executor apps, declare the command scopes explicitly in the app's `provider.ts`:
 
@@ -41,7 +43,7 @@ Device MCP provides tools; documentation MCP provides read-only tools and page r
 
 ## ChatGPT and Codex
 
-Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Open the device's **Access** view, choose ChatGPT or Codex, select its functions, and save the grant. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
+Use the device MCP endpoint `https://www.openlaunch.dev/mcp` and approve the connection through Clerk. Review ChatGPT or Codex in **Connections → Agents**. New workspaces use all-functions access by default; existing workspaces preserve their saved grants until you explicitly choose all-functions access. The downloadable [openlaunch plugin](/downloads/openlaunch-plugin.zip) includes this endpoint and the separate documentation MCP.
 
 For Codex CLI:
 
@@ -54,9 +56,9 @@ OAuth consent and device grants are separate. Call `list_functions` for the curr
 
 ## Any agent with the API connection
 
-In **Connections**, create a named agent API connection and choose read or action access. Set a finite expiry or choose until revoked. Its credential uses the `ol_agent_` prefix and is shown once. Provide it to your agent through a secret environment variable; never put it in a prompt, source file, shell command, or log. Revoke it in Connections to stop agent requests and remove its grants.
+In **Connections**, create a named agent API connection and choose read or action access. Set a finite expiry or choose until revoked. Its credential uses the `ol_agent_` prefix and is shown once. Provide it to your agent through a secret environment variable; never put it in a prompt, source file, shell command, or log. Revoke it in Connections to stop agent requests and remove its grants. A newly created connection starts with action access to all current and future workspace functions (with owner-set exclusions); an explicitly read-only connection stays read-only, and legacy connections keep their previously selected grants.
 
-Install the SDK archive and use `createClient({ url, token })`. The client lists devices visible to that connection and `listFunctions()` returns the currently granted built-in and custom functions with their advertised input schemas and bounded `guide` text. The schema is authoritative; guide text does not grant access or add device behavior. The client can request approved functions and read or cancel actions. The owner grants functions for each device; a grant may expire or remain active until revoked. Without a grant, the agent cannot operate that device.
+Install the SDK archive and use `createClient({ url, token })`. The client lists accessible devices and `listFunctions()` returns their permitted built-in and custom functions with input schemas and bounded `guide` text. The schema is authoritative; guide text does not authorize access or add device behavior. The client can request permitted functions and read or cancel actions. All-functions policies cover new devices automatically. Selected-function policies require grants that may expire or remain active until revoked.
 
 ```sh
 npm install 'https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz'
@@ -66,16 +68,16 @@ See the [Bridge SDK guide](/sdk) for a minimal code example, action lifecycle, a
 
 ## Agent CLI
 
-Install `ol` on your PATH, then log in with a separate agent API credential:
+Install `ol` on your PATH, then log in with AgentID:
 
 ```sh
 {{cli-install}}
-ol login
+ol login --agentid
 ol devices list
 ol functions list
 ```
 
-Open a new terminal and restart your agent application after installing. Login prompts without echoing the token and saves it privately on this computer. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login. Device setup and owner credentials remain separate. See the [CLI guide](/cli) for custom JSON arguments, idempotent retries, action watching, cancellation and logout.
+Open a new terminal and restart your agent application after installing. The browser-backed login verifies your agent's AgentID identity and saves an identity-bound credential privately on this computer (`0600`); use `ol login` instead to paste a separate agent API credential from Connections. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login. Device setup and owner credentials remain separate. See the [CLI guide](/cli) for workspace selection, custom JSON arguments, idempotent retries, action watching, cancellation and logout.
 
 ## Codex on your computer
 

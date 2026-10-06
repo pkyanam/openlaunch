@@ -134,11 +134,50 @@ try {
     true,
     "Complete HA inventory is online before invocation",
   );
-  assert.equal(
-    hub.list({ id: connection.principal, owner: false }).length,
-    0,
-    "No implicit grants",
+  // New agent connections are delegated an all-devices operator policy: the
+  // linked inventory is covered without any per-device grant.
+  const agentPrincipal = { id: connection.principal, owner: false };
+  const connectionPolicy = hub.state.accessPolicies.find(
+    (policy) => policy.principal === connection.principal,
   );
+  assert.ok(connectionPolicy, "New connection carries a live access policy");
+  assert.equal(connectionPolicy.mode, "all");
+  assert.ok(
+    hub.list(agentPrincipal).some((d) => d.id === child.id),
+    "All-mode policy delegation covers the linked inventory",
+  );
+  assert.ok(
+    hub.functionCatalog(agentPrincipal).some((f) => f.deviceId === child.id),
+    "All-mode policy exposes the child functions without grants",
+  );
+  // Opt-out exclusions deny a device without touching grants.
+  hub.setAccessPolicy(owner, {
+    principal: connection.principal,
+    mode: "all",
+    excludedDevices: [child.id],
+    excludedFunctions: [],
+    role: "operator",
+    expiresAt: connectionPolicy.expiresAt,
+  });
+  assert.ok(
+    !hub.list(agentPrincipal).some((d) => d.id === child.id),
+    "Policy exclusions deny opted-out devices",
+  );
+  assert.ok(
+    !hub.functionCatalog(agentPrincipal).some((f) => f.deviceId === child.id),
+    "Policy exclusions hide opted-out functions",
+  );
+  // Selected mode restores the historical grant-only regime for the
+  // remaining acceptance steps.
+  hub.setAccessPolicy(owner, {
+    principal: connection.principal,
+    mode: "selected",
+    excludedDevices: [],
+    excludedFunctions: [],
+    role: "operator",
+    expiresAt: connectionPolicy.expiresAt,
+  });
+  assert.equal(hub.list(agentPrincipal).length, 0, "No implicit grants");
   hub.grant(
     owner,
     connection.principal,

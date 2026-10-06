@@ -66,6 +66,32 @@ export const createAgentConnectionSchema = z
     name: z.string().min(1).max(64),
     ttlSeconds: z.number().int().min(60).max(2592000).nullable().default(86400),
     access: z.enum(["read", "act"]).default("act"),
+    role: z.enum(["operator", "administrator"]).optional(),
+  })
+  .strict();
+// Full-policy replacement for one principal. mode selected keeps the legacy
+// per-device grant list; mode all covers every device with opt-out exclusions.
+// Bounds mirror the core accessPolicySchema so the published contract cannot
+// accept what the hub would reject.
+export const accessPolicyRequestSchema = z
+  .object({
+    principal: z.string().min(1).max(128).regex(/^\S+$/),
+    mode: z.enum(["all", "selected"]).default("all"),
+    excludedDevices: z.array(z.string().min(1).max(128)).max(1000).default([]),
+    excludedFunctions: z
+      .array(
+        z
+          .object({
+            deviceId: z.string().min(1).max(128).nullable(),
+            capability: capabilityName,
+          })
+          .strict(),
+      )
+      .max(1000)
+      .default([]),
+    role: z.enum(["operator", "administrator"]).default("operator"),
+    expiresAt: z.number().int().nullable().default(null),
+    delegatedFrom: z.string().min(1).max(128).regex(/^\S+$/).optional(),
   })
   .strict();
 export const createSetupTokenSchema = z
@@ -199,6 +225,17 @@ const Action = {
       type: "boolean",
       description:
         "Internal provenance: true for an owner-originated action. False is normal for an accepted agent action whose live grants authorize it; it is not a missing-approval status. MCP receipts omit this field.",
+    },
+    accessPolicy: {
+      type: "string",
+      description:
+        "Policy principal that authorized this action when queued; dispatch re-checks the live chain for that policy before delivering.",
+    },
+    accessConstraints: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Constraint principals (e.g. the original OAuth client of a linked membership) re-checked against their live policies at dispatch time.",
     },
   },
   required: [
@@ -353,6 +390,175 @@ const schemas: Record<string, object> = {
     },
     required: ["deviceId", "deviceName", "kind", "definition", "guide"],
   },
+  AccessPolicy: {
+    type: "object",
+    properties: {
+      principal: { type: "string" },
+      mode: {
+        type: "string",
+        enum: ["all", "selected"],
+        description:
+          "selected keeps the legacy per-device grant list; all covers every workspace device with opt-out exclusions.",
+      },
+      excludedDevices: { type: "array", items: { type: "string" } },
+      excludedFunctions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            deviceId: { type: ["string", "null"] },
+            capability: { type: "string" },
+          },
+          required: ["deviceId", "capability"],
+          additionalProperties: false,
+        },
+      },
+      role: { type: "string", enum: ["operator", "administrator"] },
+      expiresAt: { type: ["integer", "null"] },
+      delegatedFrom: {
+        type: "string",
+        description:
+          "Parent policy principal this policy was delegated from; a child is always intersected with the live parent chain, so delegated credentials can never escape parent exclusions, expiry or role changes.",
+      },
+    },
+    required: [
+      "principal",
+      "mode",
+      "excludedDevices",
+      "excludedFunctions",
+      "role",
+      "expiresAt",
+    ],
+    additionalProperties: false,
+  },
+  EffectiveAccess: {
+    type: "object",
+    description:
+      "The caller's effective current access: policy role and mode plus, for selected mode, the live legacy per-device grants.",
+    properties: {
+      principal: { type: "string" },
+      role: {
+        type: ["string", "null"],
+        enum: ["operator", "administrator", null],
+      },
+      mode: { type: ["string", "null"], enum: ["all", "selected", null] },
+      readOnly: { type: "boolean" },
+      excludedDevices: { type: "array", items: { type: "string" } },
+      excludedFunctions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            deviceId: { type: ["string", "null"] },
+            capability: { type: "string" },
+          },
+          required: ["deviceId", "capability"],
+          additionalProperties: false,
+        },
+      },
+      expiresAt: { type: ["integer", "null"] },
+      delegatedFrom: { type: "string" },
+    },
+    required: ["principal", "role"],
+    additionalProperties: true,
+  },
+  Onboarding: {
+    type: "object",
+    properties: {
+      devices: arr(ref("Device")),
+      setup: {
+        type: "object",
+        properties: {
+          attachmentConfigured: {
+            type: "boolean",
+            description:
+              "Server-side device attachment credentials are configured.",
+          },
+          setupTokens: arr(ref("AgentConnection")),
+          agentConnections: arr(ref("AgentConnection")),
+        },
+        required: ["attachmentConfigured", "setupTokens", "agentConnections"],
+        additionalProperties: false,
+      },
+      nextSteps: { type: "array", items: { type: "string" } },
+    },
+    required: ["devices", "setup", "nextSteps"],
+    additionalProperties: false,
+  },
+  WorkspaceMembership: {
+    type: "object",
+    properties: {
+      workspace: { type: "string", pattern: "^[a-f0-9]{64}$" },
+      principalId: { type: "string" },
+      name: { type: "string" },
+      role: { type: "string", enum: ["owner", "operator", "administrator"] },
+    },
+    required: ["workspace", "principalId", "name", "role"],
+    additionalProperties: false,
+  },
+  WorkspaceAgent: {
+    type: "object",
+    properties: {
+      id: { type: "string", pattern: "^agent:[a-f0-9]{64}$" },
+      identityId: { type: "string", pattern: "^[a-f0-9]{64}$" },
+      name: { type: "string" },
+      role: { type: "string", enum: ["operator", "administrator"] },
+      joinedAt: { type: "integer" },
+      revoked: { type: "boolean" },
+    },
+    required: ["id", "identityId", "name", "role", "joinedAt", "revoked"],
+    additionalProperties: false,
+  },
+  WorkspaceInvitation: {
+    type: "object",
+    properties: {
+      invitation: {
+        type: "string",
+        description:
+          "One-time invitation secret; shown once, stored only as a hash, expires at expiresAt.",
+      },
+      expiresAt: { type: "integer" },
+    },
+    required: ["invitation", "expiresAt"],
+    additionalProperties: false,
+  },
+  CliAuthorization: {
+    type: "object",
+    properties: {
+      code: {
+        type: "string",
+        description: "One-time login code; consumed by the exchange call.",
+      },
+      state: { type: "string" },
+      callbackUrl: { type: "string", format: "uri" },
+    },
+    required: ["code", "state", "callbackUrl"],
+    additionalProperties: false,
+  },
+  CliLoginExchange: {
+    type: "object",
+    properties: {
+      token: {
+        type: "string",
+        description:
+          "Agent connection credential; shown once by this response. Store securely, never log or commit.",
+      },
+      workspace: { type: "string", pattern: "^[a-f0-9]{64}$" },
+      connectionId: uuid,
+      expiresAt: { type: ["integer", "null"] },
+      access: { type: "string", enum: ["read", "act"] },
+      role: { type: "string", enum: ["operator", "administrator"] },
+    },
+    required: [
+      "token",
+      "workspace",
+      "connectionId",
+      "expiresAt",
+      "access",
+      "role",
+    ],
+    additionalProperties: false,
+  },
 };
 schemas.NewConnection = {
   type: "object",
@@ -485,6 +691,17 @@ schemas.DeviceNext = {
         createdAt: { type: "integer" },
         expiresAt: { type: "integer" },
         dispatchedAt: { type: "integer" },
+        accessPolicy: {
+          type: "string",
+          description:
+            "Policy principal that authorized this action when queued; dispatch re-checks the live chain for that policy before delivering.",
+        },
+        accessConstraints: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Constraint principals re-checked against their live policies at dispatch time.",
+        },
       },
       required: [
         "id",
@@ -855,9 +1072,10 @@ export function buildOpenApi() {
           name: "automation",
           ttlSeconds: 86400,
           access: "act",
+          role: "operator",
         }),
         description:
-          "Agent connections cannot attach devices. Access read/act is a ceiling; action calls also require a live per-device function grant.",
+          "Agent connections cannot attach devices. Access read/act is a ceiling; action calls also require a live per-device function grant. New connections are admitted with an all-devices operator access policy (opt-out exclusions can be set afterwards via /v1/access-policies); an explicit access read is preserved as the ceiling. Requesting role administrator requires an owner session. The token is returned once; if the access policy cannot be applied, the token is not issued and the pending connection is reconciled by the owner console.",
       },
     ),
   );
@@ -987,6 +1205,201 @@ export function buildOpenApi() {
       },
     ),
   );
+  add(
+    "/v1/access-policies",
+    "get",
+    authOp(
+      "List access policies",
+      "Access",
+      owner,
+      arr(ref("AccessPolicy")),
+      "Lists the workspace's delegation policies. The owner sees all; a delegated administrator sees the policies its live role permits. Legacy per-device grants are not listed here (see /v1/grants).",
+    ),
+  );
+  add("/v1/access-policies", "post", {
+    ...op(
+      "Set one principal's access policy",
+      "Access",
+      owner,
+      { "200": ok(ref("AccessPolicy")), ...commonErrors },
+      {
+        ...body(accessPolicyRequestSchema, {
+          principal: "connection:00000000-0000-4000-8000-000000000001",
+          mode: "all",
+          excludedDevices: [],
+          excludedFunctions: [],
+          role: "operator",
+          expiresAt: null,
+        }),
+        description:
+          "Full-policy replacement for one principal. mode selected keeps the legacy per-device grant list; mode all covers every device with opt-out excludedDevices and excludedFunctions. Only the workspace owner can grant role administrator or set delegatedFrom ancestry; delegated administrators may update operator policies for other principals and can never modify their own policy.",
+      },
+    ),
+  });
+  add(
+    "/v1/access",
+    "get",
+    authOp(
+      "Inspect effective current access",
+      "Access",
+      [...owner, ...agent],
+      ref("EffectiveAccess"),
+      "Returns the caller's effective policy after OAuth admission and policy application: role, device mode, opt-out exclusions and expiry. For mode selected the result reflects the live legacy per-device grants. Every request re-evaluates this before any handler or tool runs.",
+    ),
+  );
+  add(
+    "/v1/onboarding",
+    "get",
+    authOp(
+      "Get onboarding status",
+      "Access",
+      [...owner, ...agent],
+      ref("Onboarding"),
+      "Current devices, setup-token and agent-connection readiness, and suggested next steps computed from live hub state. Operators receive forbidden with the required next step.",
+    ),
+  );
+  add(
+    "/v1/workspaces",
+    "get",
+    authOp(
+      "List workspaces for the signed-in identity",
+      "Workspace",
+      owner,
+      arr(ref("WorkspaceMembership")),
+      "Hosted identity endpoint: workspaces this identity owns or has joined, with the role in each.",
+    ),
+  );
+  add("/v1/workspaces/select", "post", {
+    ...op(
+      "Select active workspace",
+      "Workspace",
+      owner,
+      { "200": ok({ type: "object", properties: { workspace: { type: "string", pattern: "^[a-f0-9]{64}$" } }, required: ["workspace"], additionalProperties: false }), ...commonErrors },
+      {
+        ...body({
+          type: "object",
+          properties: { workspace: { type: "string", pattern: "^[a-f0-9]{64}$" } },
+          required: ["workspace"],
+          additionalProperties: false,
+        }),
+        description:
+          "Switches the signed-in identity's active workspace. Membership is required; agent API credentials are bound to one workspace and cannot switch.",
+      },
+    ),
+  });
+  add("/v1/workspaces/accept", "post", {
+    ...op(
+      "Accept workspace invitation",
+      "Workspace",
+      owner,
+      { "200": ok(ref("WorkspaceMembership")), ...commonErrors },
+      {
+        ...body({
+          type: "object",
+          properties: { invitation: { type: "string" } },
+          required: ["invitation"],
+          additionalProperties: false,
+        }),
+        description:
+          "Redeems a one-time invitation secret and joins that workspace with the invited role. The invitation expires and records its redeemer; revoked members need explicit owner restoration.",
+      },
+    ),
+  });
+  add(
+    "/v1/workspace/agents",
+    "get",
+    authOp(
+      "List workspace members",
+      "Workspace",
+      owner,
+      arr(ref("WorkspaceAgent")),
+      "Owner or workspace administrator. Lists member identities with role and revoked status.",
+    ),
+  );
+  add("/v1/workspace/invitations", "post", {
+    ...op(
+      "Invite a workspace member",
+      "Workspace",
+      owner,
+      { "201": ok(ref("WorkspaceInvitation")), ...commonErrors },
+      {
+        ...body({
+          type: "object",
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 64 },
+            role: { type: "string", enum: ["operator", "administrator"], default: "operator" },
+            ttlSeconds: { type: "integer", minimum: 60, maximum: 3600, default: 600 },
+          },
+          required: ["name"],
+          additionalProperties: false,
+        }),
+        description:
+          "Creates a one-time invitation. Only the workspace owner can delegate administration (role administrator). The invitation secret is shown once and stored only as a hash.",
+      },
+    ),
+  });
+  add("/v1/workspace/agents/{agentId}/revoke", "post", {
+    ...op(
+      "Revoke workspace member",
+      "Workspace",
+      owner,
+      { "200": ok(ref("Ok")), ...commonErrors },
+      {
+        parameters: [
+          { name: "agentId", in: "path", required: true, schema: { type: "string", pattern: "^agent:[a-f0-9]{64}$" } },
+        ],
+        description:
+          "Owner or workspace administrator; a member cannot revoke itself. The member's live policy denies all functions immediately and its bound credentials are revoked.",
+      },
+    ),
+  });
+  add("/v1/cli-login/authorize", "post", {
+    ...op(
+      "Authorize CLI login",
+      "Workspace",
+      owner,
+      { "200": ok(ref("CliAuthorization")), ...commonErrors },
+      {
+        ...body({
+          type: "object",
+          properties: {
+            callbackUrl: {
+              type: "string",
+              format: "uri",
+              description: "Exact 127.0.0.1 loopback callback URL with a port.",
+            },
+            state: { type: "string" },
+            challenge: { type: "string", description: "PKCE S256 challenge." },
+          },
+          required: ["callbackUrl", "state", "challenge"],
+          additionalProperties: false,
+        }),
+        description:
+          "Starts a CLI login for the signed-in identity: returns a one-time code delivered to the loopback callback, valid for 60 seconds.",
+      },
+    ),
+  });
+  add("/v1/cli-login/exchange", "post", {
+    ...op(
+      "Exchange CLI login code",
+      "Workspace",
+      [],
+      { "200": ok(ref("CliLoginExchange")), ...commonErrors },
+      {
+        ...body({
+          type: "object",
+          properties: {
+            code: { type: "string" },
+            verifier: { type: "string", description: "PKCE verifier." },
+          },
+          required: ["code", "verifier"],
+          additionalProperties: false,
+        }),
+        description:
+          "Unauthenticated exchange: the one-time code plus PKCE verifier is the credential. Returns the agent connection token once, bound to the caller's workspace with a policy delegated from the parent principal (persistent ancestry enforced server-side). Owner review covers privilege amplification.",
+      },
+    ),
+  });
   add(
     "/v1/grants",
     "get",
@@ -1586,6 +1999,8 @@ export function buildOpenApi() {
       "OAuth",
       "Agent",
       "Owner and agent",
+      "Access",
+      "Workspace",
       "Device",
       "MCP",
     ].map((name) => ({ name })),

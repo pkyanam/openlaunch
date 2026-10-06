@@ -26,14 +26,14 @@ Grant your ChatGPT connection access to the current linked entities in the gatew
 
    Choose Uno, ArduRoomba, Pi, Linux host, ESP32, a custom adapter, or a local developer console. The helper prompts for the settings it needs. You need curl and Python 3; custom Node adapters and local development also need Node 24+. USB setup configures firmware you have already flashed.
 
-4. Connect your agent in **Connections**, then open **Devices → your device → Access**. Choose that connection, select its functions, and **Save grant**.
+4. Connect your agent in **Connections**. New connections can use all current and future device functions. Review exclusions and workspace invitations in **Connections → Agents**. Existing selected-function connections retain their saved grants.
 5. Ask the agent to list devices and functions. When it invokes a function, check the action's final status and result.
 
 You can [inspect the setup script](https://www.openlaunch.dev/setup.sh) before running it. It fetches the current hosted download manifest and checks the selected helper or SDK against its SHA-256. You do not need to copy a workspace ID, put a credential in a command, or install this repository to pair an already-flashed board.
 
 ## Connect ChatGPT, Codex, Executor, or your own app
 
-**AgentID sign-in** lets an agent use its own verified identity through Clerk. A different Clerk account has a separate workspace; AgentID does not automatically link the agent to its human owner's devices. To access an existing workspace through MCP, API or `ol`, use that workspace's OAuth authorization or owner-issued agent API connection and approve its device functions. [AgentID setup and verification](docs/AGENTID.md).
+**AgentID sign-in** lets an agent use its own verified identity through Clerk. A different Clerk account has a separate workspace; AgentID does not automatically link the agent to its human owner's devices. To access an existing workspace through MCP, API or `ol`, use that workspace's OAuth authorization or owner-issued agent API connection, or have the owner invite the agent as a named workspace member. New connections and invited members get all current and future device functions, with owner-set exclusions; existing restricted connections retain their grants. [AgentID setup and verification](docs/AGENTID.md) and [agent workspace onboarding](docs/AGENT-ONBOARDING.md).
 
 The authenticated MCP URL is:
 
@@ -45,9 +45,9 @@ Use **Connections** for MCP instructions, OAuth client registration, or a separa
 
 1. Open **Connections → OAuth clients**. Enter the app's exact callback URL, or choose **Use Executor settings**.
 2. Choose **Read and invoke granted functions** if it needs device control. Register the client and copy its client ID and, for a confidential client, its one-time secret into the app.
-3. Finish OAuth sign-in in the app. Under the device's **Access** view, grant functions to the registered connection.
+3. Finish OAuth sign-in in the app. Review its all-functions policy and any exclusions in **Connections → Agents**.
 
-**ChatGPT through Executor uses Executor's grant.** A direct ChatGPT grant does not authorize Executor. An online board can appear as an empty device list to an agent with no saved grant. Read-only connections cannot issue commands.
+**ChatGPT through Executor uses Executor's connection and policy.** A direct ChatGPT connection is separate. Selected-function connections can see an empty device list until granted access; new all-functions connections see permitted devices automatically. Read-only connections cannot issue commands.
 
 The stable MCP tools include `list_devices`, `list_functions`, `invoke_device_function`, health, LED/text helpers, and action status/cancellation. Granted functions also appear as device-specific tools. The generic invocation tool handles custom functions when a host caches an older tool list. See [agent setup](https://www.openlaunch.dev/docs/agents) and the [API reference](https://www.openlaunch.dev/docs/api).
 
@@ -66,12 +66,12 @@ curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash
 The installer verifies the current SDK checksum, installs `ol` in `~/.local/bin` and configures your shell PATH. Open a new terminal and restart your agent app, then run:
 
 ```sh
-ol login
+ol login --agentid
 ol devices list
 ol functions list
 ```
 
-`ol login` privately prompts for a separate agent API credential from Connections. Grant that API connection functions in device Access. The credential stays in a private local file; setup tokens and owner sessions cannot log in. `ol call DEVICE_ID FUNCTION` queues an approved action, and `ol actions watch ACTION_ID` follows its result. See the [CLI guide](https://www.openlaunch.dev/docs/cli) for JSON arguments, retries, cancellation and logout.
+`ol login --agentid` signs in through AgentID in your browser and saves an identity-bound, all-functions credential privately (`0600`) on this computer; `ol login` without the flag still accepts a pasted agent API credential from Connections. Grant that connection functions in device Access if it uses selected-functions mode; an invited agent member with the default all-functions policy can use workspace devices without per-device grants. The credential stays in a private local file; setup tokens and owner sessions cannot log in. `ol call DEVICE_ID FUNCTION` queues an approved action, and `ol actions watch ACTION_ID` follows its result. See the [CLI guide](https://www.openlaunch.dev/docs/cli) for workspace selection, JSON arguments, retries, cancellation and logout.
 
 ## Hardware
 
@@ -115,13 +115,15 @@ sudo apt install grim wtype
 openlaunch-host enable-control
 ```
 
-Restart the runner and approve its new functions in the device's **Access** tab. Your agent can then run shell commands, launch a browser, see real screenshots, and use mouse/keyboard through MCP, API or `ol`. Controls use the Pi user's permissions and require its active desktop. X11 and shell-only setup are documented in [Linux control](https://www.openlaunch.dev/docs/linux). Re-running the installer updates the binary while preserving your paired identity and local policy.
+Restart the runner. All-functions connections include the new functions automatically unless excluded; selected-functions connections need updated grants in the device's **Access** tab. Your agent can then run shell commands, launch a browser, see real screenshots, and use mouse/keyboard through MCP, API or `ol`. Controls use the Pi user's permissions and require its active desktop. X11 and shell-only setup are documented in [Linux control](https://www.openlaunch.dev/docs/linux). Re-running the installer updates the binary while preserving your paired identity and local policy.
 
 ## Credentials and permissions
 
 - **Device setup token (`ol_sdk_`)**: pairs hardware only. Short-lived, one device by default. The board receives its own private credential; it does not keep the setup token.
 - **Agent OAuth or API token (`ol_agent_`)**: authenticates an agent, with a read/action ceiling. Cannot pair devices.
+- **Access policy**: defines what a connection or member may call. New connections and invited agent members default to action access across all current and future workspace functions, with owner-set device/function exclusions that the agent cannot lift. Existing connections keep their previous selected mode and grants until the owner explicitly broadens them.
 - **Function grant**: owner approval for a particular connection, device, and set of functions. Can expire or remain until revoked. OAuth sign-in does not create it.
+- **Workspace membership**: a named agent member admitted by one-time invitation, with an owner, administrator or operator role. Revoking the member denies its access and revokes its credentials.
 
 Revoking a connection removes its grants. Revoking a setup token does not disconnect a device already paired; removing the device revokes its private credential. A changed device manifest requires new function approval.
 

@@ -177,6 +177,19 @@ try {
   const [device] = await call("/v1/devices");
   assert.equal(device.kind, "linux");
   assert(!JSON.stringify(await readFile(config, "utf8")).includes(setup.token));
+  assert.equal(
+    (await call("/v1/devices", "GET", undefined, agent.token)).length,
+    1,
+    "New agent connections discover attached devices without individual grants",
+  );
+  await call("/v1/access-policies", "POST", {
+    principal: agent.principal,
+    mode: "selected",
+    role: "operator",
+    excludedDevices: [],
+    excludedFunctions: [],
+    expiresAt: null,
+  });
   assert.deepEqual(
     await call("/v1/devices", "GET", undefined, agent.token),
     [],

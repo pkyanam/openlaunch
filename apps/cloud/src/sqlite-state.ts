@@ -45,8 +45,10 @@ const collections = [
   "agentConnections",
   "attachAttempts",
   "retiredActionKeys",
+  "accessPolicies",
   "audit",
 ] as const;
+const accessDefaultKey = "agentAccessDefault";
 
 function createSchema(sql: WorkspaceSQL) {
   const found = new Set(
@@ -90,6 +92,7 @@ function normalizeState(value: unknown): State {
     Object.keys(state).some(
       (key) =>
         key !== "version" &&
+        key !== "agentAccessDefault" &&
         !collections.includes(key as (typeof collections)[number]),
     )
   )
@@ -108,12 +111,22 @@ function normalizeState(value: unknown): State {
   state.agentConnections ??= [];
   state.attachAttempts ??= [];
   state.retiredActionKeys ??= [];
+  state.accessPolicies ??= [];
   if (
     !Array.isArray(state.agentConnections) ||
     !Array.isArray(state.attachAttempts) ||
-    !Array.isArray(state.retiredActionKeys)
+    !Array.isArray(state.retiredActionKeys) ||
+    !Array.isArray(state.accessPolicies)
   )
     throw new Error("Invalid legacy workspace optional collections");
+  // Pre-upgrade legacy data keeps the grants-only default; only workspaces
+  // seeded by the current emptyState() default to all access.
+  if (state.agentAccessDefault === undefined) state.agentAccessDefault = "selected";
+  else if (
+    state.agentAccessDefault !== "all" &&
+    state.agentAccessDefault !== "selected"
+  )
+    throw new Error("Invalid legacy workspace agent access default");
   return state;
 }
 
@@ -136,6 +149,10 @@ function recordKey(
       return typeof item.principal === "string" &&
         typeof item.deviceId === "string"
         ? JSON.stringify([item.principal, item.deviceId])
+        : invalidKey(collection);
+    case "accessPolicies":
+      return typeof item.principal === "string"
+        ? item.principal
         : invalidKey(collection);
     case "attachAttempts":
       return typeof item.connectionId === "string" &&
@@ -164,6 +181,7 @@ function stateCollections(state: State): Array<[string, unknown[]]> {
     ["agentConnections", state.agentConnections ?? []],
     ["attachAttempts", state.attachAttempts ?? []],
     ["retiredActionKeys", state.retiredActionKeys ?? []],
+    ["accessPolicies", state.accessPolicies ?? []],
     ["audit", state.audit],
   ];
 }
@@ -233,7 +251,10 @@ function loadRows(sql: WorkspaceSQL): {
       .toArray()[0]?.value;
     if (
       !(
-        collection === "retiredActionKeys" &&
+        // Collections introduced after the first SQL migration have no count
+        // row in pre-feature workspaces; an absent count with zero records is
+        // valid for them and is only accepted until the first write backfills.
+        (collection === "retiredActionKeys" || collection === "accessPolicies") &&
         storedCount === undefined &&
         records.length === 0
       ) &&
@@ -258,6 +279,9 @@ function loadRows(sql: WorkspaceSQL): {
         break;
       case "grants":
         state.grants = values;
+        break;
+      case "accessPolicies":
+        state.accessPolicies = values;
         break;
       case "agentConnections":
         state.agentConnections = values;
@@ -396,7 +420,9 @@ async function loadOrMigrate(
     if (marker !== schemaVersion)
       throw new Error(`Unsupported SQLite workspace schema version: ${marker}`);
     await ensureMigrationGuard(storage);
-    return loadRows(sql);
+    const loaded = loadRows(sql);
+    hydrateAgentAccessDefault(sql, loaded.state);
+    return loaded;
   }
   const rowCount =
     sql
@@ -447,6 +473,11 @@ async function loadOrMigrate(
       "schemaVersion",
       schemaVersion,
     );
+    sql.exec(
+      `INSERT INTO ${metaTable} (key, value) VALUES (?, ?)`,
+      accessDefaultKey,
+      state.agentAccessDefault === "all" ? "all" : "selected",
+    );
     for (const [collection, values] of stateCollections(state))
       sql.exec(
         `INSERT INTO ${metaTable} (key, value) VALUES (?, ?)`,
@@ -455,7 +486,37 @@ async function loadOrMigrate(
       );
   });
   await ensureMigrationGuard(storage);
-  return loadRows(sql);
+  const loaded = loadRows(sql);
+  hydrateAgentAccessDefault(sql, loaded.state);
+  return loaded;
+}
+
+/**
+ * Hydrate the persistent agent-access default. The meta key is written on
+ * first load: workspaces migrated before access policies existed keep the
+ * legacy "selected" default, while freshly seeded workspaces keep "all".
+ */
+function hydrateAgentAccessDefault(sql: WorkspaceSQL, state: State): void {
+  const stored = sql
+    .exec<{ value: string }>(
+      `SELECT value FROM ${metaTable} WHERE key = ?`,
+      accessDefaultKey,
+    )
+    .toArray()[0]?.value;
+  if (stored === undefined) {
+    // A workspace with a schema marker but no default key predates the
+    // marker; it keeps legacy grants-only behavior and gets the key backfilled.
+    sql.exec(
+      `INSERT INTO ${metaTable} (key, value) VALUES (?, ?)`,
+      accessDefaultKey,
+      "selected",
+    );
+    state.agentAccessDefault = "selected";
+    return;
+  }
+  if (stored !== "all" && stored !== "selected")
+    throw new Error("Invalid SQLite workspace agent access default");
+  state.agentAccessDefault = stored;
 }
 
 async function ensureMigrationGuard(

@@ -10,7 +10,7 @@ From the project root, run:
 npm run setup:agentid
 ```
 
-This runs the pinned AgentID 0.9.0 initializer for Clerk production. Choose the existing **openlaunch** application. Production uses `https://clerk.openlaunch.dev/v1/oauth_callback`. Choose standard identity scopes (`openid email profile`); openlaunch does not use AgentID owner claims to map workspaces. Approve registration in the browser and allow its loopback callback to return to the CLI. For a separate development instance, run the initializer directly and select development; do not reuse production credentials.
+This runs the pinned AgentID 0.9.0 initializer for Clerk production. Choose the existing **openlaunch** application. Production uses `https://clerk.openlaunch.dev/v1/oauth_callback`. Choose standard identity scopes (`openid email profile`); openlaunch does not use AgentID owner claims to map workspaces. The workspace and membership identity is a SHA-256 hash of the verified Clerk issuer and Clerk subject, computed from what Clerk already verified; the service never retrieves AgentID owner claims or email bindings from upstream. Approve registration in the browser and allow its loopback callback to return to the CLI. For a separate development instance, run the initializer directly and select development; do not reuse production credentials.
 
 The initializer stores the client ID, client secret and project binding in ignored `.env.local` with restricted permissions, and configures Clerk. Do not copy these values into source, a frontend environment variable, device firmware, CI logs, or chat. Clerk stores the provider secret; the device service continues to use its existing Clerk configuration. Registration is idempotent when the same bound credentials are present. Do not use `--force` for a normal retry.
 
@@ -24,7 +24,7 @@ This reuses the locally bound registration. Select the same application and envi
 
 AgentID agents must also be able to complete first-time sign-up. Clerk's **Protect → Rules → Bot sign-up protection** can challenge agents with Turnstile even when the provider doctor passes. For the current production integration, sign-up CAPTCHA is disabled through Clerk's supported `auth_attack_protection.bot_protection.captcha_enabled` setting, with owner authorization. This is an instance-wide setting and also affects Google sign-ups; other attack-protection settings remain configured. The console still requires a verified identity, and device access still requires its own workspace credentials and grants.
 
-In the AgentID application's settings, set **Login URL** and **Initiate login URL** to `https://www.openlaunch.dev/console/`. The public sign-in page offers AgentID; the initiate URL does not need a separate automatic-login route when using the visible button. Keep the registered callback at `https://clerk.openlaunch.dev/v1/oauth_callback`. Placeholder text such as `app.example.com` is not a configured openlaunch URL. The AgentID **Needs setup** status requires a completed test sign-in; provider configuration alone is not that test.
+In the AgentID application's settings, set **Login URL** to `https://www.openlaunch.dev/console/`. The public sign-in page offers AgentID. Set the **Initiate login URL** to `https://www.openlaunch.dev/console/?agentid=1`, the console entrypoint for AgentID sign-ins used by `ol login --agentid` and AgentID-initiated logins. Keep the registered callback at `https://clerk.openlaunch.dev/v1/oauth_callback`. Placeholder text such as `app.example.com` is not a configured openlaunch URL. The AgentID **Needs setup** status requires a completed test sign-in; provider configuration alone is not that test.
 
 ## Verify
 
@@ -40,9 +40,11 @@ If registration was approved but the CLI is waiting, finish **Return to CLI** in
 
 ## Authorization boundaries
 
-AgentID verifies an identity. It does not authorize device control in a human owner's workspace. A different Clerk subject has its own isolated workspace; `owner_email` is never an account-linking or authorization key.
+AgentID verifies an identity. It does not authorize device control in a human owner's workspace. A different Clerk subject has its own isolated workspace; `owner_email` is never an account-linking or authorization key, and no sign-in merges workspaces by email.
 
 Agent requests to the existing device workspace still use an owner-authorized OAuth connection or an `ol_agent_` API connection, with a live per-function grant. The MCP endpoint rejects console sessions and raw AgentID tokens. An `ol_sdk_` setup token only attaches devices; devices retain their own child credentials. Sign-in creates no device grant or agent API credential and changes no existing pairing.
+
+A workspace owner can admit an AgentID agent as a named member through a one-time workspace invitation bound to that exact verified Clerk subject. See [agent workspace onboarding](AGENT-ONBOARDING.md) for roles, the all-functions default with opt-out exclusions, the `ol login --agentid` browser-backed exchange, and revocation.
 
 Disable the AgentID connection in Clerk to stop new AgentID sign-ins. Existing Clerk sessions and issued openlaunch credentials have their own lifetimes and revocation controls; disabling the upstream provider alone is not full access revocation.
 

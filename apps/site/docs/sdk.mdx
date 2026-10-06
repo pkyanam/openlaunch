@@ -3,7 +3,7 @@ title: Device and agent SDK
 description: Pair devices with short-lived setup tokens, connect agents separately, approve each device function and follow correlated action results.
 ---
 
-The openlaunch SDK has separate credentials for device setup and agent access. A short-lived `ol_sdk_` token pairs a device; it cannot call agent or MCP APIs. An `ol_agent_` API connection authenticates an agent; it cannot pair devices. Pairing does not grant an agent permission to use device functions; the owner approves those separately.
+The openlaunch SDK has separate credentials for device setup and agent access. A short-lived `ol_sdk_` token pairs a device; it cannot call agent or MCP APIs. An `ol_agent_` API connection authenticates an agent; it cannot pair devices. The setup token cannot operate anything, but a newly paired device becomes available to agents with an all-functions access policy; connections in selected-functions mode need the owner's per-device approval.
 
 ## Create an agent API connection
 
@@ -47,7 +47,7 @@ while (["queued", "received"].includes(result.status)) {
 console.log(result.status, result.result);
 ```
 
-Choose action access for this example; a read-only agent connection can list devices and inspect actions but cannot request them. Device grants still decide which functions the agent can use. A queued action is not a completed action; check the final result. See [Connect an agent](/agents) for MCP clients and other connection options.
+Choose action access for this example; a read-only agent connection can list devices and inspect actions but cannot request them. Access policies decide which functions the agent can use; selected-function policies also require device grants. A queued action is not a completed action; check the final result. See [Connect an agent](/agents) for MCP clients and other connection options.
 
 Use `cancelAction(id)` before a device receives an action. `broadcast({ deviceIds, capability, arguments, idempotencyKey })` requests the same function from several devices and returns a result per device. Retry a request with the same idempotency key only when its arguments are identical. Agents written in other languages can use the same HTTP endpoints with `Authorization: Bearer <agent API credential>`; see the [API reference](/api).
 

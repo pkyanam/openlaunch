@@ -15,9 +15,9 @@ description: Sign in to your openlaunch console, pair a device and choose the fu
 
    Choose the adapter. You need curl and Python 3; Node adapters also need Node 24+. USB setup configures already-flashed firmware. The helper checks downloads against the current manifest.
 
-4. [Connect your agent](/agents). When the device appears, open **Access**, choose that connection and its functions, set an expiry, and **Save grant**. ChatGPT through Executor needs an Executor grant; the direct ChatGPT grant belongs to a different connection.
+4. [Connect your agent](/agents). When the device appears, open **Access**. A connection or member with the default all-functions policy can already call this device's functions; for a selected-functions connection, choose it and its functions, set an expiry, and **Save grant**. ChatGPT through Executor needs an Executor grant; the direct ChatGPT grant belongs to a different connection.
 
-The device setup token only pairs hardware; it cannot authenticate an agent or call MCP tools. Create a separate `ol_agent_` API connection for SDK agents, or connect ChatGPT and Codex through MCP OAuth. In either case, an owner must approve each device's functions. A grant can expire or remain active until revoked. Inspect the action receipt for the result. To add hardware behavior, see [Build your own functions](/functions).
+The device setup token only pairs hardware; it cannot authenticate an agent or call MCP tools. Create a separate `ol_agent_` API connection for SDK agents, or connect ChatGPT and Codex through MCP OAuth. New connections use all-functions policies, with exclusions under **Connections → Agents**. Selected-function connections retain their saved grants and expiries. Inspect the action receipt for the result. To add hardware behavior, see [Build your own functions](/functions).
 
 ## Run a local developer console
 
@@ -46,9 +46,9 @@ For a real board, the bridge needs a trusted HTTPS address the board can reach. 
 
 ## Connect your agent
 
-Follow [agent connections](/agents). Grant that connection **health** for your device in **Access**, then ask it to check the board's health and inspect the result. Add LED or matrix access when you want the Uno to use those functions.
+Follow [agent connections](/agents), then ask the agent to check the board's health and inspect the result. If the connection uses selected-functions access, grant **health** in the device's **Access** view first. All-functions connections can already use health and any other advertised function unless excluded.
 
-A grant names the agent connection, device, allowed functions, and optional expiry. Pairing alone does not give an agent permission.
+A grant names the agent connection, device, allowed functions, and optional expiry. The setup token cannot operate anything; selected-functions connections need an owner grant, while all-functions policies — the default for new connections and invited agent members — cover newly attached devices automatically unless excluded.
 
 ## Work on the source
 

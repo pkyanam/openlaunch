@@ -26,19 +26,37 @@ ol --help
 
 ## Connect an agent
 
-In **Connections → API**, create an agent API credential with the needed read/action access. In **Devices → your device → Access**, grant that connection the functions you want it to use. Then run:
+`ol login --agentid` signs in through AgentID in your browser: the CLI opens the console sign-in page, AgentID verifies the agent's identity, and a one-time code returns to a local loopback callback for a PKCE exchange. The PKCE verifier and the bearer credential never appear in URLs or logs; the code is delivered only to that exact local callback. The saved credential is identity-bound, expires after 24 hours, and is stored in `~/.config/openlaunch/agent.json` with private file permissions. It carries an all-functions policy pointing at your live membership, so owner-set exclusions, role changes and revocation apply immediately.
+
+To operate in a specific workspace, run `ol login --agentid --workspace WORKSPACE_ID` (get the ID from `workspace_list` over MCP, the workspaces API, or the console). Joining a workspace does not auto-select it. `--no-open` prints the sign-in URL instead of launching a browser, which suits remote or headless terminals where you can open the URL elsewhere.
+
+Alternatively, `ol login` prompts for a pasted `ol_agent_` credential from **Connections → API**. Login verifies it through read-only function discovery and saves it in the same private file. It creates no tokens or grants. Device setup tokens and owner sessions cannot log in to `ol`. Keep this private file out of source control, shared folders and agent prompts.
+
+For a custom service origin, use `ol login --url https://your-service.example` (combine it with `--agentid` as needed). `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login; `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides. OAuth-aware MCP hosts continue to manage their own OAuth connection.
+
+An empty list means this connection currently has no visible granted functions. Being online does not give an agent access to a selected-functions connection. ChatGPT through Executor uses **Executor's** OAuth grant; the CLI uses its own credential.
+
+## Workspace and management commands
+
+With an AgentID login (`ol login --agentid`), `ol` also exposes the compact management surface. Without it, these commands explain what is missing:
 
 ```sh
-ol login
-ol devices list
-ol functions list
+ol status                        # Current login, workspace, role and access
+ol workspace list                # Workspaces this identity belongs to
+ol workspace join                # Accept a one-time invitation (hidden prompt)
+ol agents list                   # List workspace agent members
+ol agents invite NAME [--role operator|administrator] [--ttl SECONDS]
+ol agents revoke AGENT_ID
+ol access                        # This connection's effective access policy
+ol access policies               # List workspace access policies
+ol access set POLICY_JSON        # Replace one principal's policy (mode, exclusions, role, expiry)
+ol onboarding                    # Setup readiness and next steps
+ol setup token [NAME] [--ttl SECONDS]
+ol connections list | create NAME [--ttl SECONDS] [--access read|act] | revoke CONNECTION_ID
+ol devices revoke DEVICE_ID
 ```
 
-Paste the `ol_agent_` credential into the hidden prompt. Login verifies it through read-only function discovery and saves it in `~/.config/openlaunch/agent.json` with private file permissions. It creates no tokens or grants. Device setup tokens and owner sessions cannot log in to `ol`. Keep this private file out of source control, shared folders and agent prompts.
-
-For a custom service origin, use `ol login --url https://your-service.example`. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login; `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides. OAuth-aware MCP hosts continue to manage their own OAuth connection.
-
-An empty list means this connection currently has no visible granted functions. Being online does not give an agent access. ChatGPT through Executor uses **Executor's** OAuth grant; the CLI uses its own API connection.
+`ol workspace join` requires an AgentID login and prompts privately for the `ol_inv_` invitation code (or reads `OPENLAUNCH_INVITATION_CODE` from the environment); after joining, run `ol login --agentid --workspace WORKSPACE_ID` to target the new workspace. Management commands require the owner or a delegated administrator; only the owner can grant the administrator role. Secrets are prompted for or read from environment variables — never passed as visible arguments in normal use, and never written to logs.
 
 ## Invoke and follow a result
 

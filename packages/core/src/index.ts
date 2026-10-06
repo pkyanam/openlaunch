@@ -170,6 +170,16 @@ export interface Action extends ActionEnvelope {
   fingerprint: string;
   principalId: string;
   ownerAuthorized: boolean;
+  /**
+   * Policy principal that authorized this action when queued; dispatch
+   * re-checks the live chain for that policy before delivering.
+   */
+  accessPolicy?: string;
+  /**
+   * Constraint principals (e.g. the original OAuth client of a linked
+   * membership) re-checked against their live policies at dispatch time.
+   */
+  accessConstraints?: string[];
 }
 interface Enrollment {
   hash: string;
@@ -183,6 +193,47 @@ interface Grant {
   capabilities: Capability[];
   expiresAt: number | null;
 }
+export interface AccessPolicyFunctionExclusion {
+  /** `null` matches the capability on every device. */
+  deviceId: string | null;
+  capability: Capability;
+}
+export interface AccessPolicy {
+  principal: string;
+  mode: "all" | "selected";
+  excludedDevices: string[];
+  excludedFunctions: AccessPolicyFunctionExclusion[];
+  role: "operator" | "administrator";
+  /**
+   * Parent policy principal. A child policy is always intersected with the
+   * live parent chain, so delegated credentials can never escape parent
+   * exclusions, expiry or role changes.
+   */
+  delegatedFrom?: string;
+  expiresAt: number | null;
+}
+export const accessPolicySchema = z
+  .object({
+    principal: z.string().min(1).max(128).regex(/^\S+$/),
+    mode: z.enum(["all", "selected"]),
+    excludedDevices: z.array(z.string().min(1).max(128)).max(1000),
+    excludedFunctions: z
+      .array(
+        z
+          .object({
+            deviceId: z.string().min(1).max(128).nullable(),
+            capability: capabilityName,
+          })
+          .strict(),
+      )
+      .max(1000),
+    role: z.enum(["operator", "administrator"]),
+    delegatedFrom: z.string().min(1).max(128).regex(/^\S+$/).optional(),
+    expiresAt: z.number().int().nullable(),
+  })
+  .strict();
+/** Bounded delegation depth; deeper or cyclic chains fail closed. */
+const POLICY_CHAIN_LIMIT = 8;
 
 function grantIsActive(grant: Grant, now: number) {
   return grant.expiresAt === null || grant.expiresAt > now;
@@ -228,12 +279,34 @@ export interface State {
   grants: Grant[];
   agentConnections?: AgentConnection[];
   attachAttempts?: AttachAttempt[];
+  accessPolicies?: AccessPolicy[];
+  /**
+   * Workspace-wide default for agent access without an explicit policy.
+   * "all" for genuinely new workspaces, "selected" for pre-upgrade ones;
+   * persisted so the default survives reconstruction.
+   */
+  agentAccessDefault?: "all" | "selected";
   audit: { at: number; event: string; target: string; principal: string }[];
 }
 export interface Principal {
   id: string;
   owner: boolean;
   readOnly?: boolean;
+  /**
+   * Live delegated-administrator flag. Recomputed from persisted policies by
+   * applyAccessPolicy for the current request only; stale flags never
+   * escalate because every owner-level check re-verifies the live chain.
+   */
+  administrator?: boolean;
+  /** Verified identity behind the session; set only by the trusted auth layer. */
+  identityId?: string;
+  /**
+   * Constraint principals evaluated alongside this principal's own access
+   * (e.g. the original OAuth client principal of a linked membership).
+   * Set only by the trusted admission layer; never derived from
+   * self-reported HTTP/MCP metadata.
+   */
+  accessConstraints?: string[];
   connectionPurpose?: "agent" | "device-setup" | "legacy";
   // Set only after issuer, token audience and OAuth scope verification.
   oauthClient?: boolean;
@@ -259,6 +332,8 @@ export function emptyState(): State {
     grants: [],
     agentConnections: [],
     attachAttempts: [],
+    accessPolicies: [],
+    agentAccessDefault: "all",
     audit: [],
   };
 }
@@ -293,6 +368,17 @@ export class Hub {
     state.agentConnections ??= [];
     state.attachAttempts ??= [];
     state.retiredActionKeys ??= [];
+    state.accessPolicies ??= [];
+    if (state.agentAccessDefault === undefined) {
+      // Pre-upgrade workspaces keep the legacy grants-only default; only
+      // genuinely new workspaces (emptyState) default to all access.
+      state.agentAccessDefault = "selected";
+    } else if (
+      state.agentAccessDefault !== "all" &&
+      state.agentAccessDefault !== "selected"
+    ) {
+      throw new Error("Invalid workspace agent access default");
+    }
   }
   private capacity(
     changes: Partial<State> = {},
@@ -308,8 +394,249 @@ export class Hub {
     this.state.audit.push({ at: this.now(), event, target, principal });
     this.state.audit = this.state.audit.slice(-1000);
   }
+  private policyLive(policy: AccessPolicy) {
+    return policy.expiresAt === null || policy.expiresAt > this.now();
+  }
+  private storedPolicy(principal: string) {
+    return this.state.accessPolicies?.find(
+      (policy) => policy.principal === principal,
+    );
+  }
+  /**
+   * A chain principal backed by a connection must still be an active
+   * connection. A missing `connection:*` record (pruned after expiry or
+   * revocation) is dead, not alive.
+   */
+  private principalAlive(principal: string) {
+    const connection = this.state.agentConnections?.find(
+      (c) => c.principal === principal,
+    );
+    if (principal.startsWith("connection:"))
+      return !!connection && connectionIsActive(connection, this.now());
+    return !connection || connectionIsActive(connection, this.now());
+  }
+  /**
+   * Walk the delegation chain from a starting policy to its root. The
+   * starting policy must be live too; every link must reference a live
+   * policy of an alive principal. Expired policies, revoked or pruned
+   * connections, missing parents, cycles and over-deep chains fail closed.
+   */
+  private resolveFrom(
+    start: AccessPolicy,
+  ): { kind: "denied" } | { kind: "chain"; chain: AccessPolicy[] } {
+    const chain: AccessPolicy[] = [];
+    const visited = new Set<string>();
+    let current: AccessPolicy | undefined = start;
+    while (current) {
+      if (
+        !this.policyLive(current) ||
+        !this.principalAlive(current.principal) ||
+        visited.has(current.principal) ||
+        chain.length >= POLICY_CHAIN_LIMIT
+      )
+        return { kind: "denied" };
+      visited.add(current.principal);
+      chain.push(current);
+      if (!current.delegatedFrom) break;
+      // A declared parent that has no stored policy fails closed.
+      current = this.storedPolicy(current.delegatedFrom);
+      if (!current) return { kind: "denied" };
+    }
+    return { kind: "chain", chain };
+  }
+  /**
+   * Resolve a principal's own access source. Principals without any stored
+   * policy record keep legacy grant behavior; the presence of an expired
+   * explicit policy denies instead of falling back to old grants.
+   */
+  private resolveOwn(
+    principal: string,
+    identityId?: string,
+  ):
+    | { kind: "legacy" }
+    | { kind: "denied" }
+    | { kind: "chain"; chain: AccessPolicy[] } {
+    const start =
+      this.storedPolicy(principal) ??
+      (identityId ? this.storedPolicy(identityId) : undefined);
+    if (!start) return { kind: "legacy" };
+    return this.resolveFrom(start);
+  }
+  /**
+   * Every chain level must allow: exclusions from any level deny, and a
+   * "selected" level requires an active grant for that level's own principal.
+   */
+  private chainAllows(
+    chain: AccessPolicy[],
+    deviceId: string,
+    capability: string,
+  ) {
+    for (const policy of chain) {
+      if (policy.excludedDevices.includes(deviceId)) return false;
+      if (
+        policy.excludedFunctions.some(
+          (f) =>
+            (f.deviceId === null || f.deviceId === deviceId) &&
+            f.capability === capability,
+        )
+      )
+        return false;
+      if (
+        policy.mode === "selected" &&
+        !this.grantAllows(policy.principal, deviceId, capability)
+      )
+        return false;
+    }
+    return true;
+  }
+  private grantAllows(
+    principal: string,
+    deviceId: string,
+    capability: string,
+  ) {
+    return this.state.grants.some(
+      (g) =>
+        g.principal === principal &&
+        g.deviceId === deviceId &&
+        g.capabilities.includes(capability) &&
+        grantIsActive(g, this.now()),
+    );
+  }
+  /**
+   * Own access (policy chain or legacy grants) intersected with every
+   * constraint principal that has an explicit live policy. Constraint
+   * principals without policies stay admission/scope enforcement only, so a
+   * legacy client without grants never blocks a member's all-mode policy.
+   */
+  private principalAllowed(
+    p: Principal,
+    deviceId: string,
+    capability: string,
+  ) {
+    if (p.owner) return true;
+    const resolved = this.resolveOwn(p.id, p.identityId);
+    if (resolved.kind === "denied") return false;
+    if (
+      resolved.kind === "legacy"
+        ? !this.grantAllows(p.id, deviceId, capability)
+        : !this.chainAllows(resolved.chain, deviceId, capability)
+    )
+      return false;
+    for (const constraint of p.accessConstraints ?? []) {
+      const constraintResolved = this.resolveOwn(constraint);
+      if (constraintResolved.kind === "denied") return false;
+      if (
+        constraintResolved.kind === "chain" &&
+        !this.chainAllows(constraintResolved.chain, deviceId, capability)
+      )
+        return false;
+    }
+    return true;
+  }
+  /** Dispatch-side re-check for a queued action, including stamped constraints. */
+  private actionAllowed(a: Action) {
+    if (a.ownerAuthorized) return true;
+    const stamped = a.accessPolicy
+      ? this.storedPolicy(a.accessPolicy)
+      : undefined;
+    // A stamped policy that no longer exists denies; never fall back to legacy.
+    if (a.accessPolicy && !stamped) return false;
+    const start = stamped ?? this.storedPolicy(a.principalId);
+    const resolved = start
+      ? this.resolveFrom(start)
+      : ({ kind: "legacy" } as const);
+    if (resolved.kind === "denied") return false;
+    if (
+      resolved.kind === "legacy"
+        ? !this.grantAllows(a.principalId, a.deviceId, a.capability)
+        : !this.chainAllows(resolved.chain, a.deviceId, a.capability)
+    )
+      return false;
+    for (const constraint of a.accessConstraints ?? []) {
+      const constraintResolved = this.resolveOwn(constraint);
+      if (constraintResolved.kind === "denied") return false;
+      if (
+        constraintResolved.kind === "chain" &&
+        !this.chainAllows(constraintResolved.chain, a.deviceId, a.capability)
+      )
+        return false;
+    }
+    return true;
+  }
+  /** Administrator role, capped by every delegation ancestor and constraint. */
+  private effectiveAdministrator(p: Principal) {
+    const resolved = this.resolveOwn(p.id, p.identityId);
+    if (
+      resolved.kind !== "chain" ||
+      resolved.chain.some((policy) => policy.role !== "administrator")
+    )
+      return false;
+    for (const constraint of p.accessConstraints ?? []) {
+      const constraintResolved = this.resolveOwn(constraint);
+      // Constraints without any explicit policy stay admission/scope only.
+      if (constraintResolved.kind === "legacy") continue;
+      if (
+        constraintResolved.kind === "denied" ||
+        constraintResolved.chain.some(
+          (policy) => policy.role !== "administrator",
+        )
+      )
+        return false;
+    }
+    return true;
+  }
+  /** Principals an administrator must never edit: itself and its ancestors. */
+  private callerAncestry(p: Principal) {
+    const principals = new Set<string>();
+    principals.add(p.id);
+    if (p.identityId) principals.add(p.identityId);
+    const resolved = this.resolveOwn(p.id, p.identityId);
+    if (resolved.kind === "chain")
+      for (const policy of resolved.chain) principals.add(policy.principal);
+    return principals;
+  }
+  /** Existing administrator-role policies are owner-managed only. */
+  private administratorProtected(principal: string) {
+    return this.storedPolicy(principal)?.role === "administrator";
+  }
+  /**
+   * Validate a prospective policy set: every parent-chain dependency of the
+   * delegated policy must exist, be live, be alive, acyclic and within the
+   * bounded depth. The prospective array includes the policy being written so
+   * cycles created by the write itself are rejected.
+   */
+  private validateDelegationChain(
+    policies: AccessPolicy[],
+    delegatedFrom: string,
+  ) {
+    z.string().min(1).max(128).regex(/^\S+$/).parse(delegatedFrom);
+    let current = policies.find((p) => p.principal === delegatedFrom);
+    if (
+      !current ||
+      !this.policyLive(current) ||
+      !this.principalAlive(current.principal)
+    )
+      throw new Fault(
+        "invalid",
+        400,
+        "Delegation parent must have a live policy",
+      );
+    const seen = new Set<string>();
+    while (current) {
+      if (seen.has(current.principal) || seen.size >= POLICY_CHAIN_LIMIT)
+        throw new Fault("invalid", 400, "Invalid policy delegation chain");
+      seen.add(current.principal);
+      if (!current.delegatedFrom) break;
+      current = policies.find((p) => p.principal === current!.delegatedFrom);
+      if (!current)
+        throw new Fault("invalid", 400, "Invalid policy delegation chain");
+    }
+  }
   private owner(p: Principal) {
-    if (!p.owner) throw new Fault("forbidden", 403, "Owner session required");
+    if (p.owner) return;
+    if (p.administrator && !p.readOnly && this.effectiveAdministrator(p))
+      return;
+    throw new Fault("forbidden", 403, "Owner session required");
   }
   private device(id: string) {
     const d = this.state.devices.find((d) => d.id === id);
@@ -326,15 +653,7 @@ export class Hub {
         403,
         "Device setup tokens cannot access functions",
       );
-    if (
-      !this.state.grants.some(
-        (g) =>
-          g.principal === p.id &&
-          g.deviceId === d &&
-          g.capabilities.includes(c) &&
-          grantIsActive(g, this.now()),
-      )
-    )
+    if (!this.principalAllowed(p, d, c))
       throw new Fault("forbidden", 403, "Capability grant required");
   }
   private expire() {
@@ -371,14 +690,7 @@ export class Hub {
           .filter(
             (definition) =>
               !(p.readOnly && definition.access === "write") &&
-              (p.owner ||
-                this.state.grants.some(
-                  (grant) =>
-                    grant.principal === p.id &&
-                    grant.deviceId === device.id &&
-                    grant.capabilities.includes(definition.name) &&
-                    grantIsActive(grant, this.now()),
-                )),
+              this.principalAllowed(p, device.id, definition.name),
           )
           .map((definition) => ({
             deviceId: device.id,
@@ -452,6 +764,249 @@ export class Hub {
           ),
       )
       .map((grant) => ({ ...grant, capabilities: [...grant.capabilities] }));
+  }
+  private copyPolicy(policy: AccessPolicy): AccessPolicy {
+    return {
+      ...policy,
+      excludedDevices: [...policy.excludedDevices],
+      excludedFunctions: policy.excludedFunctions.map((f) => ({ ...f })),
+    };
+  }
+  /** Stored access policies, including expired ones (they deny while present). */
+  accessPolicies(p: Principal) {
+    this.owner(p);
+    return (this.state.accessPolicies ?? []).map((policy) =>
+      this.copyPolicy(policy),
+    );
+  }
+  /**
+   * Recompute the administrator flag for the current request from the live
+   * persisted policy. Stale principal flags are stripped; a flag is only
+   * granted when the whole delegation chain and every evaluated constraint
+   * still carries the administrator role.
+   */
+  applyAccessPolicy(p: Principal): Principal {
+    if (p.owner) return p;
+    const administrator = !p.readOnly && this.effectiveAdministrator(p);
+    return p.administrator === administrator ? p : { ...p, administrator };
+  }
+  /** Upsert one principal's access policy. Owner or delegated administrator. */
+  setAccessPolicy(p: Principal, policy: unknown): AccessPolicy {
+    this.owner(p);
+    const parsed = accessPolicySchema.parse(policy);
+    if (parsed.delegatedFrom === parsed.principal)
+      throw new Fault("invalid", 400, "Policy cannot delegate from itself");
+    const normalized: AccessPolicy = {
+      principal: parsed.principal,
+      mode: parsed.mode,
+      excludedDevices: [...new Set(parsed.excludedDevices)],
+      excludedFunctions: [
+        ...new Map(
+          parsed.excludedFunctions.map((f) => [
+            JSON.stringify([f.deviceId, f.capability]),
+            { ...f },
+          ]),
+        ).values(),
+      ],
+      role: parsed.role,
+      ...(parsed.delegatedFrom
+        ? { delegatedFrom: parsed.delegatedFrom }
+        : {}),
+      expiresAt: parsed.expiresAt,
+    };
+    if (!p.owner) {
+      if (this.callerAncestry(p).has(normalized.principal))
+        throw new Fault(
+          "forbidden",
+          403,
+          "Administrators cannot change their own or ancestor access policies",
+        );
+      if (normalized.role === "administrator")
+        throw new Fault(
+          "forbidden",
+          403,
+          "Only the owner can grant the administrator role",
+        );
+      // Administrators manage operator policies only: an existing
+      // administrator-role record (including demotion) is owner-only, so a
+      // delegated admin can never demote or rewrite a peer administrator.
+      const existing = this.storedPolicy(normalized.principal);
+      if (existing?.role === "administrator")
+        throw new Fault(
+          "forbidden",
+          403,
+          "Only the owner can manage administrator access policies",
+        );
+      if (
+        (normalized.delegatedFrom ?? undefined) !==
+        (existing?.delegatedFrom ?? undefined)
+      )
+        throw new Fault(
+          "forbidden",
+          403,
+          "Only the owner can change policy delegation",
+        );
+    }
+    const policies = (this.state.accessPolicies ?? []).filter(
+      (policy) => policy.principal !== normalized.principal,
+    );
+    policies.push(normalized);
+    if (p.owner && normalized.delegatedFrom)
+      this.validateDelegationChain(policies, normalized.delegatedFrom);
+    this.capacity({ accessPolicies: policies });
+    this.state.accessPolicies = policies;
+    // Newly excluded access must not keep delivering queued work.
+    for (const action of this.state.actions) {
+      if (action.status !== "queued") continue;
+      if (
+        action.principalId !== normalized.principal &&
+        action.accessPolicy !== normalized.principal &&
+        !(action.accessConstraints ?? []).includes(normalized.principal)
+      )
+        continue;
+      if (!this.actionAllowed(action)) action.status = "cancelled";
+    }
+    this.audit("access_policy.updated", normalized.principal, p.id);
+    return this.copyPolicy(normalized);
+  }
+  /** Describe the effective access of this principal right now. */
+  effectiveAccess(p: Principal) {
+    const constraints = [...(p.accessConstraints ?? [])];
+    if (p.owner)
+      return {
+        principal: p.id,
+        source: "owner" as const,
+        role: null,
+        mode: null,
+        delegatedFrom: null,
+        expiresAt: null,
+        excludedDevices: [] as string[],
+        excludedFunctions: [] as AccessPolicyFunctionExclusion[],
+        readOnly: !!p.readOnly,
+        constraints,
+        evaluatedConstraints: [] as string[],
+        deviceIds: this.state.devices
+          .filter((d) => !d.revoked)
+          .map((d) => d.id),
+      };
+    const resolved = this.resolveOwn(p.id, p.identityId);
+    const constraintsListed = [...(p.accessConstraints ?? [])];
+    if (resolved.kind === "legacy" && !constraintsListed.length)
+      return {
+        principal: p.id,
+        source: "legacy-grants" as const,
+        role: null,
+        mode: null,
+        delegatedFrom: null,
+        expiresAt: null,
+        excludedDevices: [] as string[],
+        excludedFunctions: [] as AccessPolicyFunctionExclusion[],
+        readOnly: !!p.readOnly,
+        constraints: constraintsListed,
+        evaluatedConstraints: [] as string[],
+        deviceIds: this.state.devices
+          .filter(
+            (d) =>
+              !d.revoked &&
+              this.state.grants.some(
+                (g) =>
+                  g.principal === p.id &&
+                  g.deviceId === d.id &&
+                  grantIsActive(g, this.now()),
+              ),
+          )
+          .map((d) => d.id),
+      };
+    // Summarize the exact intersection the dispatcher enforces: the own chain
+    // (when present) plus every constraint chain that has an explicit policy.
+    const chains: AccessPolicy[] = resolved.kind === "chain" ? [...resolved.chain] : [];
+    let denied = resolved.kind === "denied";
+    if (denied) {
+      const ownStart = this.storedPolicy(p.id) ?? this.storedPolicy(p.identityId!);
+      if (ownStart) chains.push(ownStart);
+    }
+    const evaluatedConstraints: string[] = [];
+    for (const constraint of constraintsListed) {
+      const constraintResolved = this.resolveOwn(constraint);
+      if (constraintResolved.kind === "legacy") continue;
+      evaluatedConstraints.push(constraint);
+      if (constraintResolved.kind === "denied") {
+        denied = true;
+        chains.push(this.storedPolicy(constraint)!);
+      } else chains.push(...constraintResolved.chain);
+    }
+    const excludedDevices = [
+      ...new Set(chains.flatMap((policy) => policy.excludedDevices)),
+    ];
+    const excludedFunctions = chains.flatMap((policy) =>
+      policy.excludedFunctions.map((f) => ({ ...f })),
+    );
+    const selectedLevels = chains.filter((policy) => policy.mode === "selected");
+    const expirations = chains
+      .map((policy) => policy.expiresAt)
+      .filter((expiresAt): expiresAt is number => expiresAt !== null);
+    const baseDevices = () =>
+      resolved.kind === "legacy"
+        ? this.state.devices.filter(
+            (d) =>
+              !d.revoked &&
+              this.state.grants.some(
+                (g) =>
+                  g.principal === p.id &&
+                  g.deviceId === d.id &&
+                  grantIsActive(g, this.now()),
+              ),
+          )
+        : this.state.devices.filter((d) => !d.revoked);
+    return {
+      principal: p.id,
+      source:
+        resolved.kind === "chain"
+          ? ("policy" as const)
+          : ("legacy-grants" as const),
+      role:
+        denied || resolved.kind !== "chain"
+          ? null
+          : this.effectiveAdministrator(p)
+            ? ("administrator" as const)
+            : ("operator" as const),
+      mode: selectedLevels.length
+        ? ("selected" as const)
+        : resolved.kind === "chain"
+          ? ("all" as const)
+          : null,
+      delegatedFrom:
+        resolved.kind === "chain"
+          ? (resolved.chain[0]!.delegatedFrom ?? null)
+          : null,
+      expiresAt: expirations.length ? Math.min(...expirations) : null,
+      excludedDevices,
+      excludedFunctions,
+      readOnly: !!p.readOnly,
+      constraints: constraintsListed,
+      evaluatedConstraints,
+      // A device is reachable only when at least one of its capabilities
+      // survives every exclusion and selected-level grant requirement, so the
+      // summary matches what list/request actually enforce.
+      deviceIds: denied
+        ? []
+        : baseDevices()
+            .filter((d) =>
+              d.capabilities.some(
+                (capability) =>
+                  !excludedDevices.includes(d.id) &&
+                  !excludedFunctions.some(
+                    (f) =>
+                      (f.deviceId === null || f.deviceId === d.id) &&
+                      f.capability === capability,
+                  ) &&
+                  selectedLevels.every((policy) =>
+                    this.grantAllows(policy.principal, d.id, capability),
+                  ),
+              ),
+            )
+            .map((d) => d.id),
+    };
   }
   async enrollment(p: Principal, kind: Manifest["kind"]) {
     this.owner(p);
@@ -594,8 +1149,16 @@ export class Hub {
     p: Principal,
     config: import("./oauth-clients.ts").OAuthClientConfig,
     metadata: import("./oauth-clients.ts").OAuthClientMetadata,
+    delegatedFrom?: string,
   ) {
     this.checkOAuthClientCapacity(p);
+    // Newly registered OAuth connections default to all devices and functions
+    // in the same commit. Pre-upgrade registrations and admitted built-in
+    // clients keep their legacy grant-only behavior until the owner sets an
+    // explicit policy.
+    const delegation = p.owner ? delegatedFrom : p.id;
+    if (delegation)
+      this.validateDelegationChain(this.state.accessPolicies ?? [], delegation);
     if (
       !metadata.clientId ||
       metadata.clientId.length > 128 ||
@@ -624,10 +1187,27 @@ export class Hub {
         public: config.public,
       },
     };
+    const accessPolicy: AccessPolicy = {
+      principal: connection.principal,
+      mode: "all",
+      excludedDevices: [],
+      excludedFunctions: [],
+      role: "operator",
+      ...(delegation ? { delegatedFrom: delegation } : {}),
+      expiresAt: null,
+    };
     this.capacity({
       agentConnections: [...this.state.agentConnections!, connection],
+      accessPolicies: [
+        ...(this.state.accessPolicies ?? []).filter(
+          (policy) => policy.principal !== connection.principal,
+        ),
+        accessPolicy,
+      ],
     });
     this.state.agentConnections!.push(connection);
+    this.state.accessPolicies ??= [];
+    this.state.accessPolicies.push(accessPolicy);
     this.audit("oauth.client_registered", connection.id, p.id);
     const { tokenHash, ...safe } = connection;
     return safe;
@@ -652,6 +1232,29 @@ export class Hub {
         401,
         "OAuth client is not registered in this workspace",
       );
+    // Genuinely new workspaces default built-in OAuth clients to every device
+    // and function so direct MCP works after first device setup. Any stored
+    // policy record — including an expired or restricting one — is preserved
+    // untouched, and pre-upgrade workspaces keep legacy grants only.
+    if (
+      this.state.agentAccessDefault === "all" &&
+      !this.storedPolicy(p.id)
+    ) {
+      const policies = [
+        ...(this.state.accessPolicies ?? []),
+        {
+          principal: p.id,
+          mode: "all",
+          excludedDevices: [],
+          excludedFunctions: [],
+          role: "operator",
+          expiresAt: null,
+        } satisfies AccessPolicy,
+      ];
+      this.capacity({ accessPolicies: policies });
+      this.state.accessPolicies = policies;
+      this.audit("access_policy.default_installed", p.id, p.id);
+    }
     return { ...p, owner: false };
   }
   deviceSetupTokens(p: Principal) {
@@ -686,8 +1289,15 @@ export class Hub {
       deviceLimit: 0,
     },
     purpose?: "agent" | "device-setup",
+    delegatedFrom?: string,
   ) {
     this.owner(p);
+    // Credentials minted by delegated administrators always delegate from the
+    // minting principal so they inherit its live ceilings; only the owner may
+    // choose an explicit parent for a new root credential.
+    const delegation = p.owner ? delegatedFrom : p.id;
+    if (delegation)
+      this.validateDelegationChain(this.state.accessPolicies ?? [], delegation);
     if (
       !/^[a-f0-9]{64}$/.test(workspace) ||
       !name.trim() ||
@@ -730,10 +1340,37 @@ export class Hub {
       ...(purpose ? { purpose } : {}),
       ...attachment,
     };
+    // New agent API connections default to every device and function as an
+    // operator, in the same capacity check and commit as the connection.
+    // Device-setup tokens stay attach-only and legacy-purpose (unspecified)
+    // connections keep the pre-upgrade grants-only behavior.
+    const accessPolicy: AccessPolicy | undefined =
+      purpose === "agent"
+        ? {
+            principal: connection.principal,
+            mode: "all",
+            excludedDevices: [],
+            excludedFunctions: [],
+            role: "operator",
+            ...(delegation ? { delegatedFrom: delegation } : {}),
+            expiresAt: connection.expiresAt,
+          }
+        : undefined;
     this.capacity({
       agentConnections: [...this.state.agentConnections, connection],
+      ...(accessPolicy
+        ? {
+            accessPolicies: [
+              ...(this.state.accessPolicies ?? []).filter(
+                (policy) => policy.principal !== connection.principal,
+              ),
+              accessPolicy,
+            ],
+          }
+        : {}),
     });
     this.state.agentConnections.push(connection);
+    if (accessPolicy) (this.state.accessPolicies ??= []).push(accessPolicy);
     this.audit("connection.created", id, p.id);
     const { tokenHash, ...safe } = connection;
     return { ...safe, token };
@@ -940,14 +1577,22 @@ export class Hub {
     const connection = this.state.agentConnections!.find((c) => c.id === id);
     if (!connection)
       throw new Fault("not_found", 404, "Agent connection not found");
+    if (!p.owner && this.administratorProtected(connection.principal))
+      throw new Fault(
+        "forbidden",
+        403,
+        "Only the owner can revoke administrator credentials",
+      );
     connection.revoked = true;
     this.state.grants = this.state.grants.filter(
       (g) => g.principal !== connection.principal,
     );
     for (const action of this.state.actions)
       if (
-        action.principalId === connection.principal &&
-        action.status === "queued"
+        action.status === "queued" &&
+        (action.principalId === connection.principal ||
+          action.accessPolicy === connection.principal ||
+          (action.accessConstraints ?? []).includes(connection.principal))
       )
         action.status = "cancelled";
     this.audit("connection.revoked", id, p.id);
@@ -961,6 +1606,18 @@ export class Hub {
     ttlSeconds: number | null = 3600,
   ) {
     this.owner(p);
+    if (!p.owner && this.callerAncestry(p).has(principal))
+      throw new Fault(
+        "forbidden",
+        403,
+        "Administrators cannot change their own or ancestor access policies",
+      );
+    if (!p.owner && this.administratorProtected(principal))
+      throw new Fault(
+        "forbidden",
+        403,
+        "Only the owner can manage administrator credentials",
+      );
     const d = this.device(id);
     if (
       this.state.agentConnections!.some(
@@ -994,6 +1651,9 @@ export class Hub {
       capabilities,
       expiresAt: ttlSeconds === null ? null : this.now() + ttlSeconds * 1000,
     });
+    // Granting keeps explicit all-mode exclusions unchanged: one capability
+    // grant must never re-admit an owner's device or function opt-outs. The
+    // grant record still matters if the policy later switches to selected.
     this.capacity({ grants });
     this.state.grants = grants;
     this.audit("grant.updated", id, p.id);
@@ -1001,14 +1661,44 @@ export class Hub {
   }
   revokeGrant(p: Principal, principal: string, id: string) {
     this.owner(p);
+    if (!p.owner && this.callerAncestry(p).has(principal))
+      throw new Fault(
+        "forbidden",
+        403,
+        "Administrators cannot change their own or ancestor access policies",
+      );
+    if (!p.owner && this.administratorProtected(principal))
+      throw new Fault(
+        "forbidden",
+        403,
+        "Only the owner can manage administrator credentials",
+      );
     this.state.grants = this.state.grants.filter(
       (g) => g.principal !== principal || g.deviceId !== id,
     );
+    // Revocation stays meaningful for all-mode policies: exclude the device
+    // rather than silently falling back to all-access.
+    const policies = this.state.accessPolicies ?? [];
+    const policy = policies.find(
+      (candidate) =>
+        candidate.principal === principal && this.policyLive(candidate),
+    );
+    if (policy && policy.mode === "all" && !policy.excludedDevices.includes(id)) {
+      const updatedPolicies = policies.map((candidate) =>
+        candidate.principal === principal
+          ? { ...candidate, excludedDevices: [...candidate.excludedDevices, id] }
+          : candidate,
+      );
+      this.capacity({ accessPolicies: updatedPolicies });
+      this.state.accessPolicies = updatedPolicies;
+    }
     for (const a of this.state.actions)
       if (
         a.deviceId === id &&
         a.status === "queued" &&
-        a.principalId === principal
+        (a.principalId === principal ||
+          a.accessPolicy === principal ||
+          (a.accessConstraints ?? []).includes(principal))
       )
         a.status = "cancelled";
     this.audit("grant.revoked", id, p.id);
@@ -1088,7 +1778,8 @@ export class Hub {
             g.principal === principal &&
             g.deviceId === action.deviceId &&
             g.capabilities.includes(action.capability),
-        )
+        ) &&
+        !this.actionAllowed(action)
       )
         action.status = "cancelled";
     this.audit("gateway.grants_updated", id, p.id);
@@ -1225,6 +1916,9 @@ export class Hub {
         : d.gatewayConnected === false || this.now() - d.lastSeen >= 45000
     )
       throw new Fault("offline", 409, "Device offline; no action queued");
+    // Stamp the governing policy and any access constraints so dispatch can
+    // re-check them against live state before delivery.
+    const resolvedOwn = this.resolveOwn(p.id, p.identityId);
     const a: Action = {
       id: crypto.randomUUID(),
       deviceId: id,
@@ -1237,6 +1931,12 @@ export class Hub {
       fingerprint,
       principalId: p.id,
       ownerAuthorized: p.owner,
+      ...(resolvedOwn.kind === "chain"
+        ? { accessPolicy: resolvedOwn.chain[0]!.principal }
+        : {}),
+      ...(p.accessConstraints?.length
+        ? { accessConstraints: [...p.accessConstraints] }
+        : {}),
     };
     // Keep pending and uncertain work. Only settled receipts past their TTL
     // may be pruned; durable keys prevent a historical retry executing again.
@@ -1472,17 +2172,7 @@ export class Hub {
       this.state.agentConnections!.some(
         (c) => c.principal === principal && connectionIsActive(c, this.now()),
       );
-    if (
-      (!connectionValid ||
-        !this.state.grants.some(
-          (g) =>
-            g.principal === principal &&
-            g.deviceId === a.deviceId &&
-            g.capabilities.includes(a.capability) &&
-            grantIsActive(g, this.now()),
-        )) &&
-      !a.ownerAuthorized
-    ) {
+    if (!connectionValid || !this.actionAllowed(a)) {
       a.status = "cancelled";
       d.lastSeen = this.now();
       return null;

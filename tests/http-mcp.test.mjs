@@ -169,7 +169,7 @@ test("REST enrollment, MCP action, authenticated device receipt, revocation", as
   );
   await client.connect(transport);
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 9);
+  assert.equal(listed.tools.length, 27);
   const generatedLed = listed.tools.find((tool) => tool.name.startsWith("device_"));
   assert(generatedLed);
   const denied = await client.callTool({

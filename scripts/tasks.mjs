@@ -93,6 +93,7 @@ else if (command === "linux-e2e") {
   build();
   run("python3", ["tests/setup-launcher.test.py"]);
   npm("test:cloud-storage");
+  npm("test:agent-onboarding");
   firmware();
   run(process.execPath, ["scripts/e2e.mjs"]);
 } else {

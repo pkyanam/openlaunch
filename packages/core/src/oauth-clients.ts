@@ -35,7 +35,8 @@ export const oauthClientConfig = z
         "Duplicate callback URL",
       ),
     public: z.boolean().default(true),
-    access: z.enum(["read", "act"]).default("read"),
+    // Owner-requested full control is the default; explicit "read" is unchanged.
+    access: z.enum(["read", "act"]).default("act"),
   })
   .strict();
 export type OAuthClientConfig = z.infer<typeof oauthClientConfig>;

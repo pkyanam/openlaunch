@@ -99,7 +99,7 @@ test("July 2026 discovery and tools are independently callable without initializ
   );
   const listed = await (await f.request("tools/list")).json();
   conforms("ListToolsResultResponse", listed);
-  assert.equal(listed.result.tools.length, 8);
+  assert.equal(listed.result.tools.length, 26);
   assert.equal(
     listed.result.tools[0].inputSchema.$schema,
     "https://json-schema.org/draft/2020-12/schema",

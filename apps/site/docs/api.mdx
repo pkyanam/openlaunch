@@ -25,11 +25,11 @@ measure queue and processing/delivery delays. Identical result retries preserve
 this timestamp; older receipts can omit it. Activity displays these timings.
 Roomba `executionMs` excludes network result delivery and the autonomous cycle.
 
-The [ol CLI](/cli) follows this flow with `ol login`, `ol functions list`, `ol call` and `ol actions watch`. The [SDK guide](/sdk) shows the equivalent typed client. MCP's stable `list_functions` and `invoke_device_function` use the same catalog and authorization.
+The [ol CLI](/cli) follows this flow with `ol login --agentid` (or a pasted API credential), `ol functions list`, `ol call` and `ol actions watch`. The [SDK guide](/sdk) shows the equivalent typed client. MCP's stable `list_functions` and `invoke_device_function` use the same catalog and authorization.
 
 ## Authentication
 
-Owner management uses an authenticated Clerk console session. Google and AgentID are sign-in providers; email/password sign-in is disabled. A different account has its own workspace, and AgentID identity tokens cannot authenticate to the device API or MCP directly. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant. OAuth uses PKCE.
+Management uses an authenticated owner session or explicitly delegated administrator. Google and AgentID are sign-in providers; email/password sign-in is disabled. A different identity has its own workspace unless invited into another. Raw AgentID tokens cannot authenticate to the device API or MCP. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and a live access policy. `openlaunch:act` permits action requests within that policy. OAuth uses PKCE.
 
 Device setup and agent API access use separate owner-created credentials. A device setup token (`ol_sdk_…`) is short-lived and attach-only; by default it expires after 10 minutes and can attach one device. An agent API connection (`ol_agent_…`) can have read or action access but cannot attach devices. Each attached device gets a private child credential, and function grants remain separate. Existing untyped legacy connections may retain combined behavior; do not create them for new integrations. See the [SDK guide](/sdk).
 
@@ -74,8 +74,40 @@ Device polling and result reports use a private per-device bearer credential. Ne
 | GET    | `/v1/oauth-clients`                   | Owner lists this workspace's OAuth clients and registration availability   |
 | POST   | `/v1/oauth-clients`                   | Owner registers a PKCE/consent OAuth client; optional secret returned once  |
 | POST   | `/v1/oauth-clients/{id}/revoke`       | Owner revokes client access, grants and queued commands                     |
+| GET    | `/v1/workspaces`                      | Verified identity lists home and joined workspaces with roles               |
+| POST   | `/v1/workspaces/accept`               | Verified identity accepts a one-time workspace invitation                    |
+| POST   | `/v1/workspaces/select`               | Selects the workspace; only a browser session persists the identity default  |
+| GET    | `/v1/workspace/agents`                | Administrator or owner lists workspace agent members                        |
+| POST   | `/v1/workspace/invitations`           | Administrator or owner creates a one-time `ol_inv_` invitation               |
+| POST   | `/v1/workspace/agents/{id}/revoke`    | Administrator or owner revokes a member and its bound connections            |
+| POST   | `/v1/cli-login/authorize`             | Verified browser session starts an `ol login --agentid` PKCE exchange        |
+| POST   | `/v1/cli-login/exchange`              | Public exchange of the one-time code and PKCE verifier for a credential      |
+| GET    | `/v1/access`                          | Current principal reads its effective access policy                          |
+| GET    | `/v1/access-policies`                 | Administrator or owner lists workspace access policies                       |
+| POST   | `/v1/access-policies`                 | Administrator or owner sets a member's mode, exclusions and expiry           |
+| GET    | `/v1/onboarding`                      | Owner or administrator reads setup readiness and next steps                 |
 
-OAuth client registration accepts `name`, one to eight exact `redirectUris`, `public` (default `true`), and `access` (`read` by default, or `act`). Callback URLs must use HTTPS or literal loopback HTTP. A new client has no function grants and cannot attach devices. Client secrets are excluded from persisted records, audit entries and subsequent reads. The existing shared 20-connection and workspace-storage limits apply; registration requires a configured hosted provider.
+OAuth client registration accepts `name`, one to eight exact `redirectUris`, `public` (default `true`), and `access` (`act` by default, or `read`). Callback URLs must use HTTPS or literal loopback HTTP. New clients receive all-functions access within their scope ceiling and cannot attach devices. Client secrets are excluded from persisted records, audit entries and subsequent reads. Workspace storage limits apply; registration requires a configured hosted provider.
+
+## Workspace membership and access policies
+
+An owner or delegated administrator admits an agent as a named member with a one-time invitation. `POST /v1/workspace/invitations` accepts a `name` (1–64 characters), an optional `role` (`operator` by default, or `administrator` — owner only), and an optional `ttlSeconds` (60–3600, default 600):
+
+```json
+{
+  "name": "Test agent",
+  "role": "operator",
+  "ttlSeconds": 600
+}
+```
+
+The response returns an `ol_inv_` invitation token once. The signed-in agent accepts it with `POST /v1/workspaces/accept`; the invitation admits exactly one verified Clerk subject, cannot merge accounts by email, and an already-active member cannot use a fresh invitation to reset its role or exclusions (the request returns `409 conflict`). `GET /v1/workspace/agents` lists members with role and revoked status, and `POST /v1/workspace/agents/{id}/revoke` denies a member all functions immediately, revokes any agent connection bound to it and cancels its queued work.
+
+New connections and new members default to an **all-functions** access policy: every current and future workspace device and function, including newly attached devices and Home Assistant discoveries, with the connection's read/action ceiling still enforced on top. Owners opt out by setting exclusions with `POST /v1/access-policies`: a `mode` (`all` or `selected`), `excludedDevices`, `excludedFunctions` (`deviceId` may be `null` to match a capability on every device), `role` and `expiresAt`. Exclusions apply live — newly excluded queued actions are cancelled — and a member or its child credentials cannot lift them. `selected` mode keeps the legacy behavior: per-device grants, which a changed device manifest still revokes. Pre-upgrade connections keep their grant-only behavior until the owner sets an explicit policy.
+
+`GET /v1/access` shows the caller's effective policy: role, mode, exclusions, delegation chain and expiry. `GET /v1/onboarding` reports device setup readiness, connections and next steps to an owner or administrator. Workspace selection (`POST /v1/workspaces/select`) persists the identity-wide default only for a verified browser session; a scoped credential receives the target without changing that default. An API credential remains bound to its original workspace; use `ol login --agentid --workspace WORKSPACE_ID` to mint one for another workspace.
+
+The same management surface is available through hosted MCP tools: `workspace_invite`, `workspace_agents`, `workspace_agent_revoke`, `workspace_list`, `workspace_accept`, `workspace_select`, `policy_list`, `policy_update`, `access_get` and `onboarding_status`. Each call re-checks the live policy; only owners and live delegated administrators can write, and only the owner grants the administrator role.
 
 ## Create a device setup token
 
@@ -101,7 +133,7 @@ Create agent API credentials separately with `POST /v1/agent-connections` and a 
 }
 ```
 
-The response has `purpose: "agent"` and `expiresAt` is `null` for a non-expiring connection. The returned `ol_agent_` credential can authenticate API requests but cannot attach devices. OAuth clients use the hosted OAuth flow instead. Older untyped combined connection records remain supported for compatibility; do not create new combined records.
+The response has `purpose: "agent"` and `expiresAt` is `null` for a non-expiring connection. The returned `ol_agent_` credential can authenticate API requests but cannot attach devices. A newly created connection receives an all-functions access policy (action access to every current and future workspace function, with owner-set exclusions); an explicitly read-only connection stays read-only, and pre-upgrade connections keep their grant-only behavior until the owner sets an explicit policy. OAuth clients use the hosted OAuth flow instead. Older untyped combined connection records remain supported for compatibility; do not create new combined records.
 
 ## List devices and functions
 
@@ -125,7 +157,7 @@ A device setup token sends `POST /v1/sdk/devices` with a function manifest and U
 }
 ```
 
-The response contains `deviceId` and a private child credential `token`. Keep those in the device's protected identity store; do not persist the setup token there. A retry must use the same request ID and identical manifest for 10 minutes to recover the same attachment. After that, inspect the device inventory before starting another request. Attaching does not grant an agent access to device functions.
+The response contains `deviceId` and a private child credential `token`. Keep those in the device's protected identity store; do not persist the setup token there. A retry must use the same request ID and identical manifest for 10 minutes to recover the same attachment. After that, inspect the device inventory before starting another request. All-functions policies cover the new device automatically unless excluded; selected-function connections still need grants.
 
 ## Grant functions
 
@@ -133,7 +165,7 @@ An authenticated owner sends `POST /v1/grants` with `principal`, `deviceId`, `ca
 
 ## Publish device functions
 
-A device authenticates with its own credential and sends `{ "manifest": ... }` to `POST /v1/device/{id}/manifest`. Its kind must match attachment. Publishing an identical manifest keeps grants intact. A changed manifest removes previous device grants, cancels queued actions and marks outstanding received actions uncertain. The owner approves the functions again. Use the SDK's `publishManifest()` or adapter CLI `publish` command rather than copying credentials into commands.
+A device authenticates with its own credential and sends `{ "manifest": ... }` to `POST /v1/device/{id}/manifest`. Its kind must match attachment. Publishing an identical manifest keeps grants intact. A changed manifest removes previous device grants, cancels queued actions and marks outstanding received actions uncertain. Selected-functions connections need updated grants; all-functions policies cover the updated catalog unless excluded. Use the SDK's `publishManifest()` or adapter CLI `publish` command rather than copying credentials into commands.
 
 ## Download activity
 
@@ -188,7 +220,7 @@ The Node adapter can request a one-use ticket with its per-device credential fro
 
 A device can advertise custom functions in its manifest with a name, title, description and input schema. Schemas accept a root object with bounded string, number, integer or boolean fields. Additional root properties and external schema references are rejected. Each manifest supports up to 64 functions for Home Assistant linked devices, 24 for Linux or 16 for other kinds, and each function up to 16 parameters; a custom function cannot replace a built-in capability.
 
-The owner grants each custom function to an agent through the console. Granted functions appear as device-specific MCP tools. The service checks the current grant each time one is called, so a previously discovered tool stops working after its grant is revoked.
+Permitted custom functions appear as device-specific MCP tools. All-functions policies cover them automatically unless excluded. Selected-function connections require device grants. Every invocation and queued dispatch checks the current policy, so an excluded or revoked function stops working immediately.
 
 ## Broadcasts
 

@@ -37,6 +37,7 @@
     "setup": "npm ci && npm run build --workspace @openlaunch/web && node scripts/start-local.mjs",
     "start:local": "node scripts/start-local.mjs",
     "test:cloud-storage": "node scripts/verify-cloud-storage.mjs",
+    "test:agent-onboarding": "node scripts/test-agent-onboarding.mjs",
     "test:home-assistant": "node scripts/test-home-assistant.mjs"
   },
   "devDependencies": {

@@ -5,13 +5,23 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { stderr, stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
-import { createClient, OpenLaunchError, sdkTokenWorkspace } from "./index.js";
+import {
+  createClient,
+  OpenLaunchError,
+  sdkTokenWorkspace,
+  type AccessPolicy,
+} from "./index.js";
 import {
   readAgentConfig,
   removeAgentConfig,
   validateAgentConfig,
   writeAgentConfig,
 } from "./agent-config.js";
+import {
+  browserLogin,
+  validateLoginOrigin,
+  type UrlOpener,
+} from "./agent-login.js";
 import { askSecret } from "./secret.js";
 
 const DEFAULT_URL = "https://www.openlaunch.dev";
@@ -25,7 +35,8 @@ const TERMINAL = new Set([
 const MAX_TTL_SECONDS = 300;
 const MAX_WATCH_SECONDS = 3_600;
 type AgentClient = ReturnType<typeof createClient>;
-type Output = { write(value: string): void };
+type Output = { write(value: string): void; isTTY?: boolean };
+type Input = NodeJS.ReadStream;
 
 class AgentCliCallError extends Error {
   constructor(message: string) {
@@ -37,22 +48,44 @@ class AgentCliCallError extends Error {
 function usage(): string {
   return [
     "Usage:",
-    "  ol login [--url HTTPS_ORIGIN]",
+    "  ol login [--url HTTPS_ORIGIN] [--token TOKEN]",
+    "  ol login --agentid [--url HTTPS_ORIGIN] [--workspace ID] [--no-open]",
     "  ol logout",
     "  ol --version",
+    "  ol status",
+    "  ol onboarding",
     "  ol devices list",
+    "  ol devices revoke DEVICE_ID",
     "  ol functions list [--device DEVICE_ID]",
     "  ol call DEVICE_ID FUNCTION [ARGUMENTS_JSON] [--key KEY] [--ttl SECONDS]",
     "  ol actions get ACTION_ID",
     "  ol actions cancel ACTION_ID",
     "  ol actions watch ACTION_ID [--interval-ms MS] [--timeout-seconds SECONDS]",
+    "  ol access",
+    "  ol access policies",
+    "  ol access set POLICY_JSON",
+    "  ol agents list",
+    "  ol agents invite NAME [--role operator|administrator] [--ttl SECONDS]",
+    "  ol agents revoke AGENT_ID",
+    "  ol workspace list",
+    "  ol workspace join",
+    "  ol setup token [NAME] [--ttl SECONDS]",
+    "  ol connections list",
+    "  ol connections create NAME [--ttl SECONDS] [--access read|act]",
+    "  ol connections revoke CONNECTION_ID",
     "",
     "ol login prompts for an agent API credential and stores it privately on this computer.",
+    "ol login --agentid signs in with AgentID in a browser (PKCE); --no-open prints",
+    "the public sign-in URL only. Plain ol login stays manual; use ol login --agentid",
+    "for workspace switching and identity-backed management commands.",
     "OPENLAUNCH_AGENT_TOKEN overrides saved login; OPENLAUNCH_URL and OPENLAUNCH_WORKSPACE are optional.",
   ].join("\n");
 }
 
-function parseOptions(values: string[]): {
+function parseOptions(
+  values: string[],
+  booleanFlags: Set<string> = new Set(),
+): {
   positional: string[];
   options: Map<string, string>;
 } {
@@ -67,6 +100,10 @@ function parseOptions(values: string[]): {
     const key = value.slice(2);
     if (!/^[a-z][a-z-]*$/.test(key) || options.has(key))
       throw new Error(`Invalid or repeated option: ${value}`);
+    if (booleanFlags.has(key)) {
+      options.set(key, "true");
+      continue;
+    }
     const next = values[++i];
     if (!next || next.startsWith("--"))
       throw new Error(`Option --${key} requires a value`);
@@ -113,13 +150,30 @@ async function execute(
   argv: string[],
   output: Output,
   sleep: (milliseconds: number) => Promise<void>,
+  io: { input: Input; invitationCode?: string; identityBacked: boolean },
 ): Promise<void> {
   const [group, command, ...rawArgs] = argv;
-  if (!group || !command) throw new Error(usage());
+  if (!group) throw new Error(usage());
+  if (group === "status") {
+    if (command || rawArgs.length) throw new Error(usage());
+    writeJson(output, await client.getAccount());
+    return;
+  }
+  if (group === "onboarding") {
+    if (command || rawArgs.length) throw new Error(usage());
+    writeJson(output, await client.getOnboarding());
+    return;
+  }
   if (group === "devices" && command === "list") {
     const { positional, options } = parseOptions(rawArgs);
     if (positional.length || options.size) throw new Error(usage());
     writeJson(output, await client.listDevices());
+    return;
+  }
+  if (group === "devices" && command === "revoke") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length !== 1 || options.size) throw new Error(usage());
+    writeJson(output, await client.revokeDevice(positional[0]));
     return;
   }
   if (group === "functions" && command === "list") {
@@ -225,6 +279,145 @@ async function execute(
       await sleep(Math.min(intervalMs, remaining));
     }
   }
+  if (group === "access") {
+    if (command === "policies") {
+      const { positional, options } = parseOptions(rawArgs);
+      if (positional.length || options.size) throw new Error(usage());
+      writeJson(output, await client.listAccessPolicies());
+      return;
+    }
+    if (command === "set") {
+      const { positional, options } = parseOptions(rawArgs);
+      if (positional.length !== 1 || options.size) throw new Error(usage());
+      writeJson(
+        output,
+        await client.saveAccessPolicy(
+          objectArguments(positional[0]) as unknown as AccessPolicy,
+        ),
+      );
+      return;
+    }
+    if (!command) {
+      if (rawArgs.length) throw new Error(usage());
+      writeJson(output, await client.getAccess());
+      return;
+    }
+    throw new Error(usage());
+  }
+  if (group === "agents" && command === "list") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length || options.size) throw new Error(usage());
+    writeJson(output, await client.listWorkspaceAgents());
+    return;
+  }
+  if (group === "agents" && command === "invite") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (
+      positional.length !== 1 ||
+      [...options.keys()].some((key) => !["role", "ttl"].includes(key))
+    )
+      throw new Error(usage());
+    const role = options.get("role") ?? "operator";
+    if (role !== "operator" && role !== "administrator")
+      throw new Error("--role must be operator or administrator");
+    const ttlSeconds = integerOption(options, "ttl", 600, 60, 3_600);
+    writeJson(
+      output,
+      await client.inviteWorkspaceAgent({
+        name: positional[0],
+        role,
+        ttlSeconds,
+      }),
+    );
+    return;
+  }
+  if (group === "agents" && command === "revoke") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length !== 1 || options.size) throw new Error(usage());
+    writeJson(output, await client.revokeWorkspaceAgent(positional[0]));
+    return;
+  }
+  if (group === "workspace" && command === "list") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length || options.size) throw new Error(usage());
+    writeJson(output, await client.listWorkspaces());
+    return;
+  }
+  if (group === "workspace" && command === "join") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length || options.size) throw new Error(usage());
+    if (!io.identityBacked)
+      throw new Error(
+        "ol workspace join requires an AgentID login; run ol login --agentid first",
+      );
+    const invitation =
+      io.invitationCode ??
+      (await askSecret(
+        "Invitation code (hidden): ",
+        io.input,
+        output as unknown as NodeJS.WriteStream,
+        "OPENLAUNCH_INVITATION_CODE",
+      ));
+    const joined = await client.acceptWorkspaceInvitation(invitation);
+    writeJson(output, joined);
+    const workspaceId = (joined as { workspace?: unknown }).workspace;
+    output.write(
+      typeof workspaceId === "string" && /^[a-f0-9]{64}$/.test(workspaceId)
+        ? `Joined workspace ${workspaceId}. Run ol login --agentid --workspace ${workspaceId} to target it in future commands.\n`
+        : "Joined the workspace. Run ol login --agentid --workspace TARGET_WORKSPACE_ID to target it in future commands.\n",
+    );
+    return;
+  }
+  if (group === "setup" && command === "token") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (
+      positional.length > 1 ||
+      [...options.keys()].some((key) => key !== "ttl")
+    )
+      throw new Error(usage());
+    const ttlSeconds = integerOption(options, "ttl", 600, 60, 3_600);
+    writeJson(
+      output,
+      await client.createDeviceSetupToken({
+        ...(positional.length ? { name: positional[0] } : {}),
+        ttlSeconds,
+      }),
+    );
+    return;
+  }
+  if (group === "connections" && command === "list") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length || options.size) throw new Error(usage());
+    writeJson(output, await client.listAgentConnections());
+    return;
+  }
+  if (group === "connections" && command === "create") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (
+      positional.length !== 1 ||
+      [...options.keys()].some((key) => !["ttl", "access"].includes(key))
+    )
+      throw new Error(usage());
+    const access = options.get("access") ?? "act";
+    if (access !== "read" && access !== "act")
+      throw new Error("--access must be read or act");
+    const ttlSeconds = integerOption(options, "ttl", 86_400, 60, 2_592_000);
+    writeJson(
+      output,
+      await client.createAgentConnection({
+        name: positional[0],
+        ttlSeconds,
+        access,
+      }),
+    );
+    return;
+  }
+  if (group === "connections" && command === "revoke") {
+    const { positional, options } = parseOptions(rawArgs);
+    if (positional.length !== 1 || options.size) throw new Error(usage());
+    writeJson(output, await client.revokeAgentConnection(positional[0]));
+    return;
+  }
   throw new Error(usage());
 }
 
@@ -236,6 +429,7 @@ export async function runAgentCli(
     fetch?: typeof fetch;
     sleep?: (milliseconds: number) => Promise<void>;
     configDirectory?: string;
+    input?: Input;
   } = {},
 ): Promise<void> {
   const saved = environment.OPENLAUNCH_AGENT_TOKEN
@@ -246,11 +440,21 @@ export async function runAgentCli(
     throw new Error(
       "Run ol login or set OPENLAUNCH_AGENT_TOKEN to an agent API credential",
     );
-  const workspace =
-    environment.OPENLAUNCH_WORKSPACE ?? sdkTokenWorkspace(token);
+  // API tokens are always workspace-bound, regardless of login mode. The
+  // AgentID (v2) flag only proves identity-bound metadata for joining.
+  const identityBacked = saved?.version === 2;
+  const embedded = sdkTokenWorkspace(token);
+  if (embedded && environment.OPENLAUNCH_WORKSPACE &&
+      environment.OPENLAUNCH_WORKSPACE !== embedded)
+    throw new Error(
+      `This API token is bound to workspace ${embedded}; to switch workspaces run ol login --agentid --workspace ${environment.OPENLAUNCH_WORKSPACE}`,
+    );
+  const workspace = environment.OPENLAUNCH_WORKSPACE ?? embedded;
   const client = createClient({
     url: environment.OPENLAUNCH_URL ?? saved?.url ?? DEFAULT_URL,
     token,
+    // API tokens are routed by their embedded workspace; never send a
+    // target-workspace selector for them.
     ...(workspace ? { workspace } : {}),
     ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
   });
@@ -260,6 +464,96 @@ export async function runAgentCli(
     output,
     dependencies.sleep ??
       ((ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))),
+    {
+      input: dependencies.input ?? stdin,
+      invitationCode: environment.OPENLAUNCH_INVITATION_CODE,
+      identityBacked,
+    },
+  );
+}
+
+/**
+ * `ol login`: manual agent API credential prompt (or --token), or the
+ * --agentid browser PKCE flow. The saved credential is only written after the
+ * full flow succeeds; a failed login never overwrites an existing one.
+ */
+export async function runLogin(
+  args: string[],
+  environment: NodeJS.ProcessEnv = process.env,
+  dependencies: {
+    fetch?: typeof fetch;
+    configDirectory?: string;
+    output?: Output;
+    input?: Input;
+    openURL?: UrlOpener;
+    timeoutMs?: number;
+  } = {},
+): Promise<void> {
+  const output = dependencies.output ?? stdout;
+  const { positional, options } = parseOptions(
+    args,
+    new Set(["agentid", "no-open"]),
+  );
+  if (positional.length) throw new Error(usage());
+  const origin = validateLoginOrigin(
+    options.get("url") ?? environment.OPENLAUNCH_URL ?? DEFAULT_URL,
+  );
+  if (options.has("agentid")) {
+    if (
+      options.has("token") ||
+      [...options.keys()].some(
+        (key) => !["agentid", "no-open", "url", "workspace"].includes(key),
+      )
+    )
+      throw new Error(usage());
+    const workspace = options.get("workspace");
+    const result = await browserLogin({
+      origin,
+      ...(workspace !== undefined ? { workspace } : {}),
+      open: !options.has("no-open"),
+      output,
+      ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
+      ...(dependencies.openURL ? { openURL: dependencies.openURL } : {}),
+      ...(dependencies.timeoutMs !== undefined
+        ? { timeoutMs: dependencies.timeoutMs }
+        : {}),
+    });
+    await writeAgentConfig(result.config, dependencies.configDirectory);
+    output.write(
+      `Saved private AgentID login for workspace ${result.config.workspace} (connection ${result.config.connectionId}, role ${result.config.role}, access ${result.config.access}). Run ol status and ol devices list.\n`,
+    );
+    return;
+  }
+  if (
+    [...options.keys()].some((key) => !["url", "token"].includes(key)) ||
+    (options.has("token") && environment.OPENLAUNCH_AGENT_TOKEN !== undefined)
+  )
+    throw new Error(usage());
+  output.write(
+    "Create a separate agent API credential in Connections, then paste it here.\n",
+  );
+  const config = validateAgentConfig({
+    version: 1,
+    url: origin,
+    token:
+      options.get("token") ??
+      environment.OPENLAUNCH_AGENT_TOKEN ??
+      (await askSecret(
+        "Agent API token (hidden): ",
+        dependencies.input ?? stdin,
+        output as unknown as NodeJS.WriteStream,
+        "OPENLAUNCH_AGENT_TOKEN",
+      )),
+  });
+  // Validate the existing credential with read-only discovery; login creates no grants or tokens.
+  await createClient({
+    url: origin,
+    token: config.token,
+    ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
+  }).listFunctions();
+  await writeAgentConfig(config, dependencies.configDirectory);
+  output.write(
+    "Saved private agent login. Run ol devices list and ol functions list.\n",
   );
 }
 
@@ -276,30 +570,7 @@ async function main() {
       return;
     }
     if (process.argv[2] === "login") {
-      const { positional, options } = parseOptions(process.argv.slice(3));
-      if (positional.length || [...options.keys()].some((key) => key !== "url"))
-        throw new Error(usage());
-      stdout.write(
-        "Create a separate agent API credential in Connections, then paste it here.\n",
-      );
-      const config = validateAgentConfig({
-        version: 1,
-        url: options.get("url") ?? process.env.OPENLAUNCH_URL ?? DEFAULT_URL,
-        token:
-          process.env.OPENLAUNCH_AGENT_TOKEN ??
-          (await askSecret(
-            "Agent API token (hidden): ",
-            stdin,
-            stdout,
-            "OPENLAUNCH_AGENT_TOKEN",
-          )),
-      });
-      // Validate the existing credential with read-only discovery; login creates no grants or tokens.
-      await createClient(config).listFunctions();
-      await writeAgentConfig(config);
-      stdout.write(
-        "Saved private agent login. Run ol devices list and ol functions list.\n",
-      );
+      await runLogin(process.argv.slice(3));
       return;
     }
     if (process.argv[2] === "logout") {

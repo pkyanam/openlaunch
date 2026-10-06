@@ -12,7 +12,7 @@ Your agent connects to openlaunch; one local gateway connects to Home Assistant.
 1. In [your console](https://www.openlaunch.dev/console/), choose **Devices → Add device → Home Assistant** and create a setup token.
 2. In HA **Settings → Apps → App store → Repositories** (called **Add-ons** on older versions), add `https://github.com/pkyanam/openlaunch`. Install **openlaunch**. [Add the repository](https://my.home-assistant.io/redirect/supervisor_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fpkyanam%2Fopenlaunch).
 3. Paste the setup token into the app's `setup_token` configuration, save, and start it. Enable **Start on boot**.
-4. Back in openlaunch, select Home Assistant → **Access**. Choose **ChatGPT**, select read or control access and an expiry, then **Grant current Home Assistant devices**.
+4. Back in openlaunch, review your connection in **Connections → Agents**. New all-functions connections can already use the gateway and discovered devices; set any exclusions here. For an existing selected-functions connection, use Home Assistant → **Access** → **Grant current Home Assistant devices**.
 5. [Connect ChatGPT with MCP OAuth](/agents). Ask it to list Home Assistant devices, inspect their functions and control one.
 
 The app uses HA's automatic local API proxy credentials. No HA token, URL, open port or router configuration is needed. ARM64 and x86-64 Home Assistant OS are supported. The app builds locally from this public repository and downloads the verified SDK matching the deployed website at startup.
@@ -25,7 +25,7 @@ Run on a computer that can reach your HA installation. Install Node 24+, Python 
 curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- home-assistant
 ```
 
-It installs `openlaunch-ha` on PATH, prompts privately for the HA URL, a HA long-lived access token, and your openlaunch Home Assistant setup token, then starts the gateway. Create the HA token in your HA profile's **Security → Long-lived access tokens**. Use a dedicated HA user with the access you want the gateway to have. HTTPS is supported; HTTP is accepted for local addresses. Never paste credentials into chat or command arguments.
+It installs `openlaunch-ha` on PATH, prompts privately for the HA URL, a HA long-lived access token, and your openlaunch Home Assistant setup token, then starts the gateway. For noninteractive setup (agents, CI, headless hosts), set `OPENLAUNCH_HA_URL` and `OPENLAUNCH_HA_TOKEN` in the environment instead of the prompts; the existing `OPENLAUNCH_SETUP_TOKEN` environment variable supplies the attach-only gateway setup token. Set these privately in the shell or a secret store — never in command arguments or logs. Create the HA token in your HA profile's **Security → Long-lived access tokens**. Use a dedicated HA user with the access you want the gateway to have. HTTPS is supported; HTTP is accepted for local addresses. Never paste credentials into chat or command arguments.
 
 Complete steps 4 and 5 above. Keep this foreground process running; Ctrl-C stops it. On Linux, stop the foreground runner and install its background user service:
 
@@ -37,7 +37,7 @@ A systemd user manager is required. It normally runs during the user's session; 
 
 ## Test without physical devices
 
-An empty installation is valid. Request the gateway's `device.health` and `ha.inventory`. Then create a **Toggle** helper in HA **Settings → Devices & services → Helpers**. Refresh the console after discovery (up to one minute), grant it access and ask:
+An empty installation is valid. Request the gateway's `device.health` and `ha.inventory`. Then create a **Toggle** helper in HA **Settings → Devices & services → Helpers**. Refresh the console after discovery (up to one minute), grant it access if your connection uses selected-functions mode, and ask:
 
 > Find my Home Assistant test toggle, turn it on, read its state, then turn it off and verify its state again.
 
@@ -65,11 +65,13 @@ HA's service catalog supplies the native data fields and selectors. openlaunch a
 
 ## Access and outcomes
 
-The bulk grant replaces this agent’s grants for this gateway and its current linked devices; other gateways are unaffected. Excluding integration-wide services removes their existing grants and cancels ungranted queued work. Future entities still need approval. Integration-wide services require the separate **Include integration-wide services** checkbox; they can target multiple entities, run workflows or perform administrative actions. You can grant individual functions instead. Scripts and scenes may affect other devices as part of their configured workflow. A read-only agent connection remains read-only even with a stored control grant. Setup tokens never authorize agent actions, and discovery cannot grant itself permission.
+All-functions access covers the gateway and current and future linked devices, subject to exclusions. This includes exposed integration-wide services, which may target multiple entities, run workflows or perform administrative actions. Exclude those functions in **Connections → Agents** when needed. Scripts and scenes may affect other devices as part of their configured workflow.
+
+For selected-functions connections, the bulk grant replaces this agent’s grants for this gateway and its current linked devices; other gateways are unaffected. Integration-wide services require the separate **Include integration-wide services** checkbox. Future entities still need approval. You can grant individual functions instead. A read-only connection remains read-only under either policy. Setup tokens never authorize agent actions, and discovery cannot change a policy.
 
 A queued receipt is waiting for delivery. A successful service receipt means HA accepted the call. Entity calls also attempt a fresh state observation and report `stateObserved`. Service and state results report `physicalVerified: false`: acceptance and entity state do not prove physical movement or completion. Follow up with state reads when a device takes time to finish. Direct named scripts may wait for the script to finish within the requested action TTL (at most five minutes); use an entity’s `ha.script.turn_on` to start a long script without holding the gateway queue. Already-started HA operations are not cancelled by request expiry. Transport failure can leave a write outcome unknown; inspect HA before making a new request.
 
-The gateway uses outbound authenticated work notifications with a ten-second polling fallback. Each action is fetched and rechecked over HTTPS. Expired work is not executed; a durable private journal prevents replay after interruption and retries saved result delivery. Revoking a gateway revokes its linked devices. Removed entities lose grants; new or changed catalogs need approval. Temporary HA/network outages preserve saved grants and mark the gateway offline.
+The gateway uses outbound authenticated work notifications with a ten-second polling fallback. Each action is fetched and rechecked over HTTPS. Expired work is not executed; a durable private journal prevents replay after interruption and retries saved result delivery. Revoking a gateway revokes its linked devices. Removed entities lose grants; new or changed catalogs need approval for selected-functions connections. Temporary HA/network outages preserve saved grants and mark the gateway offline.
 
 ## Update and credentials
 

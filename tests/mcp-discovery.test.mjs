@@ -144,6 +144,16 @@ test("MCP receipts guide polling and omit internal owner bypass metadata without
 
 test("cached MCP tools discover and invoke all Roomba functions granted after connection", async () => {
   const f = await fixture();
+  // Historical grant-only caching behavior: run this agent under an explicit
+  // selected-mode policy so per-device tools appear only after real grants.
+  f.hub.setAccessPolicy(owner, {
+    principal: agent.id,
+    mode: "selected",
+    excludedDevices: [],
+    excludedFunctions: [],
+    role: "operator",
+    expiresAt: null,
+  });
   try {
     // The host discovers once before any grant, then retains this tool list.
     const cached = await f.client.listTools();
@@ -275,6 +285,16 @@ test("stable MCP tools preserve separate setup credentials and revocable agent A
     undefined,
     "agent",
   );
+  // Explicit selected-mode policy: the pre-grant assertions below exercise
+  // the historical grant-only admission for this agent connection.
+  hub.setAccessPolicy(owner, {
+    principal: connection.principal,
+    mode: "selected",
+    excludedDevices: [],
+    excludedFunctions: [],
+    role: "operator",
+    expiresAt: null,
+  });
   const clientFor = (token) => ({
     client: new Client({ name: "api-credential-test", version: "1" }),
     transport: new StreamableHTTPClientTransport(

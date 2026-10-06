@@ -11,6 +11,7 @@ import {
   enrollmentRequestSchema,
   createAgentConnectionSchema,
   createSetupTokenSchema,
+  accessPolicyRequestSchema,
   grantRequestSchema,
   revokeGrantRequestSchema,
   broadcastRequestSchema,
@@ -28,7 +29,15 @@ import {
 } from "../../core/src/index.ts";
 import { functionGuide } from "../../core/src/function-guides.ts";
 import { type OAuthClientProvider } from "../../core/src/oauth-clients.ts";
-import { createMcp, toolNeedsActionScope } from "../../mcp/src/index.ts";
+import {
+  createMcp,
+  toolNeedsActionScope,
+  applyNewConnectionPolicy,
+  onboardingSummary,
+  registerOAuthClientViaProvider,
+  revokeOAuthClientViaProvider,
+  type CloudGateway,
+} from "../../mcp/src/index.ts";
 import {
   handlePerRequestMcp,
   rpcError,
@@ -103,6 +112,7 @@ export async function handle(
     deviceCredentials?: DeviceCredentialDeriver;
     oauthClients?: OAuthClientProvider;
     oauthBuiltinClients?: string[];
+    cloud?: CloudGateway;
     resourceMetadata?: string;
   } = {},
 ): Promise<Response> {
@@ -176,6 +186,9 @@ export async function handle(
       ? await hub.authenticateConnection(token, context.workspace ?? "")
       : await resolve(request);
     p = hub.admitOAuthClient(p, context.oauthBuiltinClients);
+    // The live access policy decides the caller's role and exclusions before
+    // any handler, tool or workspace restriction runs.
+    p = hub.applyAccessPolicy(p);
     if (
       p.connectionPurpose === "device-setup" &&
       !(path === "/v1/sdk/devices" && method === "POST")
@@ -230,7 +243,7 @@ export async function handle(
       // Only trusted token scopes and live grants authorize execution; request
       // metadata and client capabilities are self-reported protocol information.
       if (usesPerRequestProtocol(request, message))
-        return handlePerRequestMcp(request, message, hub, p);
+        return await handlePerRequestMcp(request, message, hub, p, context);
       if (
         message?.method === "tools/call" &&
         p.readOnly &&
@@ -242,7 +255,7 @@ export async function handle(
         )
       )
         throw new Fault("insufficient_scope", 403, "Write scope required");
-      const server = createMcp(hub, p);
+      const server = createMcp(hub, p, context);
       const transport = new WebStandardStreamableHTTPServerTransport({
         enableJsonResponse: true,
       });
@@ -303,71 +316,56 @@ export async function handle(
         clients: hub.connections(p).filter((c) => c.purpose === "oauth"),
       });
     if (path === "/v1/oauth-clients" && method === "POST") {
-      // Ownership and capacity precede any provider-side registration.
-      hub.checkOAuthClientCapacity(p);
       const config = oauthClientConfigSchema.parse(await body(request));
-      if (!context.oauthClients)
-        throw new Fault(
-          "setup_required",
-          503,
-          "OAuth client registration is not configured for this server",
-        );
-      const created = await context.oauthClients.create(config);
-      try {
-        const client = hub.registerOAuthClient(p, config, created);
-        return json(
-          {
-            ...client,
-            ...(created.clientSecret
-              ? { clientSecret: created.clientSecret }
-              : {}),
-          },
-          201,
-        );
-      } catch (error) {
-        await context.oauthClients
-          .delete(created.applicationId)
-          .catch(() => undefined);
-        throw error;
-      }
+      const created = await registerOAuthClientViaProvider(
+        hub,
+        p,
+        context.oauthClients,
+        config,
+      );
+      return json(created, 201);
     }
     const oauthRevoke = /^\/v1\/oauth-clients\/([a-f0-9-]{36})\/revoke$/.exec(
       path,
     );
-    if (oauthRevoke && method === "POST") {
-      hub.connections(p); // Owner-only; never expose other workspaces' provider apps.
-      const connection = hub.state.agentConnections!.find(
-        (c) => c.id === oauthRevoke[1] && c.purpose === "oauth",
+    if (oauthRevoke && method === "POST")
+      return json(
+        await revokeOAuthClientViaProvider(
+          hub,
+          p,
+          context.oauthClients,
+          oauthRevoke[1]!,
+        ),
       );
-      if (!connection?.oauth)
-        throw new Fault("not_found", 404, "OAuth client not found");
-      hub.revokeConnection(p, connection.id);
-      let providerCleanupPending = true;
-      if (context.oauthClients) {
-        try {
-          await context.oauthClients.delete(connection.oauth.applicationId);
-          providerCleanupPending = false;
-        } catch {
-          /* Local admission is revoked even if the provider is unavailable. */
-        }
-      }
-      return json({ ok: true, providerCleanupPending });
-    }
     if (path === "/v1/agent-connections" && method === "POST") {
       const b = createAgentConnectionSchema.parse(await body(request));
-      return json(
-        await hub.createConnection(
-          p,
-          context.workspace ?? "",
-          b.name,
-          b.ttlSeconds,
-          b.access,
-          { canAttach: false, deviceLimit: 0 },
-          "agent",
-        ),
-        201,
+      const connection = await hub.createConnection(
+        p,
+        context.workspace ?? "",
+        b.name,
+        b.ttlSeconds,
+        b.access,
+        { canAttach: false, deviceLimit: 0 },
+        "agent",
       );
+      // New links are delegated as all-devices operator policies; an explicit
+      // read ceiling stays on the connection. A failing policy step means the
+      // secret is never returned and the owner console reconciles the link.
+      applyNewConnectionPolicy(hub, p, connection, b.role ?? "operator");
+      return json(connection, 201);
     }
+    if (path === "/v1/access-policies") {
+      if (method === "GET") return json(hub.accessPolicies(p));
+      if (method === "POST") {
+        const b = accessPolicyRequestSchema.parse(await body(request));
+        return json(hub.setAccessPolicy(p, b));
+      }
+      throw new Fault("method", 405, "Method not allowed");
+    }
+    if (path === "/v1/access" && method === "GET")
+      return json(hub.effectiveAccess(p));
+    if (path === "/v1/onboarding" && method === "GET")
+      return json(onboardingSummary(hub, p, context));
     if (
       ["/v1/device-setup-tokens", "/v1/sdk-tokens"].includes(path) &&
       method === "GET"

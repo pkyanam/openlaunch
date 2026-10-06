@@ -81,14 +81,17 @@ test("one SDK token attaches a device safely and still needs a separate function
     token: agentConnection.token,
     fetch,
   });
-  assert.deepEqual(await agent.listDevices(), []);
-  await assert.rejects(
-    () =>
-      agent.requestAction(identity.deviceId, {
+  // New agent-purpose connections default to every device and function;
+  // SDK setup tokens remain attach-only with no function access.
+  assert.equal((await agent.listDevices()).length, 1);
+  assert.equal(
+    (
+      await agent.requestAction(identity.deviceId, {
         capability: "device.health",
-        idempotencyKey: "denied",
-      }),
-    (e) => e.status === 403,
+        idempotencyKey: "default-all",
+      })
+    ).status,
+    "queued",
   );
   for (const path of ["/v1/grants", "/v1/sdk-tokens"]) {
     const denied = await fetch("https://bridge.test" + path, {

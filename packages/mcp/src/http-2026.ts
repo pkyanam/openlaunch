@@ -3,10 +3,11 @@ import { Fault, type Hub, type Principal } from "../../core/src/index.ts";
 import {
   createToolCatalog,
   instructions,
-  runTool,
+  runToolAsync,
   serverInfo,
   toolAnnotations,
   toolNeedsActionScope,
+  type ManagementContext,
 } from "./index.ts";
 
 export const MCP_VERSION = "2026-07-28";
@@ -214,12 +215,13 @@ export function validatePerRequestMcp(
   }
   return { id, method, params };
 }
-export function handlePerRequestMcp(
+export async function handlePerRequestMcp(
   request: Request,
   message: unknown,
   hub: Hub,
   p: Principal,
-): Response {
+  context: ManagementContext = {},
+): Promise<Response> {
   const validated = validatePerRequestMcp(request, message);
   if (validated instanceof Response) return validated;
   const { id, method, params } = validated;
@@ -256,7 +258,7 @@ export function handlePerRequestMcp(
     return complete({
       cacheScope: "private",
       ttlMs: 0,
-      tools: createToolCatalog(hub, p).map((tool) => ({
+      tools: createToolCatalog(hub, p, context).map((tool) => ({
         name: tool.name,
         ...(tool.title ? { title: tool.title } : {}),
         description: tool.description,
@@ -274,7 +276,7 @@ export function handlePerRequestMcp(
       toolNeedsActionScope(hub, p, params.name, params.arguments)
     )
       throw new Fault("insufficient_scope", 403, "Write scope required");
-    const tool = createToolCatalog(hub, p).find(
+    const tool = createToolCatalog(hub, p, context).find(
       (tool) => tool.name === params.name,
     );
     if (!tool) return rpcError(id, -32602, "Unknown or unavailable tool");
@@ -293,7 +295,7 @@ export function handlePerRequestMcp(
           },
         ],
       });
-    return complete(runTool(tool.fn, parsed.data));
+    return complete(await runToolAsync(tool.fn, parsed.data));
   }
   // Optional resources, prompts, sampling, elicitation and extensions are not
   // advertised. Unsupported methods have the status mandated by this version.

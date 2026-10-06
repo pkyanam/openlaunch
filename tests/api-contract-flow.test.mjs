@@ -90,6 +90,21 @@ test("documented response schemas match a real local attach, grant, dispatch, re
     201,
   );
   const ids = { deviceId: identity.deviceId };
+  // New agent connections are delegated an all-devices operator policy: the
+  // attached device is covered without any grant.
+  const visible = await request("/v1/devices", "get", undefined, agent.token);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, identity.deviceId);
+  // Switch the connection to explicit selected mode; the historical
+  // grant-only assertions below keep their meaning.
+  await request("/v1/access-policies", "post", {
+    principal: agent.principal,
+    mode: "selected",
+    excludedDevices: [],
+    excludedFunctions: [],
+    role: "operator",
+    expiresAt: agent.expiresAt,
+  });
   assert.deepEqual(
     await request("/v1/devices", "get", undefined, agent.token),
     [],

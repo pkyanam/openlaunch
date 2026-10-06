@@ -13,9 +13,9 @@ codex mcp login openlaunch \
   --oauth-client-registration cimd
 ```
 
-Codex discovers the canonical resource from openlaunch’s protected-resource metadata. `CIMD` uses Codex's issuer-bound public client identity, `https://chatgpt.com/oauth/codex/client.json`; it is not a client secret. The signed-in owner separately approves OAuth scopes, then grants this agent specific functions on a specific device in the openlaunch console. OAuth approval does not enroll or authorize hardware. To search product documentation, add `openlaunch-docs` at `https://www.openlaunch.dev/docs-mcp`; that server is read-only and does not provide device access.
+Codex discovers the canonical resource from openlaunch’s protected-resource metadata. `CIMD` uses Codex's issuer-bound public client identity, `https://chatgpt.com/oauth/codex/client.json`; it is not a client secret. The signed-in account approves OAuth scopes. New linked agents receive all device functions by default, with owner-managed exclusions; existing selected-function connections and workspace restrictions remain intact. AgentID agents can create their own workspace or join an owner's workspace by invitation. OAuth approval does not enroll hardware. To search product documentation, add `openlaunch-docs` at `https://www.openlaunch.dev/docs-mcp`; that server is read-only and does not provide device access.
 
-Hosted Google sign-in, Codex OAuth and granted custom-function discovery/actions have passed software acceptance. Controls require an owner-approved device grant. Physical hardware acceptance is recorded separately in the [verification guide](../../apps/site/docs/status.mdx); queued or simulated results are not physical execution.
+Hosted Google sign-in, Codex OAuth and granted custom-function discovery/actions have passed software acceptance. Controls require a live access policy or a legacy device grant, plus the appropriate token scope. Physical hardware acceptance is recorded separately in the [verification guide](../../apps/site/docs/status.mdx); queued or simulated results are not physical execution.
 
 ## Local bridge
 
@@ -29,7 +29,7 @@ It reads only `.cache/local/agent.json`, never the owner credential. Grant `loca
 
 ## Functions and broadcasts
 
-Device adapters may publish bounded custom function schemas. MCP exposes a custom function to an agent only after the owner grants that function for that device. The core accepts flat parameters of boolean, bounded number or integer, and bounded string types; schemas do not execute code. See [Build your own functions](../../apps/site/docs/functions.mdx).
+Device adapters may publish bounded custom function schemas. MCP exposes a custom function only when the live access policy and token scope allow it. The core accepts flat parameters of boolean, bounded number or integer, and bounded string types; schemas do not execute code. See [Build your own functions](../../apps/site/docs/functions.mdx).
 
 `POST /v1/broadcasts` returns an action or an error for every requested device. Each action has its own permission check and outcome; a successful result for one device does not imply another device acted. Inspect each receipt separately.
 
