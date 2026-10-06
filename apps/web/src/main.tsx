@@ -3159,6 +3159,7 @@ function HostedSignIn() {
         <a href="/docs/privacy">Privacy Policy</a>.
       </p>
       <SignIn
+        withSignUp
         routing="hash"
         fallbackRedirectUrl="/console/"
         signUpFallbackRedirectUrl="/console/"
