@@ -22,6 +22,10 @@ npx @agentmail/agentid-cli@0.9.0 init --enable-sso
 
 This reuses the locally bound registration. Select the same application and environment. Never create or enable a production connection for an unrelated application.
 
+AgentID agents must also be able to complete first-time sign-up. Clerk's **Protect → Rules → Bot sign-up protection** can challenge agents with Turnstile even when the provider doctor passes. For the current production integration, sign-up CAPTCHA is disabled through Clerk's supported `auth_attack_protection.bot_protection.captcha_enabled` setting, with owner authorization. This is an instance-wide setting and also affects Google sign-ups; other attack-protection settings remain configured. The console still requires a verified identity, and device access still requires its own workspace credentials and grants.
+
+In the AgentID application's settings, set **Login URL** and **Initiate login URL** to `https://www.openlaunch.dev/console/`. The public sign-in page offers AgentID; the initiate URL does not need a separate automatic-login route when using the visible button. Keep the registered callback at `https://clerk.openlaunch.dev/v1/oauth_callback`. Placeholder text such as `app.example.com` is not a configured openlaunch URL. The AgentID **Needs setup** status requires a completed test sign-in; provider configuration alone is not that test.
+
 ## Verify
 
 ```sh
@@ -29,6 +33,8 @@ npm run check:agentid
 ```
 
 Select **openlaunch** when asked. The explicit production option is needed because this monorepo is not Next.js; bare noninteractive `doctor --json` cannot detect the provider at its root. Check that the production console offers Google and AgentID. Follow AgentID through its waiting/enrollment page and back to the console; verify a real Clerk session and the correct workspace. Check a fresh browser and a returning AgentID session, cancel/retry, Google sign-in, and the mobile layout. Provider configuration and a displayed button are not proof of a completed AgentID login.
+
+Also check the sign-up protection setting above. AgentID CLI 0.9.0's doctor validates the provider connection but does not report whether Clerk's sign-up CAPTCHA can block new agents.
 
 If registration was approved but the CLI is waiting, finish **Return to CLI** in the browser on the same Mac. Do not register a replacement client just because a callback has not arrived. If credentials were stored but provider configuration failed, rerun the same initializer to recover.
 
