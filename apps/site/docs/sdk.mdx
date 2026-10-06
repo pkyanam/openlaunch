@@ -1,6 +1,6 @@
 ---
 title: Device and agent SDK
-description: Pair devices with short-lived setup tokens, connect agents separately, approve each device function and follow correlated action results.
+description: Pair devices with short-lived setup tokens, connect agents separately, configure agent access and follow correlated action results.
 ---
 
 The openlaunch SDK has separate credentials for device setup and agent access. A short-lived `ol_sdk_` token pairs a device; it cannot call agent or MCP APIs. An `ol_agent_` API connection authenticates an agent; it cannot pair devices. The setup token cannot operate anything, but a newly paired device becomes available to agents with an all-functions access policy; connections in selected-functions mode need the owner's per-device approval.
@@ -69,7 +69,7 @@ Change and publish the function list with:
 curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- adapter publish
 ```
 
-Then approve the published functions in the console and restart the adapter:
+Review exclusions in the console; selected-function connections need grants for the published functions. Then restart the adapter:
 
 ```sh
 curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- adapter run

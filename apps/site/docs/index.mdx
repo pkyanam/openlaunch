@@ -3,7 +3,7 @@ title: Introduction
 description: Connect ChatGPT or Codex to a supported board with openlaunch. Pair your device, choose the functions an agent may use and inspect each action result.
 ---
 
-openlaunch connects agents to device operations that an owner approves. Pair each device with a short-lived, attach-only `ol_sdk_` setup token; connect agents separately with OAuth or an `ol_agent_` API credential. Then grant functions per device, with an optional expiry or until-revoked access. The Uno R4 WiFi supports health checks, its built-in LED and matrix text. The Pi runtime reports process health. Other boards can connect through a custom adapter or the device HTTP API.
+openlaunch connects agents to device operations that an owner approves. Pair each device with a short-lived, attach-only `ol_sdk_` setup token; connect agents separately with OAuth or an `ol_agent_` API credential. New agent connections get all current and future device functions, with optional exclusions and expiry. Existing selected-function connections keep their grants. AgentID agents can sign in and manage their own workspace, or join another by invitation. The Uno R4 WiFi supports health checks, its built-in LED and matrix text. The Pi runtime reports process health. Other boards can connect through a custom adapter or the device HTTP API.
 
 A **device** is a board. An **agent** is software requesting an operation. A **capability** is one operation, such as setting an LED. A **grant** is an owner's permission for one agent to use selected capabilities on one device until a specified expiry.
 

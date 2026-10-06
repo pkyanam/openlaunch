@@ -88,6 +88,28 @@ test("Roomba manifest, discovery, bounded actions, expiry and dispatch revocatio
   });
   const requestId = "12345678-1234-4234-8234-123456789abc";
   const enrolled = await device.attach(roombaManifest, requestId);
+  const newAgent = createClient({
+    url: baseUrl,
+    token: connection.token,
+    workspace,
+    fetch: apiFetch,
+  });
+  assert(
+    (await newAgent.listFunctions()).some(
+      (entry) => entry.definition.name === "roomba.stop",
+    ),
+    "New agent connections include advertised Roomba functions without individual grants",
+  );
+  // Keep the remainder of this test's explicit-grant, expiry and revocation contract.
+  const selectedPolicy = await ownerApi("/v1/access-policies", "POST", {
+    principal: connection.principal,
+    mode: "selected",
+    role: "operator",
+    excludedDevices: [],
+    excludedFunctions: [],
+    expiresAt: null,
+  });
+  assert.equal(selectedPolicy.status, 200);
   const grantResponse = await ownerApi("/v1/grants", "POST", {
     principal: connection.principal,
     deviceId: enrolled.deviceId,

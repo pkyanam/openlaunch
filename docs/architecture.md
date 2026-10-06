@@ -55,7 +55,7 @@ Linux and desktop custom adapters can use the Node SDK and its setup/publish/run
 
 The Node runner, Go Pi runtime and Uno firmware keep durable result journals so a failed result upload can retry the saved outcome without rerunning the hardware handler. This reduces duplicate work after interruption but does not promise exactly-once physical execution.
 
-Manifest changes require owner reapproval. They revoke prior device grants, cancel queued commands and preserve uncertainty for commands already received. A schema describes implemented behavior; advertising a function cannot install a driver or make an unsupported board operation work.
+Manifest changes require updated grants for selected-function connections; all-functions policies cover the new catalog unless excluded. They revoke prior device grants, cancel queued commands and preserve uncertainty for commands already received. A schema describes implemented behavior; advertising a function cannot install a driver or make an unsupported board operation work.
 
 ## Trust boundaries and runtime support
 

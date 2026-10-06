@@ -16,7 +16,7 @@
       "interface": {
         "displayName": "openlaunch",
         "shortDescription": "Connect to granted devices.",
-        "longDescription": "Use openlaunch to inspect devices and request approved device functions. Owners grant each agent access to specific functions on specific devices. Check every action receipt for its final outcome.",
+        "longDescription": "Use openlaunch to inspect devices and request approved device functions. New connections cover all device functions unless excluded; owners manage access policies, and existing selected-function connections retain their grants. Check every action receipt for its final outcome.",
         "developerName": "openlaunch",
         "category": "Developer tools",
         "capabilities": [

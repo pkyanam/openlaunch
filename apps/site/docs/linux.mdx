@@ -37,7 +37,7 @@ Rerun the same command:
 curl -fsSL https://www.openlaunch.dev/install-linux.sh | bash
 ```
 
-An update reuses your device identity and token without pairing again or asking for a setup token. It preserves your local policy, result journal and unfinished uploads. Unchanged manifests retain their grants. This release adds file.root_info and file.write_text, so reapprove the new catalog in Access after updating. The replacement is checksum-verified and validates saved state before installation. An active user service is stopped and restarted automatically; a failed service start restores the previous binary. An inactive service remains inactive. If you run in a foreground terminal, stop that runner with Ctrl-C before updating, then run `openlaunch-host start`. A busy runtime lock blocks replacement. No sudo or shell-profile edits are needed for an update.
+An update reuses your device identity and token without pairing again or asking for a setup token. It preserves your local policy, result journal and unfinished uploads. Unchanged manifests retain their grants. This release adds file.root_info and file.write_text, so selected-function connections need updated grants in Access; all-functions policies cover them unless excluded. The replacement is checksum-verified and validates saved state before installation. An active user service is stopped and restarted automatically; a failed service start restores the previous binary. An inactive service remains inactive. If you run in a foreground terminal, stop that runner with Ctrl-C before updating, then run `openlaunch-host start`. A busy runtime lock blocks replacement. No sudo or shell-profile edits are needed for an update.
 
 The native runner now subscribes to authenticated work hints for prompt delivery. Hints carry no commands or permissions: every action is fetched over HTTPS and checked against expiry, grants and local policy. Idle polling remains every ten seconds if notifications are unavailable, with bounded reconnect backoff. This avoids increasing idle cloud traffic to improve latency. Recent authenticated WebSocket pings also maintain online status during long commands. New requests queue until the current command finishes and its result is acknowledged; presence does not mean the command has completed. An updated Linux runner also sends an authenticated presence-only HTTPS heartbeat every 20 seconds during a long command, covering unavailable WebSocket notifications. Short commands and idle polling add no heartbeat traffic. A disconnected or powered-off host still becomes offline when its last activity is 45 seconds old.
 
@@ -98,7 +98,7 @@ Remove access with `openlaunch-host remove root NAME`, `remove command NAME` or 
 openlaunch-host service restart
 ```
 
-For a foreground runtime, stop it with Ctrl-C and run `openlaunch-host start` again. Every policy change updates the published manifest revision, revokes previous device grants and cancels queued work. Reapprove the device's functions in its **Access** view after the restart. Changing a path behind an existing root alias also requires reapproval.
+For a foreground runtime, stop it with Ctrl-C and run `openlaunch-host start` again. Every policy change updates the published manifest revision, revokes previous device grants and cancels queued work. Selected-function connections need updated grants in **Access** after restart; all-functions policies cover the new catalog unless excluded. Changing a path behind an existing root alias also requires reapproval.
 
 ## Connect an agent
 

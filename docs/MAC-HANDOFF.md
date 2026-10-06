@@ -1,5 +1,7 @@
 # openlaunch Mac handoff
 
+Current agent authorization: new connections and invited members use all-functions access with owner-managed exclusions. Existing selected-function connections retain their grants. AgentID workspace membership, delegated administration and CLI login are documented in [agent onboarding](AGENT-ONBOARDING.md). Earlier release evidence below describes its stated commit.
+
 ## State of the implementation
 
 Latest hardware evidence (October 5): the owner confirmed that their 09:10

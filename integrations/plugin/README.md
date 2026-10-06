@@ -4,7 +4,7 @@ The portable Agent Plugins 1.0 package for ChatGPT and Codex is in [`openlaunch/
 
 The site build publishes a ready-to-download archive at [`https://www.openlaunch.dev/downloads/openlaunch-plugin.zip`](https://www.openlaunch.dev/downloads/openlaunch-plugin.zip). To create the same archive locally, run `node scripts/package-plugin.mjs` from the repository root; it writes `apps/site/dist/client/downloads/openlaunch-plugin.zip` and prints its SHA-256 checksum.
 
-The OAuth connection and device permission are separate steps. After signing in and consenting to requested scopes, the device owner must grant this agent specific functions on a specific device in the openlaunch console. A queued action is only a receipt; use `get_action` to inspect the final device outcome. Custom function tools appear only after their per-device grant.
+The OAuth connection and device permission are separate steps. After signing in and consenting to requested scopes, new agent connections cover all current and future workspace functions unless excluded. Owners manage exclusions in Connections → Agents; existing selected-function connections retain their grants. A queued action is only a receipt; use `get_action` to inspect the final device outcome. Custom function tools appear when the live access policy and credential scope permit them.
 
 The hosted `/mcp` endpoint currently enforces OAuth. Hosted device controls are still deployment-gated; a reachable authenticated endpoint does not mean hardware control has been verified. See [ChatGPT integration status](../chatgpt/README.md) and [Codex setup](../codex/README.md).
 

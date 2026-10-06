@@ -10,7 +10,7 @@ Source: [pkyanam/openlaunch/packages/sdk](https://github.com/pkyanam/openlaunch/
 
 ## Agent quick start
 
-Create a named agent API connection in the openlaunch console and keep its `ol_agent_` credential in your secret store. Agent API credentials can read or request actions but cannot attach devices. Device pairing uses a separate short-lived `ol_sdk_` setup token. Device access still requires owner-approved grants, which can expire or remain active until revoked.
+Create a named agent API connection in the openlaunch console and keep its `ol_agent_` credential in your secret store. Agent API credentials can read or request actions but cannot attach devices. Device pairing uses a separate short-lived `ol_sdk_` setup token. New agent connections cover all current and future workspace functions unless excluded. Existing selected-function connections retain their grants. An AgentID agent can also sign in with its own identity and join an owner-authorized workspace invitation.
 
 ```ts
 import { createClient } from "@openlaunch/sdk";
@@ -41,7 +41,7 @@ Use a new idempotency key for each new action. Reuse the same key only when retr
 
 ### Agent CLI
 
-Install `ol` on PATH with `curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash`, then open a new terminal and run `ol login`. The hidden prompt accepts a separate `ol_agent_` API credential and stores it privately in `~/.config/openlaunch/agent.json`. Grant this API connection functions in the console. `openlaunch-agent` is an alias. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login; credentials are never command arguments. `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides.
+Install `ol` on PATH with `curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash`, then open a new terminal and run `ol login --agentid` for an enrolled AgentID identity, or `ol login` for a token. The hidden prompt accepts a separate `ol_agent_` API credential and stores it privately in `~/.config/openlaunch/agent.json`. Manage device and function exclusions under Connections → Agents. Selected-function connections still need explicit grants. `openlaunch-agent` is an alias. `OPENLAUNCH_AGENT_TOKEN` from a secret store overrides saved login; credentials are never command arguments. `OPENLAUNCH_URL` and `OPENLAUNCH_WORKSPACE` are optional overrides.
 
 ```sh
 ol devices list
@@ -130,7 +130,7 @@ npx --yes --package='https://www.openlaunch.dev/downloads/openlaunch-sdk.tgz' op
 
 The command prompts once for the device setup token (or reads `OPENLAUNCH_SDK_TOKEN`), creates `adapter.mjs`, saves the private device credential and starts outbound polling. It stores a non-secret request ID before attaching, so rerunning setup after a network failure safely retries the same request. It never saves the setup token. The starter's health result describes the adapter process. Connect your own library, serial board or local service in `handlers`, then declare those implemented operations in `manifest.functions`.
 
-Publish your changed manifest with the same command ending in `publish`, approve its functions in the portal, and restart with `run`. Existing device grants are removed when a manifest changes. The runner keeps a private action journal to avoid rerunning handlers after result-upload failures or interrupted execution. A mismatched receipt retains the journal and stops new command intake. An interrupted execution is reported as `outcome_unknown` and stops intake across subsequent restarts. Inspect the device before recovery; revoke the old device identity and use `setup --directory ./recovered-adapter` for a replacement, preserving the original private journal. No operation is promised to execute exactly once across physical power loss.
+Publish your changed manifest with the same command ending in `publish`, review its access policy in the portal, and restart with `run`. All-functions policies cover the new catalog unless excluded; selected-function connections need updated grants. Existing device grants are removed when a manifest changes. The runner keeps a private action journal to avoid rerunning handlers after result-upload failures or interrupted execution. A mismatched receipt retains the journal and stops new command intake. An interrupted execution is reported as `outcome_unknown` and stops intake across subsequent restarts. Inspect the device before recovery; revoke the old device identity and use `setup --directory ./recovered-adapter` for a replacement, preserving the original private journal. No operation is promised to execute exactly once across physical power loss.
 
 ## Transport and errors
 

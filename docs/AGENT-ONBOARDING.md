@@ -2,7 +2,7 @@
 
 This document covers the ongoing agent onboarding feature: how a workspace owner admits an agent as a named member with a role and an access policy, how the agent signs in and uses the workspace, and how access is scoped, delegated and revoked. It complements [AgentID sign-in](AGENTID.md) (the upstream identity provider setup) and the public guides under `apps/site/docs`.
 
-Status: workspace membership routes, the access-policy model, the identity directory, the MCP management tools and the `ol login --agentid` exchange are implemented in the cloud service, core and SDK. Fixture tests exercise these flows and do not establish physical device results; the end-to-end check with the live enrolled AgentID inbox and any release-facing claims wait for root verification.
+Workspace membership routes, the access-policy model, the identity directory, MCP management tools and the `ol login --agentid` exchange are implemented in the cloud service, core and SDK. Automated acceptance exercises invitation admission, PKCE login, setup credentials, software-adapter actions, exclusions after restart and revocation. A live sign-in test requires an enrolled AgentID inbox; software fixtures do not establish physical device results.
 
 ## Concepts
 
