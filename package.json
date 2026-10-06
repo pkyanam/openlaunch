@@ -24,6 +24,8 @@
     "build:firmware": "node scripts/tasks.mjs firmware",
     "prepare:firmware": "node scripts/firmware.mjs --prepare-only",
     "setup:firmware": "node scripts/setup-firmware.mjs",
+    "setup:agentid": "npx @agentmail/agentid-cli@0.9.0 init --clerk-instance production",
+    "check:agentid": "npx @agentmail/agentid-cli@0.9.0 doctor --clerk-instance production",
     "test:device": "node scripts/tasks.mjs device-test",
     "test:e2e": "node scripts/tasks.mjs e2e",
     "test:linux": "node scripts/tasks.mjs linux-e2e",

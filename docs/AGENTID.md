@@ -1,0 +1,43 @@
+# AgentID sign-in
+
+AgentID uses Clerk's official `oauth_agentid` connection. The console renders the providers enabled for its Clerk instance with the supported `SignIn` component; it does not hard-code a Google-only button or implement a second token verifier. Existing Google sign-in and legacy `/console/?sso=callback` redirects remain supported.
+
+## Configure
+
+From the project root, run:
+
+```sh
+npm run setup:agentid
+```
+
+This runs the pinned AgentID 0.9.0 initializer for Clerk production. Choose the existing **openlaunch** application. Production uses `https://clerk.openlaunch.dev/v1/oauth_callback`. Choose standard identity scopes (`openid email profile`); openlaunch does not use AgentID owner claims to map workspaces. Approve registration in the browser and allow its loopback callback to return to the CLI. For a separate development instance, run the initializer directly and select development; do not reuse production credentials.
+
+The initializer stores the client ID, client secret and project binding in ignored `.env.local` with restricted permissions, and configures Clerk. Do not copy these values into source, a frontend environment variable, device firmware, CI logs, or chat. Clerk stores the provider secret; the device service continues to use its existing Clerk configuration. Registration is idempotent when the same bound credentials are present. Do not use `--force` for a normal retry.
+
+New hosted connections start disabled. Once the client, callback and provider configuration have been checked, enable sign-in for that instance:
+
+```sh
+npx @agentmail/agentid-cli@0.9.0 init --enable-sso
+```
+
+This reuses the locally bound registration. Select the same application and environment. Never create or enable a production connection for an unrelated application.
+
+## Verify
+
+```sh
+npm run check:agentid
+```
+
+Select **openlaunch** when asked. The explicit production option is needed because this monorepo is not Next.js; bare noninteractive `doctor --json` cannot detect the provider at its root. Check that the production console offers Google and AgentID. Follow AgentID through its waiting/enrollment page and back to the console; verify a real Clerk session and the correct workspace. Check a fresh browser and a returning AgentID session, cancel/retry, Google sign-in, and the mobile layout. Provider configuration and a displayed button are not proof of a completed AgentID login.
+
+If registration was approved but the CLI is waiting, finish **Return to CLI** in the browser on the same Mac. Do not register a replacement client just because a callback has not arrived. If credentials were stored but provider configuration failed, rerun the same initializer to recover.
+
+## Authorization boundaries
+
+AgentID verifies an identity. It does not authorize device control in a human owner's workspace. A different Clerk subject has its own isolated workspace; `owner_email` is never an account-linking or authorization key.
+
+Agent requests to the existing device workspace still use an owner-authorized OAuth connection or an `ol_agent_` API connection, with a live per-function grant. The MCP endpoint rejects console sessions and raw AgentID tokens. An `ol_sdk_` setup token only attaches devices; devices retain their own child credentials. Sign-in creates no device grant or agent API credential and changes no existing pairing.
+
+Disable the AgentID connection in Clerk to stop new AgentID sign-ins. Existing Clerk sessions and issued openlaunch credentials have their own lifetimes and revocation controls; disabling the upstream provider alone is not full access revocation.
+
+Reference: [AgentID CLI](https://www.agentid.com/docs/cli), [Clerk integration](https://www.agentid.com/docs/clerk), and [integration reference](https://www.agentid.com/llms-full.txt). Version 0.9.0 installs the official connection; older custom-provider examples use a different strategy and should not replace it.

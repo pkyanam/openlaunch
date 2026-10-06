@@ -22,7 +22,7 @@ For a deployment review, confirm the `www` HTTPS response, apex redirect, Pages 
 
 ## Hosted device service
 
-Clerk handles hosted owner sign-in and agent OAuth. Google is the configured sign-in provider; email/password sign-in is disabled. OAuth uses PKCE and resource audiences. ChatGPT and Codex are admitted through their configured client identities. The hosted service verifies owner session JWTs and verifies opaque agent tokens online. Workspace data is stored in SQLite-backed Durable Objects keyed from the verified Clerk issuer and user identity.
+Clerk handles hosted account sign-in and agent OAuth. Google and AgentID use the existing Clerk instance; email/password sign-in is disabled. AgentID credentials belong to the Clerk connection, with a private local initializer binding, and are not Cloudflare runtime secrets or browser configuration. See [AgentID setup and verification](AGENTID.md). OAuth uses PKCE and resource audiences. ChatGPT and Codex are admitted through their configured client identities. The hosted service verifies console session JWTs and verifies opaque agent tokens online. Workspace data is stored in SQLite-backed Durable Objects keyed from the verified Clerk issuer and user identity; AgentID does not automatically share a human owner's workspace.
 
 The owner login and agent OAuth consent flow have been exercised successfully. Approving OAuth scopes does not grant device access: the owner must separately approve device capabilities, and the service checks those grants on every action. Workspace isolation, pairing and action persistence are part of service acceptance. This hosted acceptance does not establish that physical Pi or Uno hardware has passed its own network, TLS, provisioning, power-loss or reconnect checks.
 

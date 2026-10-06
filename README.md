@@ -16,7 +16,7 @@ Grant your ChatGPT connection access to the current linked entities in the gatew
 
 ## Get started
 
-1. Open the console and sign in with Google.
+1. Open the console and sign in with Google or AgentID.
 2. Choose **Devices → Add device** and create a device setup token.
 3. On the computer connected to your board, or on your Linux device, run:
 
@@ -32,6 +32,8 @@ Grant your ChatGPT connection access to the current linked entities in the gatew
 You can [inspect the setup script](https://www.openlaunch.dev/setup.sh) before running it. It fetches the current hosted download manifest and checks the selected helper or SDK against its SHA-256. You do not need to copy a workspace ID, put a credential in a command, or install this repository to pair an already-flashed board.
 
 ## Connect ChatGPT, Codex, Executor, or your own app
+
+**AgentID sign-in** lets an agent use its own verified identity through Clerk. A different Clerk account has a separate workspace; AgentID does not automatically link the agent to its human owner's devices. To access an existing workspace through MCP, API or `ol`, use that workspace's OAuth authorization or owner-issued agent API connection and approve its device functions. [AgentID setup and verification](docs/AGENTID.md).
 
 The authenticated MCP URL is:
 

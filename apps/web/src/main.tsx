@@ -9,7 +9,6 @@ import {
   SignIn,
   UserButton,
   useAuth,
-  useSignIn,
   HandleSSOCallback,
 } from "@clerk/react";
 import type { FunctionDefinition } from "../../../packages/core/src/functions.ts";
@@ -3128,9 +3127,7 @@ function AuthCardFrame({
   );
 }
 
-function GoogleSignIn() {
-  const { signIn, fetchStatus } = useSignIn();
-  const [error, setError] = useState("");
+function HostedSignIn() {
   const callback = new URLSearchParams(window.location.search).get("sso");
   if (callback === "callback")
     return (
@@ -3161,50 +3158,25 @@ function GoogleSignIn() {
         {" and acknowledge the "}
         <a href="/docs/privacy">Privacy Policy</a>.
       </p>
-      {callback === "verify" ? (
-        <SignIn
-          routing="hash"
-          fallbackRedirectUrl="/console/"
-          signUpFallbackRedirectUrl="/console/"
-        />
-      ) : (
-        <button
-          className="google-sign-in"
-          disabled={fetchStatus === "fetching"}
-          onClick={async () => {
-            setError("");
-            try {
-              const result = await signIn.sso({
-                strategy: "oauth_google",
-                redirectUrl: "/console/",
-                redirectCallbackUrl: "/console/?sso=callback",
-              });
-              if (result.error)
-                setError(
-                  result.error.longMessage ??
-                    result.error.message ??
-                    "Google sign-in could not start.",
-                );
-            } catch {
-              setError("Google sign-in could not start. Please try again.");
-            }
-          }}
-        >
-          {fetchStatus === "fetching"
-            ? "Opening Google sign-in…"
-            : "Continue with Google"}
-        </button>
-      )}
-      {fetchStatus === "fetching" && callback !== "verify" && (
-        <p role="status" aria-live="polite">
-          Waiting for Google sign-in to open.
-        </p>
-      )}
-      {error && (
-        <p role="alert" aria-live="assertive">
-          {error}
-        </p>
-      )}
+      <SignIn
+        routing="hash"
+        fallbackRedirectUrl="/console/"
+        signUpFallbackRedirectUrl="/console/"
+        appearance={{
+          elements: {
+            rootBox: { width: "100%", marginTop: "24px" },
+            cardBox: { width: "100%", boxShadow: "none" },
+            card: {
+              padding: 0,
+              background: "transparent",
+              boxShadow: "none",
+              border: 0,
+            },
+            header: { display: "none" },
+            footer: { background: "transparent" },
+          },
+        }}
+      />
     </AuthCardFrame>
   );
 }
@@ -3247,7 +3219,7 @@ function HostedApp() {
         </section>
       </AuthCardFrame>
     );
-  if (!isSignedIn) return <GoogleSignIn />;
+  if (!isSignedIn) return <HostedSignIn />;
   if (accountError)
     return (
       <AuthCardFrame signedIn>

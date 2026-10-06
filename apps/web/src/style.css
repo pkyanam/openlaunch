@@ -1154,13 +1154,6 @@ tr:last-child td {
   text-decoration: none;
 }
 
-.google-sign-in {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  margin: 20px auto 0;
-}
-
 .auth-docs {
   display: block;
   margin-top: 22px;

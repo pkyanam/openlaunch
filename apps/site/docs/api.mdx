@@ -29,7 +29,7 @@ The [ol CLI](/cli) follows this flow with `ol login`, `ol functions list`, `ol c
 
 ## Authentication
 
-Owner management uses an authenticated Clerk owner session. Google is the enabled sign-in provider; email/password sign-in is disabled. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant. OAuth uses PKCE.
+Owner management uses an authenticated Clerk console session. Google and AgentID are sign-in providers; email/password sign-in is disabled. A different account has its own workspace, and AgentID identity tokens cannot authenticate to the device API or MCP directly. Agent MCP uses an admitted OAuth client, the correct resource audience, `openlaunch:read`, and separate capability grants. `openlaunch:act` permits action requests but does not create a device grant. OAuth uses PKCE.
 
 Device setup and agent API access use separate owner-created credentials. A device setup token (`ol_sdk_…`) is short-lived and attach-only; by default it expires after 10 minutes and can attach one device. An agent API connection (`ol_agent_…`) can have read or action access but cannot attach devices. Each attached device gets a private child credential, and function grants remain separate. Existing untyped legacy connections may retain combined behavior; do not create them for new integrations. See the [SDK guide](/sdk).
 

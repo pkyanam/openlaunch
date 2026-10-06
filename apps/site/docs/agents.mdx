@@ -6,6 +6,14 @@ description: Connect any OAuth-capable MCP host or JavaScript agent to openlaunc
 
 Any OAuth-capable MCP host can connect to openlaunch. Agents can also use the openlaunch SDK with an owner-issued `ol_agent_` API connection. Device setup uses a separate short-lived `ol_sdk_` token and cannot authenticate an agent. Every agent connection follows the same per-device function grants; a credential alone does not grant access to a device.
 
+## Sign in with AgentID
+
+Choose **Continue with AgentID** on the [console sign-in page](https://www.openlaunch.dev/console/). Clerk uses AgentID's standard OpenID Connect flow to verify the agent's identity. If the browser is not enrolled, AgentID provides the enrollment instructions. Use your own AgentMail account; never paste its key into openlaunch or a conversation.
+
+AgentID is a sign-in provider, while openlaunch OAuth and API connections authorize device access. Signing in with a different Clerk account opens a separate workspace. The agent's identity and its human owner's identity are distinct; openlaunch does not merge workspaces by email or automatically share the owner's devices.
+
+To control devices in an existing workspace, its owner must authorize your MCP host through OAuth or create a separate agent API connection, then grant its functions under **Devices → Access**. AgentID sign-in alone does not issue an agent API credential or create a device-function grant. Device setup tokens remain attach-only. Connect the MCP host to `https://www.openlaunch.dev/mcp`, or use its agent API connection with `ol login`.
+
 ## Executor and custom OAuth clients
 
 Open **Connections → OAuth clients**, enter the application name and its exact callback URLs, and choose read access or read-and-action access. **Use Executor settings** fills `https://v2.executor.sh/api/oauth/callback`. Register a public PKCE client when your host supports it; its optional secret field stays empty. A confidential client uses PKCE plus a secret shown once. Copy that secret before leaving the tab; openlaunch does not store it.

@@ -4,7 +4,7 @@ description: How Belweave processes account, device and action information to op
 ---
 
 
-**Effective date: October 5, 2026**
+**Effective date: October 6, 2026**
 
 **Belweave** operates openlaunch at openlaunch.dev and is responsible for the processing described here. Contact [info@belweave.com](mailto:info@belweave.com) with privacy questions or requests.
 
@@ -12,7 +12,7 @@ We collect and log information needed to provide the service, enforce your permi
 
 ## Information processed
 
-- **Account and authentication:** Clerk handles sign-in and account management, including Google sign-in. That process can involve your name, email, profile image, account identifier, authentication sessions and security information. The openlaunch application verifies your identity and derives a workspace identifier from your verified account; its device workspace records do not store your Google password.
+- **Account and authentication:** Clerk handles sign-in and account management, including Google and AgentID sign-in. That process can involve your name, email, profile image, account identifier, authentication sessions and security information. AgentID identifies an agent through its own verified identity. The openlaunch application verifies your Clerk identity and derives a workspace identifier from that account; its device workspace records do not store your Google password or AgentMail API key. AgentID sign-in does not automatically link a human owner's workspace.
 - **Device and integration information:** device IDs, names, adapter types, function definitions and input schemas, last-seen status, agent connection identifiers, grants, expiry/revocation information and pairing records.
 - **Actions and results:** the requested function, device and agent identifiers, input arguments, results or errors, action status, timestamps, expiry and retry-correlation information. Inputs and results can contain personal information if your adapter or agent supplies it. Do not put passwords or unrelated sensitive information into them.
 - **Security records:** a bounded audit history of events such as pairing, permission changes, revocation and action state changes. Application audit entries contain an event, timestamp, principal and target identifier rather than a copy of your whole request.
@@ -29,6 +29,7 @@ Where a law requires a legal basis, the relevant bases are performance of our ag
 ## Providers and sharing
 
 - **Clerk** supplies hosted authentication and account infrastructure. See its [privacy information](https://clerk.com/legal/privacy) and [data processing terms](https://clerk.com/legal/dpa).
+- **AgentMail / AgentID** supplies optional agent identity verification when you choose AgentID sign-in. Its handling of identity and authentication information is described in the [AgentID privacy policy](https://www.agentid.com/privacy).
 - **Cloudflare** hosts the website and bridge, provides networking and abuse protection, and stores workspace data in SQLite-backed Durable Objects. Cloudflare may process network metadata, including IP addresses, under its [privacy policy](https://www.cloudflare.com/privacypolicy/).
 - **Your connected agents and devices** receive the information needed for operations you authorize. An agent can receive permitted device/function descriptions and command results. Review that provider's terms and privacy settings before linking it.
 - **GitHub** hosts source code and backup downloads. Visiting GitHub or downloading from it is subject to [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
