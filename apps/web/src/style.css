@@ -406,6 +406,11 @@ small,
   background: #fff8f8;
   border-color: #e7caca;
 }
+
+.notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .notice-dismiss {
   min-height: 26px;
   padding: 0 6px;

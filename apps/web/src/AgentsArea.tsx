@@ -152,10 +152,10 @@ export function AgentsArea({
         stepsResult,
       ] = await Promise.allSettled([
         api("/v1/workspaces"),
-        api("/v1/workspace/agents"),
-        api("/v1/access-policies"),
+        isManager ? api("/v1/workspace/agents") : Promise.resolve([]),
+        isManager ? api("/v1/access-policies") : Promise.resolve([]),
         api("/v1/access"),
-        api("/v1/onboarding"),
+        isManager ? api("/v1/onboarding") : Promise.resolve({ nextSteps: [] }),
       ]);
       if (workspacesResult.status === "fulfilled") {
         setWorkspaces(asArray<WorkspaceMembership>(workspacesResult.value));
@@ -191,7 +191,7 @@ export function AgentsArea({
         .map((title) => ({ title }));
       setSteps(loadedSteps.length ? loadedSteps : null);
     });
-  }, [api, run]);
+  }, [api, run, isManager]);
 
   useEffect(() => {
     void load();
@@ -318,6 +318,14 @@ export function AgentsArea({
           kind: "oauth",
         });
     }
+    for (const client of account.agentClients ?? []) {
+      if (!revoked.has(client) && !options.has(client))
+        options.set(client, {
+          value: client,
+          label: `${client === "https://chatgpt.com/oauth/client.json" ? "ChatGPT" : client === "https://chatgpt.com/oauth/codex/client.json" ? "Codex" : client} · OAuth client`,
+          kind: "oauth",
+        });
+    }
     for (const policy of policies ?? []) {
       if (!revoked.has(policy.principal) && !options.has(policy.principal))
         options.set(policy.principal, {
@@ -327,7 +335,7 @@ export function AgentsArea({
         });
     }
     return [...options.values()];
-  }, [members, connections, oauthConnections, policies]);
+  }, [members, connections, oauthConnections, policies, account.agentClients]);
 
   const [selectedPrincipal, setSelectedPrincipal] = useState("");
   const [draft, setDraft] = useState<AccessPolicy | null>(null);
@@ -350,7 +358,7 @@ export function AgentsArea({
           }
         : {
             principal: value,
-            mode: "all",
+            mode: "selected",
             excludedDevices: [],
             excludedFunctions: [],
             role:
@@ -612,7 +620,12 @@ export function AgentsArea({
 
       <section className="panel" aria-labelledby="members-title">
         <h3 id="members-title">Members</h3>
-        {members && members.length ? (
+        {!isManager ? (
+          <p>
+            The member list is available to the workspace owner and
+            administrators.
+          </p>
+        ) : members && members.length ? (
           <ul className="connection-list">
             {members.map((member) => {
               const self =
@@ -701,7 +714,6 @@ export function AgentsArea({
               >
                 <option value={600}>In 10 minutes</option>
                 <option value={3600}>In 1 hour</option>
-                <option value={86400}>In 24 hours</option>
               </select>
             </label>
             <button type="submit" disabled={busy || !inviteName.trim()}>

@@ -457,6 +457,7 @@ test("v2 management commands keep API-token workspace routing and contract bodie
           configDirectory,
         );
         const policy = {
+          delegatedFrom: "parent-agent",
           principal: "ol_agent_connection",
           mode: "all",
           excludedDevices: [deviceId],
@@ -563,6 +564,9 @@ test("v2 management commands keep API-token workspace routing and contract bodie
           /mode must be/,
         );
         assert.equal(hits.length, before);
+        const sdk = createClient({ url: origin, token: agentidToken });
+        await sdk.createDeviceSetupToken();
+        assert.deepEqual(hits.at(-1).body, { name: "Device setup" });
       });
     },
   );

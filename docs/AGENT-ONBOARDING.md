@@ -4,6 +4,8 @@ This document covers the ongoing agent onboarding feature: how a workspace owner
 
 Workspace membership routes, the access-policy model, the identity directory, MCP management tools and the `ol login --agentid` exchange are implemented in the cloud service, core and SDK. Automated acceptance exercises invitation admission, PKCE login, setup credentials, software-adapter actions, exclusions after restart and revocation. A live sign-in test requires an enrolled AgentID inbox; software fixtures do not establish physical device results.
 
+Live acceptance on October 6, 2026 completed AgentID sign-in through Clerk, PKCE CLI login, setup-token creation, software-adapter attachment, API/MCP/CLI action retry recovery, a returned result, policy exclusions and credential revocation. The enrolled agent also accepted an owner invitation, switched workspaces and obtained an operator CLI credential that discovered three devices and 45 functions without individual grants. Operator setup was denied; revoking membership immediately denied that CLI credential. Temporary device identities and credentials were revoked and private test credentials removed. These checks sent no commands to the owner's physical devices.
+
 ## Concepts
 
 - **Workspace** — the isolated record set derived from the owner's verified Clerk identity. Devices, grants, connections and audit records live inside it.
@@ -75,7 +77,7 @@ Workspace selection differs between the two login kinds:
 | GET | `/v1/access` | signed-in principal | Read the caller's effective access policy |
 | GET | `/v1/access-policies` | administrator/owner | List member access policies |
 | POST | `/v1/access-policies` | administrator/owner | Set a member's mode, exclusions and expiry |
-| GET | `/v1/onboarding` | signed-in principal | Read device, connection and access readiness with suggested next steps |
+| GET | `/v1/onboarding` | administrator/owner | Read device, connection and access readiness with suggested next steps |
 | POST | `/v1/cli-login/authorize` | verified browser session | Start an `ol login --agentid` exchange |
 | POST | `/v1/cli-login/exchange` | public (code + PKCE verifier) | Complete the exchange and receive the credential |
 

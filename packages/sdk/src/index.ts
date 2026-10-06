@@ -218,6 +218,7 @@ export interface AccessPolicy {
   excludedFunctions: Array<{ deviceId: string | null; capability: string }>;
   role: "operator" | "administrator";
   expiresAt: number | null;
+  delegatedFrom?: string;
 }
 
 /** Loose shapes for management endpoints; the server defines the full contract. */
@@ -401,13 +402,16 @@ function validateAccessPolicy(policy: AccessPolicy): AccessPolicy {
   if (value.role !== "operator" && value.role !== "administrator")
     throw new TypeError("access policy role must be operator or administrator");
   if (
-    !(
-      value.expiresAt === null ||
-      (typeof value.expiresAt === "number" &&
-        Number.isSafeInteger(value.expiresAt) &&
-        value.expiresAt >= 0)
-    )
+    value.delegatedFrom !== undefined &&
+    !isNonEmptyString(value.delegatedFrom, 128)
   )
+    throw new TypeError("delegatedFrom must be a principal ID");
+  if (!(
+    value.expiresAt === null ||
+    (typeof value.expiresAt === "number" &&
+      Number.isSafeInteger(value.expiresAt) &&
+      value.expiresAt >= 0)
+  ))
     throw new TypeError("access policy expiresAt must be a timestamp or null");
   return {
     principal: value.principal,
@@ -419,6 +423,9 @@ function validateAccessPolicy(policy: AccessPolicy): AccessPolicy {
     })),
     role: value.role,
     expiresAt: value.expiresAt as number | null,
+    ...(value.delegatedFrom === undefined
+      ? {}
+      : { delegatedFrom: value.delegatedFrom }),
   };
 }
 
@@ -552,7 +559,7 @@ export function createClient(options: ClientOptions) {
       return request<ConnectionInfo>(
         "/v1/device-setup-tokens",
         json("POST", {
-          ...(input.name === undefined ? {} : { name: input.name }),
+          name: input.name ?? "Device setup",
           ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
           ...(input.deviceLimit === undefined
             ? {}
