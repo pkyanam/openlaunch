@@ -6,7 +6,7 @@ description: Explore authentication, device grants, action requests, custom func
 
 The web console, MCP and device clients use the same command service and permission checks.
 
-Use the [generated endpoint reference](/reference) for every endpoint's request and response schema, authentication, errors and examples. [Download the OpenAPI 3.1 contract](/device-api.json) for your tooling. It is generated from shared request validators on each build. The site's separate `/openapi.json` describes its public documentation JSON API.
+Use the [generated endpoint reference](/reference) for every endpoint's request and response schema, authentication, errors and examples. [Download the OpenAPI 3.1 contract](/device-api.json) for your tooling; `/openapi.json` is the canonical URL for the same contract. It is generated from shared request validators on each build. The site's separate `/docs-openapi.json` describes its public read-only documentation JSON API.
 
 The hosted base URL is `{{api-url}}`. The reference's **Try it** panel sends a real request to this service when you press Send. Supply the correct credential for the endpoint and only request an action you intend to run. It does not acquire owner sessions, create grants for an agent or automatically connect your OAuth account. Credentials stay in browser memory unless you explicitly enable the panel's Remember setting.
 

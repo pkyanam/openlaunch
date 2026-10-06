@@ -1,4 +1,5 @@
 import { installerManifest } from "./installers.mjs";
+import { publishDiscovery } from "./discovery.mjs";
 import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { cpSync } from "node:fs";
@@ -222,7 +223,8 @@ writeFileSync(
   (existsSync("dist/client/_headers")
     ? readFileSync("dist/client/_headers", "utf8")
     : "") +
-    "\n/*.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/*\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/*.py\n  Content-Type: text/plain; charset=utf-8\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n",
+    "\n/*.sh\n  Content-Type: text/plain; charset=utf-8\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/*\n  Cache-Control: public, max-age=0, must-revalidate\n/downloads/*.py\n  Content-Type: text/plain; charset=utf-8\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  X-Frame-Options: DENY\n" +
+    publishDiscovery("dist/client", origin),
 );
 // Blume 2.1.1's generated 404 ignores the custom Logo slot and omits raster dimensions.
 const notFoundPath = "dist/client/404.html";

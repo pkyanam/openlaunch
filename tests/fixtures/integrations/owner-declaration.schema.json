@@ -1,0 +1,2599 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "enum": [3]
+    },
+    "summary": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "credentials": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "api_key",
+                  "basic",
+                  "bearer",
+                  "oauth2",
+                  "oauth2_cc",
+                  "oauth1",
+                  "jwt",
+                  "app",
+                  "two_step",
+                  "signature",
+                  "aws_sigv4",
+                  "tba",
+                  "compound",
+                  "custom"
+                ],
+                "description": "The credential strategy (Nango-derived). Exotic modes are named but executed lazily (the flow is in `setup`)."
+              },
+              "label": {
+                "type": "string",
+                "description": "Human label, e.g. 'Cloudflare API token'."
+              },
+              "generateUrl": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "Where the user mints/registers the credential."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "setup": {
+                "type": "string",
+                "description": "Markdown: the human acquisition guide — where to go, what to click, gotchas."
+              },
+              "acquisition": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["manual", "ambient"],
+                    "description": "manual (default) | ambient (env-injected, e.g. CI tokens — no acquisition step)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "fields": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "secret": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "description": "Named sub-secrets for ANY inherently multi-part credential (compound, app/GitHub-App's appId+privateKey+clientId+clientSecret, a basic email+token pair). Absent when the credential is a single secret."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["type", "label", "setup"],
+            "additionalProperties": false,
+            "description": "A credential the service issues — what it is and where you get it. Defined ONCE in the registry; referenced by surface auth via id."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "surfaces": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["http"]
+                  },
+                  "spec": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "OpenAPI doc URL — a POINTER, never inlined. Absent = specless REST; auth mechanics are then http/unknown, not spec."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "specAlternates": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Additional machine-readable spec documents for the SAME API in other formats (e.g. the YAML twin of a JSON OpenAPI doc)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "url": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Base URL — when there's no spec, or not derivable from the spec's `servers`."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "patch": {
+                    "anyOf": [
+                      {
+                        "description": "securityScheme overrides for when the spec is wrong or missing a scheme."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "slug": {
+                    "type": "string",
+                    "description": "Stable identity and URL segment (/{domain}/{slug}/). Assigned SERVER-SIDE at record time (slugified name, deduped within the result) — the model never produces it. On re-discovery, a surface matching a previous one by locator (url/spec/command) KEEPS its prior slug even if renamed, so links never break."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name. NOT identity — may change across runs; `slug` is the stable key."
+                  },
+                  "docs": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Human docs URL."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "basis": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["detected"]
+                          },
+                          "signal": {
+                            "type": "string",
+                            "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                          },
+                          "verifiedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["via", "signal"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["discovered"]
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                          }
+                        },
+                        "required": ["via", "evidence"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["declared"]
+                          },
+                          "source": {
+                            "type": "string",
+                            "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                          }
+                        },
+                        "required": ["via", "source"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                  },
+                  "auth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["none"]
+                          },
+                          "basis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["detected"]
+                                  },
+                                  "signal": {
+                                    "type": "string",
+                                    "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                  },
+                                  "verifiedAt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["via", "signal"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["discovered"]
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                  }
+                                },
+                                "required": ["via", "evidence"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["declared"]
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                  }
+                                },
+                                "required": ["via", "source"],
+                                "additionalProperties": false
+                              }
+                            ],
+                            "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                          }
+                        },
+                        "required": ["status", "basis"],
+                        "additionalProperties": false,
+                        "description": "Confirmed public — no credential needed. `basis.via:detected` (a probe got a clean unauthenticated response) outranks `discovered` (the docs said so)."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["required"]
+                          },
+                          "entries": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "use": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "References `credentials[id]`."
+                                      },
+                                      "mechanics": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["spec"]
+                                              },
+                                              "scheme": {
+                                                "type": "string",
+                                                "description": "The OpenAPI securityScheme NAME this one credential satisfies (the AND of multiple is carried by AuthEntry.use, not here)."
+                                              }
+                                            },
+                                            "required": ["source", "scheme"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["well-known"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Derives from the surface `url` via RFC 9728/8414 (MCP OAuth). Nothing to store — re-resolvable."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["metadata"]
+                                              },
+                                              "url": {
+                                                "type": "string",
+                                                "description": "The non-standard location of the well-known metadata (an override)."
+                                              }
+                                            },
+                                            "required": ["source", "url"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["http"]
+                                              },
+                                              "in": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "header",
+                                                      "query",
+                                                      "body",
+                                                      "path"
+                                                    ],
+                                                    "description": "Where the credential rides. Default: header."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "headerName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP header name, e.g. 'Authorization'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "scheme": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP auth scheme prefix, e.g. 'Bearer'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "paramName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "Query/body parameter name."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential rides on the HTTP request itself."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["cli"]
+                                              },
+                                              "command": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "A command to run, e.g. 'wrangler login'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "env": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "array",
+                                                    "items": {
+                                                      "type": "string"
+                                                    },
+                                                    "description": "Env var(s) to set, e.g. ['CLOUDFLARE_API_TOKEN']."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential enters through a CLI login flow or environment variables."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["unknown"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Confirmed to exist, but the binding mechanics weren't captured."
+                                          }
+                                        ],
+                                        "description": "How a credential binds to a surface. `source` also signals knowledge state: spec/well-known/metadata/http/cli = known; unknown = unresolved."
+                                      }
+                                    },
+                                    "required": ["id", "mechanics"],
+                                    "additionalProperties": false,
+                                    "description": "One credential and how THIS credential is bound on this surface."
+                                  },
+                                  "description": "Credentials sent TOGETHER (AND) for this one way in — each with its own placement."
+                                },
+                                "basis": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["detected"]
+                                        },
+                                        "signal": {
+                                          "type": "string",
+                                          "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                        },
+                                        "verifiedAt": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": ["via", "signal"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["discovered"]
+                                        },
+                                        "evidence": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          },
+                                          "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                        }
+                                      },
+                                      "required": ["via", "evidence"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["declared"]
+                                        },
+                                        "source": {
+                                          "type": "string",
+                                          "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                        }
+                                      },
+                                      "required": ["via", "source"],
+                                      "additionalProperties": false
+                                    }
+                                  ],
+                                  "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                                }
+                              },
+                              "required": ["use", "basis"],
+                              "additionalProperties": false,
+                              "description": "One way to authenticate to a surface. Sibling entries are OR alternatives (any one works)."
+                            },
+                            "description": "OR alternatives — at least one is needed."
+                          }
+                        },
+                        "required": ["status", "entries"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["unknown"]
+                          }
+                        },
+                        "required": ["status"],
+                        "additionalProperties": false,
+                        "description": "Auth not yet determined (NOT the same as public)."
+                      }
+                    ],
+                    "description": "A surface's auth requirement: none | required | unknown."
+                  },
+                  "requiredHeaders": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "source": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["static"]
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "value"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["env"]
+                                    },
+                                    "envVar": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "envVar"],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name", "source"],
+                          "additionalProperties": false,
+                          "description": "A mandatory non-auth header (e.g. a version pin like anthropic-version)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "variables": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": "A token substituted wherever `{name}` appears in the surface url (e.g. {project_ref} → {project_ref}.supabase.co)."
+                            },
+                            "in": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": ["url", "header", "query"],
+                                  "description": "Default 'url' (templated into the url, incl. hostname). Set only when it goes elsewhere."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "resolveFrom": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false,
+                          "description": "An instance/region identifier needed to build the request (project_ref, cloudId)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["type", "slug", "name", "basis", "auth"],
+                "additionalProperties": false,
+                "description": "A REST/HTTP API, with or without an OpenAPI spec (spec present ⇒ machine-readable)."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["graphql"]
+                  },
+                  "url": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Expected — a GraphQL schema has no endpoint, so this is how you reach it."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "spec": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "'introspection' or an SDL URL."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "specAlternates": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Additional machine-readable spec documents for the SAME API in other formats (e.g. the YAML twin of a JSON OpenAPI doc)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "slug": {
+                    "type": "string",
+                    "description": "Stable identity and URL segment (/{domain}/{slug}/). Assigned SERVER-SIDE at record time (slugified name, deduped within the result) — the model never produces it. On re-discovery, a surface matching a previous one by locator (url/spec/command) KEEPS its prior slug even if renamed, so links never break."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name. NOT identity — may change across runs; `slug` is the stable key."
+                  },
+                  "docs": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Human docs URL."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "basis": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["detected"]
+                          },
+                          "signal": {
+                            "type": "string",
+                            "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                          },
+                          "verifiedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["via", "signal"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["discovered"]
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                          }
+                        },
+                        "required": ["via", "evidence"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["declared"]
+                          },
+                          "source": {
+                            "type": "string",
+                            "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                          }
+                        },
+                        "required": ["via", "source"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                  },
+                  "auth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["none"]
+                          },
+                          "basis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["detected"]
+                                  },
+                                  "signal": {
+                                    "type": "string",
+                                    "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                  },
+                                  "verifiedAt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["via", "signal"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["discovered"]
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                  }
+                                },
+                                "required": ["via", "evidence"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["declared"]
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                  }
+                                },
+                                "required": ["via", "source"],
+                                "additionalProperties": false
+                              }
+                            ],
+                            "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                          }
+                        },
+                        "required": ["status", "basis"],
+                        "additionalProperties": false,
+                        "description": "Confirmed public — no credential needed. `basis.via:detected` (a probe got a clean unauthenticated response) outranks `discovered` (the docs said so)."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["required"]
+                          },
+                          "entries": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "use": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "References `credentials[id]`."
+                                      },
+                                      "mechanics": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["spec"]
+                                              },
+                                              "scheme": {
+                                                "type": "string",
+                                                "description": "The OpenAPI securityScheme NAME this one credential satisfies (the AND of multiple is carried by AuthEntry.use, not here)."
+                                              }
+                                            },
+                                            "required": ["source", "scheme"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["well-known"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Derives from the surface `url` via RFC 9728/8414 (MCP OAuth). Nothing to store — re-resolvable."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["metadata"]
+                                              },
+                                              "url": {
+                                                "type": "string",
+                                                "description": "The non-standard location of the well-known metadata (an override)."
+                                              }
+                                            },
+                                            "required": ["source", "url"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["http"]
+                                              },
+                                              "in": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "header",
+                                                      "query",
+                                                      "body",
+                                                      "path"
+                                                    ],
+                                                    "description": "Where the credential rides. Default: header."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "headerName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP header name, e.g. 'Authorization'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "scheme": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP auth scheme prefix, e.g. 'Bearer'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "paramName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "Query/body parameter name."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential rides on the HTTP request itself."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["cli"]
+                                              },
+                                              "command": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "A command to run, e.g. 'wrangler login'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "env": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "array",
+                                                    "items": {
+                                                      "type": "string"
+                                                    },
+                                                    "description": "Env var(s) to set, e.g. ['CLOUDFLARE_API_TOKEN']."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential enters through a CLI login flow or environment variables."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["unknown"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Confirmed to exist, but the binding mechanics weren't captured."
+                                          }
+                                        ],
+                                        "description": "How a credential binds to a surface. `source` also signals knowledge state: spec/well-known/metadata/http/cli = known; unknown = unresolved."
+                                      }
+                                    },
+                                    "required": ["id", "mechanics"],
+                                    "additionalProperties": false,
+                                    "description": "One credential and how THIS credential is bound on this surface."
+                                  },
+                                  "description": "Credentials sent TOGETHER (AND) for this one way in — each with its own placement."
+                                },
+                                "basis": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["detected"]
+                                        },
+                                        "signal": {
+                                          "type": "string",
+                                          "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                        },
+                                        "verifiedAt": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": ["via", "signal"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["discovered"]
+                                        },
+                                        "evidence": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          },
+                                          "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                        }
+                                      },
+                                      "required": ["via", "evidence"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["declared"]
+                                        },
+                                        "source": {
+                                          "type": "string",
+                                          "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                        }
+                                      },
+                                      "required": ["via", "source"],
+                                      "additionalProperties": false
+                                    }
+                                  ],
+                                  "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                                }
+                              },
+                              "required": ["use", "basis"],
+                              "additionalProperties": false,
+                              "description": "One way to authenticate to a surface. Sibling entries are OR alternatives (any one works)."
+                            },
+                            "description": "OR alternatives — at least one is needed."
+                          }
+                        },
+                        "required": ["status", "entries"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["unknown"]
+                          }
+                        },
+                        "required": ["status"],
+                        "additionalProperties": false,
+                        "description": "Auth not yet determined (NOT the same as public)."
+                      }
+                    ],
+                    "description": "A surface's auth requirement: none | required | unknown."
+                  },
+                  "requiredHeaders": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "source": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["static"]
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "value"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["env"]
+                                    },
+                                    "envVar": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "envVar"],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name", "source"],
+                          "additionalProperties": false,
+                          "description": "A mandatory non-auth header (e.g. a version pin like anthropic-version)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "variables": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": "A token substituted wherever `{name}` appears in the surface url (e.g. {project_ref} → {project_ref}.supabase.co)."
+                            },
+                            "in": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": ["url", "header", "query"],
+                                  "description": "Default 'url' (templated into the url, incl. hostname). Set only when it goes elsewhere."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "resolveFrom": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false,
+                          "description": "An instance/region identifier needed to build the request (project_ref, cloudId)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["type", "slug", "name", "basis", "auth"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["mcp"]
+                  },
+                  "url": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "The MCP connect endpoint (NOT a docs page)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "transports": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "streamable-http | sse (server.json `remotes[].type`)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "slug": {
+                    "type": "string",
+                    "description": "Stable identity and URL segment (/{domain}/{slug}/). Assigned SERVER-SIDE at record time (slugified name, deduped within the result) — the model never produces it. On re-discovery, a surface matching a previous one by locator (url/spec/command) KEEPS its prior slug even if renamed, so links never break."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name. NOT identity — may change across runs; `slug` is the stable key."
+                  },
+                  "docs": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Human docs URL."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "basis": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["detected"]
+                          },
+                          "signal": {
+                            "type": "string",
+                            "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                          },
+                          "verifiedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["via", "signal"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["discovered"]
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                          }
+                        },
+                        "required": ["via", "evidence"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["declared"]
+                          },
+                          "source": {
+                            "type": "string",
+                            "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                          }
+                        },
+                        "required": ["via", "source"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                  },
+                  "auth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["none"]
+                          },
+                          "basis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["detected"]
+                                  },
+                                  "signal": {
+                                    "type": "string",
+                                    "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                  },
+                                  "verifiedAt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["via", "signal"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["discovered"]
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                  }
+                                },
+                                "required": ["via", "evidence"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["declared"]
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                  }
+                                },
+                                "required": ["via", "source"],
+                                "additionalProperties": false
+                              }
+                            ],
+                            "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                          }
+                        },
+                        "required": ["status", "basis"],
+                        "additionalProperties": false,
+                        "description": "Confirmed public — no credential needed. `basis.via:detected` (a probe got a clean unauthenticated response) outranks `discovered` (the docs said so)."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["required"]
+                          },
+                          "entries": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "use": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "References `credentials[id]`."
+                                      },
+                                      "mechanics": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["spec"]
+                                              },
+                                              "scheme": {
+                                                "type": "string",
+                                                "description": "The OpenAPI securityScheme NAME this one credential satisfies (the AND of multiple is carried by AuthEntry.use, not here)."
+                                              }
+                                            },
+                                            "required": ["source", "scheme"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["well-known"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Derives from the surface `url` via RFC 9728/8414 (MCP OAuth). Nothing to store — re-resolvable."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["metadata"]
+                                              },
+                                              "url": {
+                                                "type": "string",
+                                                "description": "The non-standard location of the well-known metadata (an override)."
+                                              }
+                                            },
+                                            "required": ["source", "url"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["http"]
+                                              },
+                                              "in": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "header",
+                                                      "query",
+                                                      "body",
+                                                      "path"
+                                                    ],
+                                                    "description": "Where the credential rides. Default: header."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "headerName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP header name, e.g. 'Authorization'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "scheme": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP auth scheme prefix, e.g. 'Bearer'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "paramName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "Query/body parameter name."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential rides on the HTTP request itself."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["cli"]
+                                              },
+                                              "command": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "A command to run, e.g. 'wrangler login'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "env": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "array",
+                                                    "items": {
+                                                      "type": "string"
+                                                    },
+                                                    "description": "Env var(s) to set, e.g. ['CLOUDFLARE_API_TOKEN']."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential enters through a CLI login flow or environment variables."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["unknown"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Confirmed to exist, but the binding mechanics weren't captured."
+                                          }
+                                        ],
+                                        "description": "How a credential binds to a surface. `source` also signals knowledge state: spec/well-known/metadata/http/cli = known; unknown = unresolved."
+                                      }
+                                    },
+                                    "required": ["id", "mechanics"],
+                                    "additionalProperties": false,
+                                    "description": "One credential and how THIS credential is bound on this surface."
+                                  },
+                                  "description": "Credentials sent TOGETHER (AND) for this one way in — each with its own placement."
+                                },
+                                "basis": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["detected"]
+                                        },
+                                        "signal": {
+                                          "type": "string",
+                                          "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                        },
+                                        "verifiedAt": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": ["via", "signal"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["discovered"]
+                                        },
+                                        "evidence": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          },
+                                          "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                        }
+                                      },
+                                      "required": ["via", "evidence"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["declared"]
+                                        },
+                                        "source": {
+                                          "type": "string",
+                                          "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                        }
+                                      },
+                                      "required": ["via", "source"],
+                                      "additionalProperties": false
+                                    }
+                                  ],
+                                  "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                                }
+                              },
+                              "required": ["use", "basis"],
+                              "additionalProperties": false,
+                              "description": "One way to authenticate to a surface. Sibling entries are OR alternatives (any one works)."
+                            },
+                            "description": "OR alternatives — at least one is needed."
+                          }
+                        },
+                        "required": ["status", "entries"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["unknown"]
+                          }
+                        },
+                        "required": ["status"],
+                        "additionalProperties": false,
+                        "description": "Auth not yet determined (NOT the same as public)."
+                      }
+                    ],
+                    "description": "A surface's auth requirement: none | required | unknown."
+                  },
+                  "requiredHeaders": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "source": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["static"]
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "value"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["env"]
+                                    },
+                                    "envVar": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "envVar"],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name", "source"],
+                          "additionalProperties": false,
+                          "description": "A mandatory non-auth header (e.g. a version pin like anthropic-version)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "variables": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": "A token substituted wherever `{name}` appears in the surface url (e.g. {project_ref} → {project_ref}.supabase.co)."
+                            },
+                            "in": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": ["url", "header", "query"],
+                                  "description": "Default 'url' (templated into the url, incl. hostname). Set only when it goes elsewhere."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "resolveFrom": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false,
+                          "description": "An instance/region identifier needed to build the request (project_ref, cloudId)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["type", "slug", "name", "basis", "auth"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["cli"]
+                  },
+                  "packages": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "registryType": {
+                              "type": "string",
+                              "description": "npm | pypi | oci | brew | …"
+                            },
+                            "identifier": {
+                              "type": "string"
+                            },
+                            "runtimeHint": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "description": "npx | uvx | …"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["registryType", "identifier"],
+                          "additionalProperties": false
+                        },
+                        "description": "Install options (server.json `packages` shape)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "command": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "The command name, e.g. 'wrangler'."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "slug": {
+                    "type": "string",
+                    "description": "Stable identity and URL segment (/{domain}/{slug}/). Assigned SERVER-SIDE at record time (slugified name, deduped within the result) — the model never produces it. On re-discovery, a surface matching a previous one by locator (url/spec/command) KEEPS its prior slug even if renamed, so links never break."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name. NOT identity — may change across runs; `slug` is the stable key."
+                  },
+                  "docs": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "Human docs URL."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "basis": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["detected"]
+                          },
+                          "signal": {
+                            "type": "string",
+                            "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                          },
+                          "verifiedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["via", "signal"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["discovered"]
+                          },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                          }
+                        },
+                        "required": ["via", "evidence"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "via": {
+                            "type": "string",
+                            "enum": ["declared"]
+                          },
+                          "source": {
+                            "type": "string",
+                            "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                          }
+                        },
+                        "required": ["via", "source"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                  },
+                  "auth": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["none"]
+                          },
+                          "basis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["detected"]
+                                  },
+                                  "signal": {
+                                    "type": "string",
+                                    "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                  },
+                                  "verifiedAt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["via", "signal"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["discovered"]
+                                  },
+                                  "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                  }
+                                },
+                                "required": ["via", "evidence"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "via": {
+                                    "type": "string",
+                                    "enum": ["declared"]
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                  }
+                                },
+                                "required": ["via", "source"],
+                                "additionalProperties": false
+                              }
+                            ],
+                            "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                          }
+                        },
+                        "required": ["status", "basis"],
+                        "additionalProperties": false,
+                        "description": "Confirmed public — no credential needed. `basis.via:detected` (a probe got a clean unauthenticated response) outranks `discovered` (the docs said so)."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["required"]
+                          },
+                          "entries": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "use": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "References `credentials[id]`."
+                                      },
+                                      "mechanics": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["spec"]
+                                              },
+                                              "scheme": {
+                                                "type": "string",
+                                                "description": "The OpenAPI securityScheme NAME this one credential satisfies (the AND of multiple is carried by AuthEntry.use, not here)."
+                                              }
+                                            },
+                                            "required": ["source", "scheme"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["well-known"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Derives from the surface `url` via RFC 9728/8414 (MCP OAuth). Nothing to store — re-resolvable."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["metadata"]
+                                              },
+                                              "url": {
+                                                "type": "string",
+                                                "description": "The non-standard location of the well-known metadata (an override)."
+                                              }
+                                            },
+                                            "required": ["source", "url"],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["http"]
+                                              },
+                                              "in": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "header",
+                                                      "query",
+                                                      "body",
+                                                      "path"
+                                                    ],
+                                                    "description": "Where the credential rides. Default: header."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "headerName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP header name, e.g. 'Authorization'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "scheme": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "HTTP auth scheme prefix, e.g. 'Bearer'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "paramName": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "Query/body parameter name."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential rides on the HTTP request itself."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["cli"]
+                                              },
+                                              "command": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "description": "A command to run, e.g. 'wrangler login'."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "env": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "array",
+                                                    "items": {
+                                                      "type": "string"
+                                                    },
+                                                    "description": "Env var(s) to set, e.g. ['CLOUDFLARE_API_TOKEN']."
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Agent-read from docs: the credential enters through a CLI login flow or environment variables."
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": ["unknown"]
+                                              }
+                                            },
+                                            "required": ["source"],
+                                            "additionalProperties": false,
+                                            "description": "Confirmed to exist, but the binding mechanics weren't captured."
+                                          }
+                                        ],
+                                        "description": "How a credential binds to a surface. `source` also signals knowledge state: spec/well-known/metadata/http/cli = known; unknown = unresolved."
+                                      }
+                                    },
+                                    "required": ["id", "mechanics"],
+                                    "additionalProperties": false,
+                                    "description": "One credential and how THIS credential is bound on this surface."
+                                  },
+                                  "description": "Credentials sent TOGETHER (AND) for this one way in — each with its own placement."
+                                },
+                                "basis": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["detected"]
+                                        },
+                                        "signal": {
+                                          "type": "string",
+                                          "description": "A re-verifiable machine signal the service publishes (e.g. '.well-known/api-catalog', 'oauth-protected-resource', 'openapi:securitySchemes')."
+                                        },
+                                        "verifiedAt": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "description": "ISO timestamp the signal was last re-verified — detected facts age independently of the run that first found them."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": ["via", "signal"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["discovered"]
+                                        },
+                                        "evidence": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          },
+                                          "description": "Doc URLs the agent read to confirm this. Point-in-time, prose-derived."
+                                        }
+                                      },
+                                      "required": ["via", "evidence"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "via": {
+                                          "type": "string",
+                                          "enum": ["declared"]
+                                        },
+                                        "source": {
+                                          "type": "string",
+                                          "description": "The owner-published integrations.json URL that declared this surface or auth entry."
+                                        }
+                                      },
+                                      "required": ["via", "source"],
+                                      "additionalProperties": false
+                                    }
+                                  ],
+                                  "description": "How we learned a thing exists. `detected` = asserted by a machine signal (high trust, re-verifiable); `discovered` = the agent read it from docs; `declared` = published by the site owner."
+                                }
+                              },
+                              "required": ["use", "basis"],
+                              "additionalProperties": false,
+                              "description": "One way to authenticate to a surface. Sibling entries are OR alternatives (any one works)."
+                            },
+                            "description": "OR alternatives — at least one is needed."
+                          }
+                        },
+                        "required": ["status", "entries"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["unknown"]
+                          }
+                        },
+                        "required": ["status"],
+                        "additionalProperties": false,
+                        "description": "Auth not yet determined (NOT the same as public)."
+                      }
+                    ],
+                    "description": "A surface's auth requirement: none | required | unknown."
+                  },
+                  "requiredHeaders": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "source": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["static"]
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "value"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["env"]
+                                    },
+                                    "envVar": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["kind", "envVar"],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name", "source"],
+                          "additionalProperties": false,
+                          "description": "A mandatory non-auth header (e.g. a version pin like anthropic-version)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "variables": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": "A token substituted wherever `{name}` appears in the surface url (e.g. {project_ref} → {project_ref}.supabase.co)."
+                            },
+                            "in": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": ["url", "header", "query"],
+                                  "description": "Default 'url' (templated into the url, incl. hostname). Set only when it goes elsewhere."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "resolveFrom": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "description": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false,
+                          "description": "An instance/region identifier needed to build the request (project_ref, cloudId)."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["type", "slug", "name", "basis", "auth"],
+                "additionalProperties": false
+              }
+            ],
+            "description": "One integration surface. Per-`type` fields: http carries spec/url/patch; graphql carries url+spec; mcp carries url+transports; cli carries packages+command."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": ["version"],
+  "additionalProperties": false,
+  "description": "Owner-authored subset of DiscoveryResult v3 accepted at /.well-known/integrations.json."
+}

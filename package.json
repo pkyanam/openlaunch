@@ -31,7 +31,7 @@
     "provision:uno": "python3 scripts/provision-uno.py",
     "provision:roomba": "python3 scripts/provision-roomba.py",
     "build:site": "npm run build --workspace @openlaunch/site",
-    "check:site": "npm run validate --workspace @openlaunch/site && npm run audit --workspace @openlaunch/site && node scripts/check-docs-mcp.mjs",
+    "check:site": "npm run validate --workspace @openlaunch/site && npm run audit --workspace @openlaunch/site && node scripts/check-docs-mcp.mjs && node --import tsx scripts/check-discovery.mjs",
     "setup": "npm ci && npm run build --workspace @openlaunch/web && node scripts/start-local.mjs",
     "start:local": "node scripts/start-local.mjs",
     "test:cloud-storage": "node scripts/verify-cloud-storage.mjs",

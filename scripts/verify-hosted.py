@@ -9,6 +9,7 @@ import subprocess
 import time
 import tarfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,8 +21,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 opener = urllib.request.build_opener(NoRedirect())
 
-def response(url, limit=1_048_576):
-    request = urllib.request.Request(url, headers={'User-Agent': 'openlaunch-verification/1', 'Cache-Control': 'no-cache'})
+def response(url, limit=1_048_576, method='GET'):
+    request = urllib.request.Request(url, method=method, headers={'User-Agent': 'openlaunch-verification/1', 'Cache-Control': 'no-cache'})
     try:
         result = opener.open(request, timeout=15)
     except urllib.error.HTTPError as error:
@@ -31,6 +32,37 @@ def response(url, limit=1_048_576):
         if len(body) > limit:
             raise ValueError('response exceeds verification limit')
         return result.status, result.headers, body
+
+def verify_discovery(contract):
+    documents = {}
+    for path in ['/openapi.json', '/docs-openapi.json', '/.well-known/integrations.json',
+                 '/.well-known/mcp/server-card.json', '/.well-known/mcp/docs-server-card.json',
+                 '/.well-known/mcp.json', '/.well-known/api-catalog', '/.well-known/agent-skills/index.json']:
+        status, headers, body = response(ORIGIN + path)
+        expected = 'application/linkset+json' if path.endswith('/api-catalog') else 'application/json'
+        assert status == 200 and headers.get('Content-Type', '').startswith(expected), 'discovery unavailable or wrong media type: ' + path
+        assert 'public' in headers.get('Cache-Control', '') and 'max-age=3600' in headers.get('Cache-Control', ''), 'discovery must be publicly cacheable: ' + path
+        documents[path] = json.loads(body)
+    assert documents['/openapi.json'] == contract, 'canonical OpenAPI must describe the device API'
+    assert '/api/docs/pages.json' in documents['/docs-openapi.json']['paths'], 'docs OpenAPI unavailable'
+    declaration = documents['/.well-known/integrations.json']
+    assert declaration.get('version') == 3 and len(declaration['surfaces']) == 5, 'incomplete integration declaration'
+    assert sorted(surface['type'] for surface in declaration['surfaces']) == ['cli', 'http', 'http', 'mcp', 'mcp'], 'surface types mismatch'
+    card = documents['/.well-known/mcp/server-card.json']
+    assert card['url'] == ORIGIN + '/mcp' and card['authentication']['type'] == 'oauth2', 'device MCP card mismatch'
+    assert documents['/.well-known/mcp/docs-server-card.json']['url'] == ORIGIN + '/docs-mcp', 'docs MCP card mismatch'
+    status, _, body = response(ORIGIN + '/.well-known/oauth-protected-resource/mcp')
+    resource = json.loads(body)
+    assert status == 200 and resource['resource'] == card['url'], 'OAuth resource mismatch'
+    assert card['authentication']['authorization_server'] in resource['authorization_servers'], 'OAuth issuer mismatch'
+    status, headers, _ = response(ORIGIN + '/.well-known/api-catalog', method='HEAD')
+    assert status == 200 and 'rel="api-catalog"' in headers.get('Link', ''), 'catalog HEAD must advertise its link relation'
+    assert 'https://www.rfc-editor.org/info/rfc9727' in headers.get('Content-Type', ''), 'catalog profile missing'
+    skills = documents['/.well-known/agent-skills/index.json']['skills']
+    assert sorted(skill['name'] for skill in skills) == ['openlaunch', 'openlaunch-device-control'], 'device skill missing'
+    for skill in skills:
+        status, _, body = response(urllib.parse.urljoin(ORIGIN, skill['url']))
+        assert status == 200 and skill['digest'] == 'sha256:' + hashlib.sha256(body).hexdigest(), 'skill artifact checksum mismatch: ' + skill['name']
 
 def verify(commit):
     status, _, body = response(ORIGIN + '/deployment.json')
@@ -59,6 +91,7 @@ def verify(commit):
     assert '/v1/functions' in contract['paths'] and '/v1/device/{deviceId}/result' in contract['paths'], 'device API routes missing'
     for path in ['/v1/devices/{deviceId}/gateway-grants', '/v1/device/{deviceId}/children', '/v1/device/{deviceId}/children/status']:
         assert path in contract['paths'], 'gateway API route missing: ' + path
+    verify_discovery(contract)
     for public, expected in [('/docs/cli.md', b'ol login'),
                              ('/docs/linux.md', b'openlaunch-host start'),
                              ('/docs/home-assistant.md', b'openlaunch-ha'),
