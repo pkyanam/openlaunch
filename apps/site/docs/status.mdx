@@ -56,3 +56,9 @@ after reconnection. The idle robot is left in Passive mode for charging.
 The ESP image and device pairing were preserved; D6/D7 are unused. No cleaning,
 docking or motion command was issued during this acceptance check. A serial
 reply and a transmitted opcode do not prove physical cleaning.
+
+## Home Assistant acceptance
+
+On October 6, 2026, a disposable real Home Assistant 2026.9.4 installation completed discovery, MCP invocation, Toggle on/off, a named script, fresh state reads and exact idempotent retries through the local outbound gateway and HTTP bridge. Device/entity/area registry discovery also completed. The HA app container built, and the packaged CLI installed and ran under Node 24. This tests real HA software and virtual helpers; it does not establish HA OS Supervisor installation, the owner's HA connection or physical device operation.
+
+Cloudflare workerd acceptance persisted gateway children and receipts across restart, delivered child actions through the parent credential, sent a parent WebSocket wake hint and admitted bounded complete inventory reconciliation. Unit checks cover no implicit grants, read-only scope, child isolation, expiry, revocation, catalog changes, native target filters, data bounds, key-order retries and saved receipt delivery without repeating a service. CI boots the real HA fixture through `npm run test:home-assistant`. See the [Home Assistant setup guide](/home-assistant).

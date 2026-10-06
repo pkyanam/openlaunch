@@ -257,6 +257,6 @@ test("published manifest schema carries real function parameter bounds", () => {
   assert.equal(
     functionSchema.properties.inputSchema.properties.properties
       .additionalProperties.oneOf.length,
-    3,
+    4,
   );
 });

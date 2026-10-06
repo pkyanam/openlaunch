@@ -15,6 +15,40 @@ export const enrollRequestSchema = z
 export const manifestRequestSchema = z
   .object({ manifest: z.unknown() })
   .strict();
+export const gatewayChildrenSchema = z
+  .object({
+    children: z
+      .array(
+        z
+          .object({
+            key: z
+              .string()
+              .min(1)
+              .max(192)
+              .regex(/^[a-zA-Z0-9_.:-]+$/),
+            manifest: z.unknown(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(8),
+  })
+  .strict();
+export const gatewayStatusSchema = z
+  .object({
+    online: z.boolean(),
+    keys: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(192)
+          .regex(/^[a-zA-Z0-9_.:-]+$/),
+      )
+      .max(2000)
+      .optional(),
+  })
+  .strict();
 export const heartbeatRequestSchema = z.object({}).strict();
 export const resultRequestSchema = z
   .object({
@@ -39,13 +73,22 @@ export const createSetupTokenSchema = z
     name: z.string().min(1).max(64),
     ttlSeconds: z.number().int().min(60).max(86400).default(600),
     deviceLimit: z.number().int().min(1).max(20).default(1),
+    gatewayDeviceLimit: z.number().int().min(0).max(2000).optional(),
   })
   .strict();
 export const grantRequestSchema = z
   .object({
     principal: z.string().min(1).max(128),
     deviceId: z.string().uuid(),
-    capabilities: z.array(capabilityName).min(1).max(24),
+    capabilities: z.array(capabilityName).min(1).max(64),
+    ttlSeconds: z.number().int().min(1).max(86400).nullable().default(3600),
+  })
+  .strict();
+export const gatewayGrantSchema = z
+  .object({
+    principal: z.string().min(1).max(128),
+    mode: z.enum(["read", "control"]),
+    includeServices: z.boolean().default(false),
     ttlSeconds: z.number().int().min(1).max(86400).nullable().default(3600),
   })
   .strict();
@@ -242,6 +285,11 @@ const schemas: Record<string, object> = {
       lastSeen: { type: "integer" },
       revoked: { type: "boolean" },
       online: { type: "boolean" },
+      gatewayId: uuid,
+      gatewayKey: { type: "string" },
+      gatewayAvailable: { type: "boolean" },
+      gatewayConnected: { type: "boolean" },
+      gatewayDeviceLimit: { type: "integer", maximum: 2000 },
     },
     required: [
       "id",
@@ -278,6 +326,7 @@ const schemas: Record<string, object> = {
       purpose: { type: "string", enum: ["agent", "device-setup", "oauth"] },
       canAttach: { type: "boolean" },
       deviceLimit: { type: "integer" },
+      gatewayDeviceLimit: { type: "integer" },
       attachedDeviceCount: { type: "integer" },
       oauth: {
         type: "object",
@@ -328,6 +377,7 @@ schemas.NewConnection = {
     purpose: { type: "string", enum: ["agent", "device-setup"] },
     canAttach: { type: "boolean" },
     deviceLimit: { type: "integer" },
+    gatewayDeviceLimit: { type: "integer" },
     attachedDeviceCount: { type: "integer" },
     token: {
       type: "string",
@@ -451,42 +501,72 @@ schemas.DeviceNext = {
     { type: "null" },
   ],
 };
-// Zod refinements are runtime-only. Encode the Linux-only string ceiling in
-// OpenAPI too, so clients cannot publish wider schemas for embedded devices.
+// Encode kind-dependent runtime limits in the published contract.
+const manifestPropertyRule = (rule: object) => ({
+  properties: {
+    functions: {
+      items: {
+        properties: {
+          inputSchema: {
+            properties: { properties: { additionalProperties: rule } },
+          },
+        },
+      },
+    },
+  },
+});
 Object.assign(schemas.Manifest, {
   allOf: [
     {
       if: { properties: { kind: { const: "linux" } }, required: ["kind"] },
-      else: {
+      then: {
         properties: {
-          capabilities: { maxItems: 16 },
-          functions: {
-            maxItems: 16,
-            items: {
-              properties: {
-                inputSchema: {
-                  properties: {
-                    properties: {
-                      additionalProperties: {
-                        if: {
-                          properties: { type: { const: "string" } },
-                          required: ["type"],
-                        },
-                        then: {
-                          properties: {
-                            maxLength: { maximum: 1024 },
-                            minLength: { maximum: 1024 },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
+          capabilities: { maxItems: 24 },
+          functions: { maxItems: 24 },
+        },
+      },
+    },
+    {
+      if: {
+        properties: {
+          kind: {
+            not: {
+              anyOf: [{ const: "linux" }, { pattern: "^home-assistant\\." }],
             },
           },
         },
+        required: ["kind"],
       },
+      then: {
+        properties: {
+          capabilities: { maxItems: 16 },
+          functions: { maxItems: 16 },
+        },
+      },
+    },
+    {
+      if: {
+        properties: { kind: { not: { const: "linux" } } },
+        required: ["kind"],
+      },
+      then: manifestPropertyRule({
+        if: { properties: { type: { const: "string" } }, required: ["type"] },
+        then: {
+          properties: {
+            maxLength: { maximum: 1024 },
+            minLength: { maximum: 1024 },
+          },
+        },
+      }),
+    },
+    {
+      if: {
+        properties: { kind: { not: { pattern: "^home-assistant\\." } } },
+        required: ["kind"],
+      },
+      then: manifestPropertyRule({
+        not: { properties: { type: { const: "object" } }, required: ["type"] },
+      }),
     },
   ],
 });
@@ -927,7 +1007,7 @@ export function buildOpenApi() {
       {
         ...body(grantRequestSchema),
         description:
-          "Only an owner can grant. Grants are per principal and device, limited to 24 capabilities for Linux and 16 for other kinds, default to one hour and may be made persistent with null expiry.",
+          "Only an owner can grant. Grants are per principal and device, limited to 64 capabilities for Home Assistant linked devices, 24 for Linux and 16 for other kinds, default to one hour and may be made persistent with null expiry.",
       },
     ),
   });
@@ -1114,6 +1194,86 @@ export function buildOpenApi() {
       },
     ),
   );
+  add(
+    "/v1/devices/{deviceId}/gateway-grants",
+    "post",
+    op(
+      "Grant current gateway inventory",
+      "Owner",
+      owner,
+      {
+        "200": ok({
+          type: "object",
+          properties: { ok: { type: "boolean" }, devices: { type: "integer" } },
+          required: ["ok", "devices"],
+        }),
+        ...commonErrors,
+      },
+      {
+        ...body(gatewayGrantSchema),
+        parameters: [
+          { name: "deviceId", in: "path", required: true, schema: uuid },
+        ],
+        description:
+          "Owner-only convenience for current gateway and linked devices. Mode read grants read functions; control grants all. Integration-wide HA service devices require includeServices. Future devices remain ungranted. Replaces this principal’s grants for this gateway and its children; omitted service devices lose previous grants and their queued commands are cancelled. Other gateways are unaffected. Per-device grants remain independently revocable.",
+      },
+    ),
+  );
+  for (const [suffix, summary, requestSchema, responseSchema, description] of [
+    [
+      "children",
+      "Discover gateway devices",
+      gatewayChildrenSchema,
+      {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string" },
+            deviceId: uuid,
+            revoked: { type: "boolean" },
+            grantsRevoked: { type: "boolean" },
+            error: {
+              type: "object",
+              properties: {
+                code: { type: "string" },
+                message: { type: "string" },
+              },
+              required: ["code", "message"],
+            },
+          },
+          required: ["key"],
+        },
+      },
+      "Upsert up to eight gateway-owned devices by stable key. Only a gateway admitted with an owner-set child limit may call this route. No grants or child credentials are issued. Changed manifests revoke grants; owner-revoked children cannot be revived. A batch returns an independent result/error per child. Authenticated gateway requests allow up to 64 KiB.",
+    ],
+    [
+      "children/status",
+      "Report gateway connectivity and inventory",
+      gatewayStatusSchema,
+      {
+        type: "object",
+        properties: { ok: { type: "boolean" } },
+        required: ["ok"],
+      },
+      "Report the upstream connection separately from gateway presence. Optional keys are the complete current inventory; missing children lose their grants and queued work is cancelled. Transient upstream disconnection without keys preserves grants. Revoking the gateway revokes all children. Authenticated gateway inventory reconciliation allows up to 512 KiB for a complete bounded key list.",
+    ],
+  ] as const)
+    add(`/v1/device/{deviceId}/${suffix}`, "post", {
+      ...op(
+        summary,
+        "Device",
+        device,
+        { "200": ok(responseSchema), ...commonErrors },
+        {
+          ...body(requestSchema),
+          parameters: [
+            { name: "deviceId", in: "path", required: true, schema: uuid },
+          ],
+          description,
+        },
+      ),
+    });
   add("/v1/device/{deviceId}/heartbeat", "post", {
     ...op(
       "Refresh device presence",

@@ -137,3 +137,15 @@ Publish your changed manifest with the same command ending in `publish`, approve
 All agent and device operations use HTTPS. HTTP is allowed for `localhost`, `127.0.0.1`, and `::1` during local development. Both factories accept a `fetch` override for testing and alternate runtimes. For a local bridge, pass its workspace routing ID; hosted credentials are bound to their workspace.
 
 Failures throw `OpenLaunchError` with `status` and a safe `code`. Error messages intentionally omit server response text and credentials. Device credentials remain in memory inside the SDK instance; the caller is responsible for securely persisting the credential returned by attach. The legacy one-use enrollment API remains available for existing integrations.
+
+## Home Assistant
+
+The package includes `openlaunch-ha`. Run `openlaunch-ha setup` to privately pair a local HA installation, or `openlaunch-ha start` to reuse it. The hosted installer places it on PATH:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- home-assistant
+```
+
+Credentials and the durable result journal live in `~/.config/openlaunch/home-assistant/` with private permissions. Linux user services are available through `openlaunch-ha service install`. Home Assistant OS users can install the openlaunch app from the repository instead, with automatic HA credentials. See https://www.openlaunch.dev/docs/home-assistant.
+
+Gateway device clients also support `gatewayChildren`, `gatewayStatus` and `heartbeat`. A gateway must be paired using an owner-created setup token with `gatewayDeviceLimit`; publishing children never creates grants or independent child credentials. All agent surfaces discover and invoke the resulting per-device functions through their existing methods.

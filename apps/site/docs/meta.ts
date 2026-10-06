@@ -10,6 +10,7 @@ export default defineMeta({
     "uno-r4",
     "pi",
     "linux",
+    "home-assistant",
     "pairing",
     "api",
     "architecture",

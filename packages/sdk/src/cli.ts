@@ -48,7 +48,7 @@ type JournalEntry = {
   outcome?: StoredOutcome;
   terminal?: "expired" | `http_${number}`;
 };
-type ActionJournal = Record<string, JournalEntry>;
+export type ActionJournal = Record<string, JournalEntry>;
 
 export function normalizeOrigin(value: string): string {
   let parsed: URL;
@@ -400,7 +400,7 @@ async function executeAction(
   }
 }
 
-async function saveJournal(path: string, journal: ActionJournal) {
+export async function saveJournal(path: string, journal: ActionJournal) {
   const tempPath = join(
     resolve(path, ".."),
     `.actions.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
@@ -426,7 +426,7 @@ async function saveJournal(path: string, journal: ActionJournal) {
   }
 }
 
-async function loadJournal(path: string): Promise<ActionJournal> {
+export async function loadJournal(path: string): Promise<ActionJournal> {
   try {
     const journal = JSON.parse(await readFile(path, "utf8")) as ActionJournal;
     if (!journal || Array.isArray(journal) || typeof journal !== "object")
@@ -461,7 +461,7 @@ async function loadJournal(path: string): Promise<ActionJournal> {
   }
 }
 
-async function flushJournal(
+export async function flushJournal(
   device: ReturnType<typeof createDevice>,
   path: string,
   journal: ActionJournal,

@@ -26,7 +26,7 @@ Hosted workspace storage uses SQLite-backed Durable Objects identified from the 
 
 ## Manifests and command delivery
 
-A device manifest can describe custom functions with a name, title, description and input schema. Schemas support a root object with bounded strings, bounded numbers or integers, and booleans. Additional root properties and external references are rejected. Each manifest can contain up to 24 functions for Linux or 16 for other kinds, with up to 16 parameters per function; custom definitions cannot replace built-in capabilities. After an owner grants a function, it appears as a device-specific MCP tool. The live grant is checked again when the tool runs.
+A device manifest can describe custom functions with a name, title, description and input schema. Schemas support a root object with bounded strings, bounded numbers or integers, and booleans. Additional root properties and external references are rejected. Each manifest can contain up to 64 functions for Home Assistant linked devices, 24 for Linux or 16 for other kinds, with up to 16 parameters per function; custom definitions cannot replace built-in capabilities. After an owner grants a function, it appears as a device-specific MCP tool. The live grant is checked again when the tool runs.
 
 Devices fetch commands over outbound HTTPS and report correlated results. Node and native Go adapters subscribe to authenticated, payload-free work hints for prompt polling, with ten-second polling as a fallback. The Roomba Uno polls every second. Commands move through queued, received and terminal states, and expire within a bounded lifetime. Pending MCP receipts instruct agents to check the same action until it finishes. If a device disconnects or an acknowledgment is lost, the service may not know whether the physical action occurred. There is no exactly-once execution guarantee.
 
@@ -47,3 +47,5 @@ The hosted API and public documentation website are separate services. Cloudflar
 WebSocket wake hints are implemented. OTA signing and rollback, durable event subscriptions, broader quotas and account lifecycle controls are future work. D1 and R2 are design options, not deployed dependencies.
 
 See the canonical [architecture document](https://github.com/pkyanam/openlaunch/blob/main/docs/architecture.md) and [verification record](/status) for implementation and acceptance details.
+
+[Home Assistant](/home-assistant) linked functions additionally accept bounded nested JSON objects for native service data and targets. Their MCP catalog uses stable discovery and generic invocation to avoid thousands of cached per-entity tools; every granted function remains callable.

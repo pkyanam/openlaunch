@@ -294,8 +294,175 @@ try {
   worker = undefined;
   stub = await object();
   await deniedDeviceRoutes(stub);
+  // A gateway shares the durable queue and notification channel with its children.
+  const gatewaySetup = await api(stub, "/v1/device-setup-tokens", "POST", {
+    name: "HA gateway acceptance",
+    gatewayDeviceLimit: 2000,
+  });
+  const gateway = await api(
+    stub,
+    "/v1/sdk/devices",
+    "POST",
+    {
+      requestId: crypto.randomUUID(),
+      manifest: {
+        name: "HA gateway",
+        kind: "gateway.home-assistant",
+        capabilities: ["device.health"],
+      },
+    },
+    gatewaySetup.token,
+  );
+  const [child] = await api(
+    stub,
+    `/v1/device/${gateway.deviceId}/children`,
+    "POST",
+    {
+      children: [
+        {
+          key: "entity:test",
+          manifest: {
+            name: "HA test entity",
+            kind: "home-assistant.entity",
+            capabilities: ["device.health"],
+          },
+        },
+      ],
+    },
+    gateway.token,
+  );
+  assert.ok(child.deviceId);
+  await api(
+    stub,
+    `/v1/device/${gateway.deviceId}/children/status`,
+    "POST",
+    { online: true, keys: ["entity:test"] },
+    gateway.token,
+  );
+  await api(stub, `/v1/devices/${gateway.deviceId}/gateway-grants`, "POST", {
+    principal: agentConnection.principal,
+    mode: "read",
+  });
+  const ticket = await api(
+    stub,
+    `/v1/device/${gateway.deviceId}/events-ticket`,
+    "POST",
+    {},
+    gateway.token,
+  );
+  const upgrade = await stub.fetch(
+    `https://www.openlaunch.dev/v1/device/${gateway.deviceId}/events?workspace=${workspace}`,
+    {
+      headers: {
+        "x-openlaunch-workspace": workspace,
+        upgrade: "websocket",
+        "sec-websocket-protocol": `openlaunch.device.v1, ticket.${ticket.ticket}`,
+      },
+    },
+  );
+  assert.equal(upgrade.status, 101);
+  const gatewaySocket = upgrade.webSocket;
+  gatewaySocket.accept();
+  const hint = new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(Error("Child action did not wake its gateway")),
+      2000,
+    );
+    gatewaySocket.addEventListener("message", (event) => {
+      if (event.data === '{"type":"work"}') {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+  const childAction = await api(
+    stub,
+    `/v1/devices/${child.deviceId}/actions`,
+    "POST",
+    {
+      capability: "device.health",
+      arguments: {},
+      idempotencyKey: "gateway-child-health",
+      ttlSeconds: 30,
+    },
+    agentConnection.token,
+  );
+  await hint;
+  assert.equal(
+    (
+      await api(
+        stub,
+        `/v1/device/${gateway.deviceId}/next`,
+        "POST",
+        {},
+        gateway.token,
+      )
+    ).deviceId,
+    child.deviceId,
+  );
+  await api(
+    stub,
+    `/v1/device/${gateway.deviceId}/result`,
+    "POST",
+    {
+      actionId: childAction.id,
+      status: "succeeded",
+      result: {
+        source: "software HA gateway fixture",
+        physicalVerified: false,
+      },
+    },
+    gateway.token,
+  );
+  gatewaySocket.close();
+  await worker.dispose();
+  worker = undefined;
+  stub = await object();
+  const reloaded = await api(stub, "/v1/devices");
+  assert.equal(
+    reloaded.find((d) => d.id === child.deviceId).gatewayId,
+    gateway.deviceId,
+  );
+  assert.equal(
+    (await api(stub, `/v1/actions/${childAction.id}`)).status,
+    "succeeded",
+  );
+  const duplicate = await api(
+    stub,
+    `/v1/device/${gateway.deviceId}/children`,
+    "POST",
+    {
+      children: [
+        {
+          key: "entity:test",
+          manifest: {
+            name: "HA test entity",
+            kind: "home-assistant.entity",
+            capabilities: ["device.health"],
+          },
+        },
+      ],
+    },
+    gateway.token,
+  );
+  assert.equal(duplicate[0].deviceId, child.deviceId);
+  assert.equal(duplicate[0].grantsRevoked, false);
+  const keys = Array.from(
+    { length: 2000 },
+    (_, n) => "k" + String(n).padStart(191, "0"),
+  );
+  assert.ok(Buffer.byteLength(JSON.stringify({ online: true, keys })) > 65536);
+  await api(
+    stub,
+    `/v1/device/${gateway.deviceId}/children/status`,
+    "POST",
+    { online: true, keys: ["entity:test", ...keys.slice(0, 1999)] },
+    gateway.token,
+  );
+  await api(stub, `/v1/devices/${gateway.deviceId}/revoke`, "POST", {});
+  assert.deepEqual(await api(stub, "/v1/devices"), []);
   console.log(
-    "PASS: workerd SQLite attachment, restart, idempotency, grants, outcome, busy presence, socket reconnect, export and revocation",
+    "PASS: workerd SQLite attachment, restart, idempotency, grants, outcome, busy presence, socket reconnect, export, gateway child dispatch/wake/restart/large reconciliation and revocation",
   );
 } finally {
   if (worker) await worker.dispose();

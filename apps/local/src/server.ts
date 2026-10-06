@@ -39,9 +39,15 @@ const server = createServer((req, res) => {
         const bytes: Buffer[] = [];
         let length = 0;
         const requestLimit =
-          /^\/v1\/device\/[a-f0-9-]{36}\/result(?:\?|$)/.test(req.url ?? "")
-            ? 65536
-            : 16384;
+          /^\/v1\/device\/[a-f0-9-]{36}\/children\/status(?:\?|$)/.test(
+            req.url ?? "",
+          )
+            ? 524288
+            : /^\/v1\/device\/[a-f0-9-]{36}\/(?:result|children(?:\/status)?)(?:\?|$)/.test(
+                  req.url ?? "",
+                )
+              ? 65536
+              : 16384;
         for await (const chunk of req) {
           length += chunk.length;
           if (length > requestLimit) {

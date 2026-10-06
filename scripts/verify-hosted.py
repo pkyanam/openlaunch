@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Verify the public deployment and installer copies without credentials."""
 import json
+import hashlib
+import io
 import os
 from pathlib import Path
 import subprocess
 import time
+import tarfile
 import urllib.error
 import urllib.request
 
@@ -17,15 +20,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 opener = urllib.request.build_opener(NoRedirect())
 
-def response(url):
+def response(url, limit=1_048_576):
     request = urllib.request.Request(url, headers={'User-Agent': 'openlaunch-verification/1', 'Cache-Control': 'no-cache'})
     try:
         result = opener.open(request, timeout=15)
     except urllib.error.HTTPError as error:
         result = error
     with result:
-        body = result.read(1_048_577)
-        if len(body) > 1_048_576:
+        body = result.read(limit + 1)
+        if len(body) > limit:
             raise ValueError('response exceeds verification limit')
         return result.status, result.headers, body
 
@@ -54,8 +57,11 @@ def verify(commit):
     contract = json.loads(body)
     assert contract.get('openapi') == '3.1.0' and contract['servers'][0]['url'] == ORIGIN, 'device API contract mismatch'
     assert '/v1/functions' in contract['paths'] and '/v1/device/{deviceId}/result' in contract['paths'], 'device API routes missing'
+    for path in ['/v1/devices/{deviceId}/gateway-grants', '/v1/device/{deviceId}/children', '/v1/device/{deviceId}/children/status']:
+        assert path in contract['paths'], 'gateway API route missing: ' + path
     for public, expected in [('/docs/cli.md', b'ol login'),
                              ('/docs/linux.md', b'openlaunch-host start'),
+                             ('/docs/home-assistant.md', b'openlaunch-ha'),
                              ('/docs/reference/agent/post-v1-devices-device-id-actions.md', b'requestAction'),
                              ('/changelog/rss.xml', b'2026')]:
         status, _, body = response(ORIGIN + public)
@@ -75,6 +81,16 @@ def verify(commit):
     ]:
         status, _, body = response(ORIGIN + public)
         assert status == 200 and body == (ROOT / source).read_bytes(), f'installer mismatch: {public}'
+    status, _, body = response(ORIGIN + '/downloads/installers.json')
+    assert status == 200, 'installer manifest unavailable'
+    manifest = json.loads(body)
+    assert manifest.get('commit') == commit, 'installer manifest commit mismatch'
+    status, _, body = response(ORIGIN + '/downloads/openlaunch-sdk.tgz?commit=' + commit, 25 * 1024 * 1024)
+    assert status == 200 and hashlib.sha256(body).hexdigest() == manifest['sdk']['sha256'], 'SDK download checksum mismatch'
+    with tarfile.open(fileobj=io.BytesIO(body), mode='r:gz') as archive:
+        package = json.load(archive.extractfile('package/package.json'))
+        assert package['bin'].get('openlaunch-ha') == './dist/home-assistant-cli.js', 'HA gateway CLI missing'
+        assert archive.getmember('package/dist/home-assistant-cli.js').isfile(), 'HA CLI executable missing'
 
 if __name__ == '__main__':
     commit = os.environ.get('GITHUB_SHA') or subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()

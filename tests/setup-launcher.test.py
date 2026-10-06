@@ -122,6 +122,10 @@ class SetupTests(unittest.TestCase):
             self.assertIn('ol login', result.stdout)
             self.assertTrue((user / '.local/bin/openlaunch-device').is_file())
             self.assertTrue((user / '.local/bin/openlaunch-agent').is_file())
+            self.assertTrue((user / '.local/bin/openlaunch-ha').is_file())
+            result = subprocess.run([str(user / '.local/bin/openlaunch-ha'), '--help'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('openlaunch-ha setup', result.stdout)
             cli.unlink()
             cli.write_text('unrelated program\n')
             with patch.object(setup, 'fetch', return_value=data):
@@ -170,16 +174,17 @@ class SetupTests(unittest.TestCase):
                     if not chunk:
                         break
                     output += chunk
-                    if b'Choose setup [1-8]:' in output and not sent:
+                    if b'Choose setup [1-9]:' in output and not sent:
                         os.write(fd, b'0\n')
                         sent = True
-                    if b'Choose a number from 1 to 8.' in output:
+                    if b'Choose a number from 1 to 9.' in output:
                         break
             self.assertIn(b'1. Uno R4 WiFi USB setup', output)
             self.assertIn(b'6. Local developer console', output)
             self.assertIn(b'7. Install ol CLI on PATH', output)
             self.assertIn(b'8. Linux host control harness', output)
-            self.assertIn(b'Choose a number from 1 to 8.', output)
+            self.assertIn(b'9. Home Assistant gateway', output)
+            self.assertIn(b'Choose a number from 1 to 9.', output)
         finally:
             os.close(fd)
             try:

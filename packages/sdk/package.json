@@ -11,7 +11,8 @@
   "bin": {
     "openlaunch-device": "./dist/cli.js",
     "openlaunch-agent": "./dist/agent-cli.js",
-    "ol": "./dist/agent-cli.js"
+    "ol": "./dist/agent-cli.js",
+    "openlaunch-ha": "./dist/home-assistant-cli.js"
   },
   "exports": {
     ".": {

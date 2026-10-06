@@ -43,6 +43,7 @@ jobs:
           cache: false
       - run: npm ci
       - run: npm run check
+      - run: npm run test:home-assistant
       - run: npm run build:pi
       - run: npm run build:site
         env:

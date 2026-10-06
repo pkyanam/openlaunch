@@ -4,6 +4,16 @@ Let agents use the functions you approve on your hardware. openlaunch connects d
 
 [Console](https://www.openlaunch.dev/console/) · [Documentation](https://www.openlaunch.dev/docs/setup) · [Downloads](https://www.openlaunch.dev/docs/resources) · [Source](https://github.com/pkyanam/openlaunch)
 
+## Home Assistant
+
+Connect HA devices, helpers, scripts, scenes and native services through one local gateway. In the console choose **Add device → Home Assistant**. On Home Assistant OS, install the **openlaunch** app from this repository and enter its setup token; HA authentication is automatic. For Home Assistant Container or a separate computer:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- home-assistant
+```
+
+Grant your ChatGPT connection access to the current linked entities in the gateway's **Access** tab, then connect it to `https://www.openlaunch.dev/mcp`. Installation does not grant control. An empty HA installation can test real on/off calls with a Toggle helper. Updates keep pairing and local credentials. [Full setup guide](https://www.openlaunch.dev/docs/home-assistant).
+
 ## Get started
 
 1. Open the console and sign in with Google.

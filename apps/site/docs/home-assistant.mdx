@@ -1,0 +1,80 @@
+---
+title: Home Assistant
+description: Connect Home Assistant entities and services to ChatGPT, other MCP agents, the openlaunch API and CLI with one local gateway.
+---
+
+## Connect your home
+
+Your agent connects to openlaunch; one local gateway connects to Home Assistant. Registered HA devices, entities, helpers, scripts and scenes appear as linked devices with their own functions. API, MCP and CLI share the same discovery, grants and action receipts.
+
+### Home Assistant OS
+
+1. In [your console](https://www.openlaunch.dev/console/), choose **Devices → Add device → Home Assistant** and create a setup token.
+2. In HA **Settings → Apps → App store → Repositories** (called **Add-ons** on older versions), add `https://github.com/pkyanam/openlaunch`. Install **openlaunch**. [Add the repository](https://my.home-assistant.io/redirect/supervisor_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fpkyanam%2Fopenlaunch).
+3. Paste the setup token into the app's `setup_token` configuration, save, and start it. Enable **Start on boot**.
+4. Back in openlaunch, select Home Assistant → **Access**. Choose **ChatGPT**, select read or control access and an expiry, then **Grant current Home Assistant devices**.
+5. [Connect ChatGPT with MCP OAuth](/agents). Ask it to list Home Assistant devices, inspect their functions and control one.
+
+The app uses HA's automatic local API proxy credentials. No HA token, URL, open port or router configuration is needed. ARM64 and x86-64 Home Assistant OS are supported. The app builds locally from this public repository and downloads the verified SDK matching the deployed website at startup.
+
+### Home Assistant Container or another computer
+
+Run on a computer that can reach your HA installation. Install Node 24+, Python 3 and curl, then:
+
+```sh
+curl -fsSL https://www.openlaunch.dev/setup.sh | bash -s -- home-assistant
+```
+
+It installs `openlaunch-ha` on PATH, prompts privately for the HA URL, a HA long-lived access token, and your openlaunch Home Assistant setup token, then starts the gateway. Create the HA token in your HA profile's **Security → Long-lived access tokens**. Use a dedicated HA user with the access you want the gateway to have. HTTPS is supported; HTTP is accepted for local addresses. Never paste credentials into chat or command arguments.
+
+Complete steps 4 and 5 above. Keep this foreground process running; Ctrl-C stops it. On Linux, stop the foreground runner and install its background user service:
+
+```sh
+openlaunch-ha service install
+```
+
+A systemd user manager is required. It normally runs during the user's session; an administrator can enable lingering to keep that user's service running after logout. Otherwise use your existing process supervisor. `openlaunch-ha service stop`, `status`, `restart` and `logs` manage an installed service. `openlaunch-ha start` starts an existing pairing in the foreground; `openlaunch-ha status` shows the configuration location.
+
+## Test without physical devices
+
+An empty installation is valid. Request the gateway's `device.health` and `ha.inventory`. Then create a **Toggle** helper in HA **Settings → Devices & services → Helpers**. Refresh the console after discovery (up to one minute), grant it access and ask:
+
+> Find my Home Assistant test toggle, turn it on, read its state, then turn it off and verify its state again.
+
+The toggle exposes `ha.input_boolean.turn_on`, `turn_off` and `toggle`. Its target is fixed to that helper. `ha.entity.read` returns a fresh HA state, attributes and observation time. This verifies a real HA service/state flow without claiming that physical hardware was tested. See HA's [Toggle helper documentation](https://www.home-assistant.io/integrations/input_boolean/).
+
+## Discover and invoke
+
+Use `list_devices`, `list_functions`, then `invoke_device_function` over MCP, or `ol devices list`, `ol functions list --device DEVICE_ID` and `ol call`. The [API reference](/api) documents the equivalent endpoints. Your agent should inspect the live schema and service information before calling unfamiliar functions.
+
+| Function | Purpose |
+| --- | --- |
+| `device.health` | Check the gateway or read an entity's current state |
+| `ha.inventory` | Page through gateway entity, device and service names |
+| `ha.device.info` | Read native device ID, manufacturer, model, area and registered entity IDs |
+| `ha.entity.read` | Read a fresh entity state and bounded attributes |
+| `ha.entity.actions` | Inspect the entity's available native services and data fields; use `action` to inspect one |
+| `ha.service.info` | Inspect an integration-wide service's native fields and selectors |
+| `ha.DOMAIN.SERVICE` | Call a discovered HA service, such as `ha.light.turn_on` |
+
+Device and area metadata come from HA registries and carry an observation time. Registry access failures are explicit; state and service discovery remain available. Disabled registered entities may have no current state.
+
+Service parameters use optional JSON object `data`, for example `{"brightness":128}`. Integration-wide targeted services also require a JSON object `target`, such as `{"entity_id":"light.kitchen"}`. Entity devices fix their own target and reject target overrides. Unusually long or invalid capability names receive a stable `ha.call_…` alias; discovery returns the native service name. Very large entity action catalogs split into bounded groups. The gateway admits up to 2,000 linked devices including separately represented services, subject to the workspace storage budget.
+
+HA's service catalog supplies the native data fields and selectors. openlaunch accepts bounded nested JSON rather than pretending those selectors are complete JSON Schema: each object allows 32 properties, 2,048 UTF-8 bytes, six levels, 256 values, arrays of 32 and strings of 1,024 characters. HA performs native service validation. Large responses are excerpted explicitly in receipts.
+
+## Access and outcomes
+
+The bulk grant replaces this agent’s grants for this gateway and its current linked devices; other gateways are unaffected. Excluding integration-wide services removes their existing grants and cancels ungranted queued work. Future entities still need approval. Integration-wide services require the separate **Include integration-wide services** checkbox; they can target multiple entities, run workflows or perform administrative actions. You can grant individual functions instead. Scripts and scenes may affect other devices as part of their configured workflow. A read-only agent connection remains read-only even with a stored control grant. Setup tokens never authorize agent actions, and discovery cannot grant itself permission.
+
+A queued receipt is waiting for delivery. A successful service receipt means HA accepted the call. Entity calls also attempt a fresh state observation and report `stateObserved`. Every HA result has `physicalVerified: false`: acceptance and entity state do not prove physical movement or completion. Follow up with state reads when a device takes time to finish. Direct named scripts may wait for the script to finish within the requested action TTL (at most five minutes); use an entity’s `ha.script.turn_on` to start a long script without holding the gateway queue. Already-started HA operations are not cancelled by request expiry. Transport failure can leave a write outcome unknown; inspect HA before making a new request.
+
+The gateway uses outbound authenticated work notifications with a ten-second polling fallback. Each action is fetched and rechecked over HTTPS. Expired work is not executed; a durable private journal prevents replay after interruption and retries saved result delivery. Revoking a gateway revokes its linked devices. Removed entities lose grants; new or changed catalogs need approval. Temporary HA/network outages preserve saved grants and mark the gateway offline.
+
+## Update and credentials
+
+Stop a foreground runner, then rerun the installer above. Pairing, HA credentials and action journal are preserved in `~/.config/openlaunch/home-assistant/`; restart an installed service with `openlaunch-ha service restart`. The HA OS app stores them in `/data/openlaunch/` and reuses them on restart. If its logs report an interrupted action, inspect HA and enter that exact action ID in app Configuration → `recovery_action_id`, then restart to acknowledge that one unknown outcome. Clear the field afterward; it never applies to future actions. Downloads are checksum-verified against the current deployed manifest. Clear the app's short-lived setup token after pairing.
+
+HA credentials stay on the local gateway and are separate from its private openlaunch device credential and agent OAuth/API credentials. No agent receives an arbitrary URL proxy or shell through this integration. Protect the private identity and journal; do not upload them to Git. If the runner stops on an interrupted action, inspect HA, then use `openlaunch-ha recover` and type `recover` locally to acknowledge the unknown outcome before restarting. This never replays the command or turns it into a confirmed success.
+
+To rotate standalone HA credentials, stop the runner and update its private `identity.json` locally, then restart. A revoked openlaunch gateway must be paired again with a new setup token.

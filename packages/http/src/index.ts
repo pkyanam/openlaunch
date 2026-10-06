@@ -3,6 +3,9 @@ import {
   enrollRequestSchema,
   manifestRequestSchema,
   heartbeatRequestSchema,
+  gatewayChildrenSchema,
+  gatewayStatusSchema,
+  gatewayGrantSchema,
   resultRequestSchema,
   attachRequestSchema,
   enrollmentRequestSchema,
@@ -117,6 +120,22 @@ export async function handle(
         throw new Fault("method", 405, "Method not allowed");
       const b = enrollRequestSchema.parse(await body(request));
       return json(await hub.enroll(b.token, b.manifest), 201);
+    }
+    const gatewayRoute =
+      /^\/v1\/device\/([a-f0-9-]{36})\/(children|children\/status)$/.exec(path);
+    if (gatewayRoute) {
+      const id = gatewayRoute[1]!;
+      const device = await hub.authenticateDevice(id, bearer(request));
+      if (method !== "POST")
+        throw new Fault("method", 405, "Method not allowed");
+      if (!device.kind.startsWith("gateway.") || !device.gatewayDeviceLimit)
+        throw new Fault("forbidden", 403, "Approved gateway required");
+      if (gatewayRoute[2] === "children") {
+        const input = gatewayChildrenSchema.parse(await body(request, 65536));
+        return json(hub.gatewayChildren(id, input.children));
+      }
+      const input = gatewayStatusSchema.parse(await body(request, 524288));
+      return json(hub.gatewayStatus(id, input.online, input.keys));
     }
     const deviceRoute =
       /^\/v1\/device\/([a-f0-9-]{36})\/(next|result|manifest|heartbeat)$/.exec(
@@ -366,7 +385,13 @@ export async function handle(
           b.name,
           b.ttlSeconds,
           "act",
-          { canAttach: true, deviceLimit: b.deviceLimit },
+          {
+            canAttach: true,
+            deviceLimit: b.deviceLimit,
+            ...(b.gatewayDeviceLimit
+              ? { gatewayDeviceLimit: b.gatewayDeviceLimit }
+              : {}),
+          },
           "device-setup",
         ),
         201,
@@ -378,6 +403,21 @@ export async function handle(
       );
     if (connectionRevoke && method === "POST")
       return json(hub.revokeConnection(p, connectionRevoke[1]!));
+    const gatewayGrant =
+      /^\/v1\/devices\/([a-f0-9-]{36})\/gateway-grants$/.exec(path);
+    if (gatewayGrant && method === "POST") {
+      const b = gatewayGrantSchema.parse(await body(request));
+      return json(
+        hub.gatewayGrants(
+          p,
+          gatewayGrant[1]!,
+          b.principal,
+          b.mode,
+          b.includeServices,
+          b.ttlSeconds,
+        ),
+      );
+    }
     if (path === "/v1/grants" && method === "POST") {
       const b = grantRequestSchema.parse(await body(request));
       return json(

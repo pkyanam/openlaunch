@@ -229,6 +229,11 @@ export function functionGuide(
       example[name] = property.enum?.[0] ?? "x".repeat(property.minLength ?? 0);
     } else if (property.type === "boolean") {
       example[name] = false;
+    } else if (property.type === "object") {
+      example[name] =
+        kind.startsWith("home-assistant.") && name === "target"
+          ? { entity_id: "light.example" }
+          : {};
     } else {
       example[name] = Math.min(Math.max(0, property.minimum), property.maximum);
       if (property.type === "integer")
@@ -245,6 +250,11 @@ export function functionGuide(
   );
   const exampleText = JSON.stringify(profile?.example ?? example);
   const guide = [
+    ...(kind.startsWith("home-assistant.") || kind === "gateway.home-assistant"
+      ? [
+          "Home Assistant guide: https://www.openlaunch.dev/docs/home-assistant. Inspect ha.entity.actions or ha.service.info for native fields. data and target are bounded JSON objects. Entity targets are fixed; global service devices require separate grants. HA acceptance and entity state do not verify physical effects.",
+        ]
+      : []),
     `Schema guide: this capability is declared with ${definition.access} access and accepts only the declared arguments. ${requirements.length ? `Required and optional fields: ${requirements.join("; ")}.` : "It accepts an empty arguments object."}`,
     exampleText.length <= 400
       ? `Example arguments: ${exampleText}.`

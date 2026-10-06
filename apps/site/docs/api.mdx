@@ -186,7 +186,7 @@ The Node adapter can request a one-use ticket with its per-device credential fro
 
 ## Custom device functions
 
-A device can advertise custom functions in its manifest with a name, title, description and input schema. Schemas accept a root object with bounded string, number, integer or boolean fields. Additional root properties and external schema references are rejected. Each manifest supports up to 24 functions for Linux or 16 for other kinds, and each function up to 16 parameters; a custom function cannot replace a built-in capability.
+A device can advertise custom functions in its manifest with a name, title, description and input schema. Schemas accept a root object with bounded string, number, integer or boolean fields. Additional root properties and external schema references are rejected. Each manifest supports up to 64 functions for Home Assistant linked devices, 24 for Linux or 16 for other kinds, and each function up to 16 parameters; a custom function cannot replace a built-in capability.
 
 The owner grants each custom function to an agent through the console. Granted functions appear as device-specific MCP tools. The service checks the current grant each time one is called, so a previously discovered tool stops working after its grant is revoked.
 
@@ -203,3 +203,5 @@ Inspect the returned action ID. `queued` and `received` are intermediate states.
 ## Source
 
 [Protocol schemas](https://github.com/pkyanam/openlaunch/tree/main/packages/protocol), [command service](https://github.com/pkyanam/openlaunch/tree/main/packages/core), [HTTP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/http) and [MCP adapter](https://github.com/pkyanam/openlaunch/tree/main/packages/mcp) live in the same repository. See [resources](/resources) for current source downloads and upstream tools.
+
+[Home Assistant](/home-assistant) linked functions additionally accept bounded nested JSON objects for native service data and targets. Their MCP catalog uses stable discovery and generic invocation to avoid thousands of cached per-entity tools; every granted function remains callable.

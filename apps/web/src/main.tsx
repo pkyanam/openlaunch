@@ -21,6 +21,10 @@ type Device = {
   online: boolean;
   lastSeen: number;
   functions?: FunctionDefinition[];
+  gatewayId?: string;
+  gatewayKey?: string;
+  gatewayDeviceLimit?: number;
+  gatewayConnected?: boolean;
 };
 const quoteShellValue = (value: string) =>
   "'" + value.replaceAll("'", "'\"'\"'") + "'";
@@ -42,6 +46,7 @@ type DeviceSetupToken = {
   expiresAt: number;
   canAttach: boolean;
   deviceLimit: number;
+  gatewayDeviceLimit?: number;
   attachedDeviceCount?: number;
   purpose?: "device-setup" | "legacy";
 };
@@ -228,8 +233,12 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [deviceSetupName, setDeviceSetupName] = useState("Device setup token");
   const [deviceSetupLifetime, setDeviceSetupLifetime] = useState(600);
   const [deviceSetupKind, setDeviceSetupKind] = useState<
-    "custom" | "pi" | "linux" | "uno" | "esp32" | null
+    "custom" | "pi" | "linux" | "uno" | "esp32" | "home-assistant" | null
   >(null);
+  const [gatewayGrantMode, setGatewayGrantMode] = useState<"read" | "control">(
+    "control",
+  );
+  const [gatewayIncludeServices, setGatewayIncludeServices] = useState(false);
   const [deviceSetupPort, setDeviceSetupPort] = useState("");
   const [legacyKind, setLegacyKind] = useState("custom.device");
   const [setupConnection, setSetupConnection] =
@@ -255,15 +264,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     ` --port ${quoteShellValue(deviceSetupPort)}${setupOriginOption}`,
   );
   const deviceSetupCommand =
-    deviceSetupKind === "linux"
-      ? hostedSetupCommand("linux")
-      : deviceSetupKind === "pi"
-        ? hostedSetupCommand("pi")
-        : deviceSetupKind === "uno"
-          ? unoSetupCommand
-          : deviceSetupKind === "esp32"
-            ? esp32SetupCommand
-            : adapterSetupCommand;
+    deviceSetupKind === "home-assistant"
+      ? hostedSetupCommand("home-assistant")
+      : deviceSetupKind === "linux"
+        ? hostedSetupCommand("linux")
+        : deviceSetupKind === "pi"
+          ? hostedSetupCommand("pi")
+          : deviceSetupKind === "uno"
+            ? unoSetupCommand
+            : deviceSetupKind === "esp32"
+              ? esp32SetupCommand
+              : adapterSetupCommand;
   async function api(path: string, method = "GET", data?: unknown) {
     const r = await fetch(path, {
       method,
@@ -496,6 +507,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           name: deviceSetupName,
           ttlSeconds: deviceSetupLifetime,
           deviceLimit: 1,
+          ...(deviceSetupKind === "home-assistant"
+            ? { gatewayDeviceLimit: 2000 }
+            : {}),
         });
         setPairingBaseline(devices.map((device) => device.id));
         const { token: newSecret, ...safeConnection } = created;
@@ -565,11 +579,14 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     const matchesQuery =
       !query ||
       device.name.toLocaleLowerCase().includes(query) ||
-      device.kind.toLocaleLowerCase().includes(query);
+      device.kind.toLocaleLowerCase().includes(query) ||
+      device.functions?.some((fn) =>
+        fn.description.toLocaleLowerCase().includes(query),
+      );
     const matchesStatus =
       deviceStatusFilter === "all" ||
       (deviceStatusFilter === "online" ? device.online : !device.online);
-    return matchesQuery && matchesStatus;
+    return matchesQuery && matchesStatus && (!device.gatewayId || !!query);
   });
   const commonFunctions = chosenDevices.length
     ? chosenDevices[0]!.capabilities.filter((name) =>
@@ -709,9 +726,19 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 <div>
                   <h1>
                     Devices{" "}
-                    <span className="device-count">{devices.length}</span>
+                    <span className="device-count">
+                      {devices.filter((d) => !d.gatewayId).length}
+                    </span>
+                    {devices.some((d) => d.gatewayId) && (
+                      <span className="device-count">
+                        {devices.filter((d) => d.gatewayId).length} linked
+                      </span>
+                    )}
                   </h1>
-                  <p>Pair devices, inspect functions, and control access.</p>
+                  <p>
+                    Pair devices, inspect functions, and control access. Search
+                    includes linked Home Assistant entities and services.
+                  </p>
                 </div>
                 <div className="row">
                   <button
@@ -932,6 +959,59 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       ),
                     )}
                   </div>
+                  {selectedDevice.gatewayId && (
+                    <p>
+                      Connected through{" "}
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          setSelectedDeviceId(selectedDevice.gatewayId!)
+                        }
+                      >
+                        {devices.find((d) => d.id === selectedDevice.gatewayId)
+                          ?.name ?? "gateway"}
+                      </button>
+                    </p>
+                  )}
+                  {selectedDevice.gatewayDeviceLimit && (
+                    <details className="grant-editor">
+                      <summary>
+                        Linked devices ·{" "}
+                        {
+                          devices.filter(
+                            (d) => d.gatewayId === selectedDevice.id,
+                          ).length
+                        }
+                      </summary>
+                      <p>
+                        Entities include helpers, scripts and scenes.
+                        Integration-wide services are separate virtual devices.
+                      </p>
+                      <label>
+                        Inspect a linked entity or service
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value)
+                              setSelectedDeviceId(e.target.value);
+                          }}
+                        >
+                          <option value="">Choose a device</option>
+                          {devices
+                            .filter((d) => d.gatewayId === selectedDevice.id)
+                            .map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.name} ·{" "}
+                                {d.kind === "home-assistant.service"
+                                  ? "service"
+                                  : "entity"}{" "}
+                                · {d.online ? "online" : "offline"}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    </details>
+                  )}
                   {detailTab === "Functions" && (
                     <div className="function-list">
                       <p>
@@ -1069,6 +1149,75 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               onChange={(e) => setPrincipal(e.target.value)}
                             />
                           </label>
+                        )}
+                        {selectedDevice.gatewayDeviceLimit && (
+                          <div className="panel">
+                            <h4>Home Assistant access</h4>
+                            <p>
+                              Apply a grant to this gateway and its current
+                              linked entities. New discoveries require approval.
+                              Excluding integration-wide services removes their
+                              existing grants. You can narrow or revoke each
+                              device grant later.
+                            </p>
+                            <label>
+                              Permissions
+                              <select
+                                value={gatewayGrantMode}
+                                onChange={(e) =>
+                                  setGatewayGrantMode(
+                                    e.target.value as "read" | "control",
+                                  )
+                                }
+                              >
+                                <option value="control">
+                                  Read and control entities
+                                </option>
+                                <option value="read">Read only</option>
+                              </select>
+                            </label>
+                            <label className="permission">
+                              <input
+                                type="checkbox"
+                                checked={gatewayIncludeServices}
+                                onChange={(e) =>
+                                  setGatewayIncludeServices(e.target.checked)
+                                }
+                              />
+                              Include integration-wide services, which can
+                              affect multiple entities and run workflows
+                            </label>
+                            <p>Uses the access expiry selected below.</p>
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                run(async () => {
+                                  if (
+                                    !confirm(
+                                      `Allow ${grantPrincipalLabel} ${gatewayGrantMode === "control" ? "read and control" : "read-only"} access to the current Home Assistant inventory${gatewayIncludeServices ? " including integration-wide services" : ""}?`,
+                                    )
+                                  )
+                                    return;
+                                  const saved = await api(
+                                    `/v1/devices/${selectedDevice.id}/gateway-grants`,
+                                    "POST",
+                                    {
+                                      principal,
+                                      mode: gatewayGrantMode,
+                                      includeServices: gatewayIncludeServices,
+                                      ttlSeconds: grantLifetime,
+                                    },
+                                  );
+                                  setGrants(await api("/v1/grants"));
+                                  setNotice(
+                                    `Saved access for ${saved.devices} devices. Future devices remain ungranted.`,
+                                  );
+                                })
+                              }
+                            >
+                              Grant current Home Assistant devices
+                            </button>
+                          </div>
                         )}
                         <fieldset>
                           <legend>Functions to allow</legend>
@@ -2141,7 +2290,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
           <div>
             <h2 id="connect-title">
               {setupConnection
-                ? `Set up ${deviceSetupKind === "linux" ? "Linux host" : deviceSetupKind === "pi" ? "Raspberry Pi 4" : deviceSetupKind === "uno" ? "Uno R4 WiFi" : deviceSetupKind === "esp32" ? "ESP32" : "Node adapter"}`
+                ? `Set up ${deviceSetupKind === "home-assistant" ? "Home Assistant" : deviceSetupKind === "linux" ? "Linux host" : deviceSetupKind === "pi" ? "Raspberry Pi 4" : deviceSetupKind === "uno" ? "Uno R4 WiFi" : deviceSetupKind === "esp32" ? "ESP32" : "Node adapter"}`
                 : enrollment
                   ? "Legacy enrollment"
                   : "Add a device"}
@@ -2169,17 +2318,35 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         {setupConnection ? (
           <div className="enrollment-steps">
             <h3>
-              {deviceSetupKind === "linux"
-                ? "Linux host harness"
-                : deviceSetupKind === "pi"
-                  ? "Raspberry Pi 4"
-                  : deviceSetupKind === "uno"
-                    ? "Arduino Uno R4 WiFi"
-                    : deviceSetupKind === "esp32"
-                      ? "Standalone ESP32"
-                      : "Linux / desktop Node adapter"}
+              {deviceSetupKind === "home-assistant"
+                ? "Home Assistant gateway"
+                : deviceSetupKind === "linux"
+                  ? "Linux host harness"
+                  : deviceSetupKind === "pi"
+                    ? "Raspberry Pi 4"
+                    : deviceSetupKind === "uno"
+                      ? "Arduino Uno R4 WiFi"
+                      : deviceSetupKind === "esp32"
+                        ? "Standalone ESP32"
+                        : "Linux / desktop Node adapter"}
             </h3>
-            {deviceSetupKind === "linux" ? (
+            {deviceSetupKind === "home-assistant" ? (
+              <>
+                <p>
+                  Home Assistant OS: install the openlaunch app (add-on), paste
+                  this setup token in its configuration and start it. It
+                  connects to HA automatically.{" "}
+                  <a href="/docs/home-assistant">Open the setup guide</a>.
+                </p>
+                <p>
+                  Home Assistant Container or another local computer: run the
+                  command below with Node 24, Python 3 and curl installed. It
+                  privately prompts for your HA URL and access token. Rerunning
+                  keeps existing credentials. Installation discovers devices;
+                  grant access separately here.
+                </p>
+              </>
+            ) : deviceSetupKind === "linux" ? (
               <p>
                 Run this installer as your normal Linux user. It installs the
                 native host harness, prompts for the setup token privately, and
@@ -2286,13 +2453,15 @@ function App({ session }: { session?: () => Promise<string | null> }) {
               </button>
               <a
                 href={
-                  deviceSetupKind === "linux"
-                    ? "/docs/linux"
-                    : deviceSetupKind === "uno"
-                      ? "/docs/uno-r4"
-                      : deviceSetupKind === "pi"
-                        ? "/docs/pi"
-                        : "/docs/sdk"
+                  deviceSetupKind === "home-assistant"
+                    ? "/docs/home-assistant"
+                    : deviceSetupKind === "linux"
+                      ? "/docs/linux"
+                      : deviceSetupKind === "uno"
+                        ? "/docs/uno-r4"
+                        : deviceSetupKind === "pi"
+                          ? "/docs/pi"
+                          : "/docs/sdk"
                 }
               >
                 Setup guide
@@ -2371,6 +2540,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 {(
                   [
                     [
+                      "home-assistant",
+                      "Home Assistant",
+                      "Connect HA entities, helpers, scripts, scenes and services.",
+                    ],
+                    [
                       "custom",
                       "Linux / desktop Node adapter",
                       "Run the Node SDK beside your hardware or service.",
@@ -2448,6 +2622,8 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                           (c) =>
                             c.purpose === "device-setup" &&
                             c.canAttach &&
+                            (deviceSetupKind !== "home-assistant" ||
+                              !!c.gatewayDeviceLimit) &&
                             c.expiresAt > Date.now(),
                         )
                         .map((c) => (
@@ -2637,6 +2813,7 @@ function FunctionForm({
   onRequest: (args: Record<string, unknown>) => void;
 }) {
   const required = definition.inputSchema.required;
+  const [formError, setFormError] = useState("");
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     Object.fromEntries(
       Object.entries(definition.inputSchema.properties)
@@ -2660,13 +2837,27 @@ function FunctionForm({
       onSubmit={(event) => {
         event.preventDefault();
         const properties = definition.inputSchema.properties;
-        onRequest(
-          Object.fromEntries(
-            Object.entries(values).filter(([name]) =>
-              Object.hasOwn(properties, name),
-            ),
-          ),
-        );
+        try {
+          const args = Object.fromEntries(
+            Object.entries(values)
+              .filter(([name]) => Object.hasOwn(properties, name))
+              .map(([name, value]) => {
+                if (properties[name]?.type !== "object") return [name, value];
+                const parsed = JSON.parse(String(value));
+                if (
+                  !parsed ||
+                  typeof parsed !== "object" ||
+                  Array.isArray(parsed)
+                )
+                  throw Error(`${name} must be a JSON object`);
+                return [name, parsed];
+              }),
+          );
+          setFormError("");
+          onRequest(args);
+        } catch {
+          setFormError("Enter valid JSON objects for service data and target.");
+        }
       }}
     >
       <h4>{definition.title}</h4>
@@ -2733,6 +2924,21 @@ function FunctionForm({
                   </option>
                 ))}
               </select>
+            ) : schema.type === "object" ? (
+              <textarea
+                required={required.includes(name)}
+                placeholder="{}"
+                value={String(values[name] ?? "")}
+                onChange={(event) =>
+                  setValues((current) => {
+                    const next = { ...current };
+                    if (event.target.value.trim())
+                      next[name] = event.target.value;
+                    else delete next[name];
+                    return next;
+                  })
+                }
+              />
             ) : (
               <input
                 required={
@@ -2775,6 +2981,7 @@ function FunctionForm({
           </label>
         ),
       )}
+      {formError && <p role="alert">{formError}</p>}
       <button disabled={disabled}>Run {definition.title}</button>
     </form>
   );

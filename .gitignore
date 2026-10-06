@@ -41,3 +41,12 @@ __pycache__/
 /apps/site/public/install-cli.sh
 /apps/site/public/device-api.json
 /apps/site/public/downloads/setup.py
+
+# Local Home Assistant / Node gateway identities and delivery journals
+**/identity.json
+**/identity.json.*.tmp
+**/.actions.json
+**/.actions.*.tmp
+**/.setup-pending.json
+**/.setup-pending.json.*.tmp
+**/.runner-lock/

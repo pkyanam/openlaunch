@@ -116,7 +116,11 @@ export class WorkspaceHub extends DurableObject<Env> {
             ...new Set(
               hub.state.actions
                 .filter((a) => a.status === "queued" && !queued.has(a.id))
-                .map((a) => a.deviceId),
+                .map(
+                  (a) =>
+                    hub.state.devices.find((device) => device.id === a.deviceId)
+                      ?.gatewayId ?? a.deviceId,
+                ),
             ),
           ];
           return response;
@@ -214,11 +218,15 @@ export default {
       );
     // The authenticated device handler checks kind/action before admitting a
     // screenshot. Never widen agent requests or embedded result envelopes.
-    const requestLimit = /^\/v1\/device\/[a-f0-9-]{36}\/result$/.test(
+    const requestLimit = /^\/v1\/device\/[a-f0-9-]{36}\/children\/status$/.test(
       url.pathname,
     )
-      ? 65536
-      : 16384;
+      ? 524288
+      : /^\/v1\/device\/[a-f0-9-]{36}\/(?:result|children(?:\/status)?)$/.test(
+            url.pathname,
+          )
+        ? 65536
+        : 16384;
     if (Number(request.headers.get("content-length") ?? "0") > requestLimit)
       return Response.json(
         { error: { code: "too_large", message: "Request too large" } },

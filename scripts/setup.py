@@ -22,6 +22,7 @@ MODES = {
     'local': ('Local developer console', 'install.sh'),
     'cli': ('Install ol CLI on PATH', None),
     'linux': ('Linux host control harness', 'install-linux.sh'),
+    'home-assistant': ('Home Assistant gateway', None),
 }
 
 
@@ -97,7 +98,7 @@ def install_cli(manifest, temporary, user_directory=None, environment=None):
     # npm can replace a regular binary when updating an existing package.
     # Admit only absent names or links to this package before asking npm to install.
     for name, target in [('ol', 'agent-cli.js'), ('openlaunch-agent', 'agent-cli.js'),
-                         ('openlaunch-device', 'cli.js')]:
+                         ('openlaunch-device', 'cli.js'), ('openlaunch-ha', 'home-assistant-cli.js')]:
         executable = prefix / 'bin' / name
         expected = prefix / 'lib/node_modules/@openlaunch/sdk/dist' / target
         if executable.exists() or executable.is_symlink():
@@ -129,14 +130,14 @@ def install_cli(manifest, temporary, user_directory=None, environment=None):
             profile.parent.mkdir(parents=True, exist_ok=True)
             with profile.open('a') as output:
                 output.write('\n' + marker + '\n' + line + '\n')
-    print('Installed ol, openlaunch-agent and openlaunch-device in ' + str(prefix / 'bin'))
+    print('Installed ol, openlaunch-agent, openlaunch-device and openlaunch-ha in ' + str(prefix / 'bin'))
     print('Open a new terminal or restart your agent to pick up PATH. Then run: ol --help')
     print('Available immediately at: ' + str(prefix / 'bin/ol'))
 
 
 def main(args):
     if args and args[0] in ('--help', '-h'):
-        print('openlaunch setup: uno | roomba | pi | esp32 | adapter | local | cli | linux')
+        print('openlaunch setup: uno | roomba | pi | esp32 | adapter | local | cli | linux | home-assistant')
         print('No option opens a menu. USB setup configures already-flashed firmware.')
         print('Examples: setup.sh roomba; setup.sh adapter run; setup.sh uno --status')
         return 0
@@ -158,7 +159,7 @@ def main(args):
             args = [list(MODES)[int(choice) - 1]]
         mode, *forwarded = args
         if mode not in MODES:
-            raise ValueError('Choose uno, roomba, pi, esp32, adapter, local, cli, or linux.')
+            raise ValueError('Choose uno, roomba, pi, esp32, adapter, local, cli, linux, or home-assistant.')
         if mode in ('pi', 'local', 'cli', 'linux') and forwarded:
             if forwarded == ['--help']:
                 print(MODES[mode][0] + ': rerun without --help to install.')
@@ -173,9 +174,12 @@ def main(args):
             forwarded = ['--port', port, *forwarded]
         manifest = json.loads(fetch(ORIGIN + '/downloads/installers.json', 32768))
         with tempfile.TemporaryDirectory(prefix='openlaunch-setup-') as temporary:
-            if mode == 'cli':
+            if mode in ('cli', 'home-assistant'):
                 install_cli(manifest, Path(temporary))
-                return 0
+                if mode == 'cli':
+                    return 0
+                command = [str(Path.home() / '.local/bin/openlaunch-ha'), *(forwarded or ['setup'])]
+                return subprocess.call(command, stdin=tty)
             command = helper_command(mode, forwarded, manifest, Path(temporary))
             print('Using openlaunch build ' + manifest['commit'][:12], flush=True)
             return subprocess.call(command, stdin=tty)

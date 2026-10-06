@@ -85,8 +85,8 @@ export const manifestSchema = z
   .object({
     name: z.string().min(1).max(64),
     kind: deviceKind,
-    capabilities: z.array(capabilityName).min(1).max(24),
-    functions: z.array(functionDefinition).max(24).optional(),
+    capabilities: z.array(capabilityName).min(1).max(64),
+    functions: z.array(functionDefinition).max(64).optional(),
   })
   .strict()
   .superRefine((manifest, ctx) => {
@@ -105,6 +105,17 @@ export const manifestSchema = z
     )
       ctx.addIssue({ code: "custom", message: "Duplicate device functions" });
     for (const definition of definitions) {
+      if (
+        !manifest.kind.startsWith("home-assistant.") &&
+        Object.values(definition.inputSchema.properties).some(
+          (property) => property.type === "object",
+        )
+      )
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Structured service data is only supported by Home Assistant adapters",
+        });
       if (
         manifest.kind !== "linux" &&
         Object.values(definition.inputSchema.properties).some(
@@ -145,6 +156,11 @@ export interface Device extends Manifest {
   revoked: boolean;
   lastSeen: number;
   attachedConnectionId?: string;
+  gatewayId?: string;
+  gatewayKey?: string;
+  gatewayAvailable?: boolean;
+  gatewayDeviceLimit?: number;
+  gatewayConnected?: boolean;
 }
 export interface Action extends ActionEnvelope {
   dispatchedAt?: number;
@@ -189,6 +205,7 @@ interface AgentConnection {
   oauth?: import("./oauth-clients.ts").OAuthClientMetadata;
   canAttach?: boolean;
   deviceLimit?: number;
+  gatewayDeviceLimit?: number;
 }
 export interface DeviceCredentialDeriver {
   keyVersion: string;
@@ -383,6 +400,13 @@ export class Hub {
       .filter((d) => !d.revoked && (p.owner || permitted.has(d.id)))
       .map(({ tokenHash, attachedConnectionId, ...d }) => ({
         ...d,
+        ...(d.gatewayId
+          ? {
+              lastSeen:
+                this.state.devices.find((parent) => parent.id === d.gatewayId)
+                  ?.lastSeen ?? d.lastSeen,
+            }
+          : {}),
         ...(!p.owner
           ? {
               capabilities: d.capabilities.filter((name) =>
@@ -393,7 +417,9 @@ export class Hub {
               ),
             }
           : {}),
-        online: this.now() - d.lastSeen < 45000,
+        online: d.gatewayId
+          ? d.gatewayAvailable !== false && this.gatewayOnline(d.gatewayId)
+          : d.gatewayConnected !== false && this.now() - d.lastSeen < 45000,
       }));
   }
   history(p: Principal) {
@@ -486,7 +512,7 @@ export class Hub {
   }
   async authenticateDevice(id: string, token: string) {
     const d = this.device(id);
-    if (!token || (await hash(token)) !== d.tokenHash)
+    if (d.gatewayId || !token || (await hash(token)) !== d.tokenHash)
       throw new Fault("unauthorized", 401, "Invalid device credential");
     return d;
   }
@@ -651,7 +677,11 @@ export class Hub {
     name: string,
     ttlSeconds: number | null = 86400,
     access: "read" | "act" = "act",
-    attachment: { canAttach: boolean; deviceLimit: number } = {
+    attachment: {
+      canAttach: boolean;
+      deviceLimit: number;
+      gatewayDeviceLimit?: number;
+    } = {
       canAttach: false,
       deviceLimit: 0,
     },
@@ -675,6 +705,11 @@ export class Hub {
       (attachment.canAttach
         ? attachment.deviceLimit < 1
         : attachment.deviceLimit !== 0) ||
+      !Number.isInteger(attachment.gatewayDeviceLimit ?? 0) ||
+      (attachment.gatewayDeviceLimit ?? 0) < 0 ||
+      (attachment.gatewayDeviceLimit ?? 0) > 2000 ||
+      ((attachment.gatewayDeviceLimit ?? 0) > 0 &&
+        purpose !== "device-setup") ||
       (purpose === "agent" && attachment.canAttach) ||
       (purpose === "device-setup" && !attachment.canAttach)
     )
@@ -724,6 +759,15 @@ export class Hub {
     )
       throw new Fault("forbidden", 403, "This SDK token cannot attach devices");
     const manifest = manifestSchema.parse(input);
+    if (
+      manifest.kind.startsWith("gateway.") &&
+      !(connection.gatewayDeviceLimit && connection.purpose === "device-setup")
+    )
+      throw new Fault(
+        "forbidden",
+        403,
+        "Create a gateway-enabled device setup token in the console",
+      );
     const sortValue = (value: any): any =>
       Array.isArray(value)
         ? value.map(sortValue)
@@ -810,6 +854,12 @@ export class Hub {
           revoked: false,
           lastSeen: this.now(),
           attachedConnectionId: connection.id,
+          ...(manifest.kind.startsWith("gateway.")
+            ? {
+                gatewayDeviceLimit: connection.gatewayDeviceLimit,
+                gatewayConnected: false,
+              }
+            : {}),
         },
       ],
       attachAttempts: [
@@ -844,6 +894,10 @@ export class Hub {
       credential,
     });
     this.device(deviceId).attachedConnectionId = connection.id;
+    if (manifest.kind.startsWith("gateway.")) {
+      this.device(deviceId).gatewayDeviceLimit = connection.gatewayDeviceLimit;
+      this.device(deviceId).gatewayConnected = false;
+    }
     this.state.attachAttempts!.push({
       connectionId: connection.id,
       requestId,
@@ -960,10 +1014,94 @@ export class Hub {
     this.audit("grant.revoked", id, p.id);
     return { ok: true };
   }
+  gatewayGrants(
+    p: Principal,
+    id: string,
+    principal: string,
+    mode: "read" | "control",
+    includeServices = false,
+    ttlSeconds: number | null = 3600,
+  ) {
+    this.owner(p);
+    this.gateway(id);
+    if (
+      !principal ||
+      principal.length > 128 ||
+      !["read", "control"].includes(mode) ||
+      (ttlSeconds !== null &&
+        (!Number.isInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 86400))
+    )
+      throw new Fault("invalid", 400, "Invalid gateway grant");
+    if (
+      this.state.agentConnections!.some(
+        (c) => c.principal === principal && c.purpose === "device-setup",
+      )
+    )
+      throw new Fault(
+        "forbidden",
+        403,
+        "Device setup tokens cannot receive grants",
+      );
+    const selected = this.state.devices.filter(
+      (d) =>
+        !d.revoked &&
+        (d.id === id ||
+          (d.gatewayId === id &&
+            d.gatewayAvailable !== false &&
+            (includeServices || d.kind !== "home-assistant.service"))),
+    );
+    const ids = new Set(
+      this.state.devices
+        .filter((d) => d.id === id || d.gatewayId === id)
+        .map((d) => d.id),
+    );
+    const grants = this.state.grants.filter(
+      (g) => g.principal !== principal || !ids.has(g.deviceId),
+    );
+    for (const d of selected) {
+      const capabilities = d.capabilities.filter(
+        (name) =>
+          mode === "control" ||
+          (
+            d.functions?.find((f) => f.name === name) ??
+            builtInFunctionDefinitions[name]
+          )?.access === "read",
+      );
+      if (capabilities.length)
+        grants.push({
+          principal,
+          deviceId: d.id,
+          capabilities,
+          expiresAt:
+            ttlSeconds === null ? null : this.now() + ttlSeconds * 1000,
+        });
+    }
+    this.capacity({ grants });
+    this.state.grants = grants;
+    for (const action of this.state.actions)
+      if (
+        action.status === "queued" &&
+        action.principalId === principal &&
+        ids.has(action.deviceId) &&
+        !grants.some(
+          (g) =>
+            g.principal === principal &&
+            g.deviceId === action.deviceId &&
+            g.capabilities.includes(action.capability),
+        )
+      )
+        action.status = "cancelled";
+    this.audit("gateway.grants_updated", id, p.id);
+    return { ok: true, devices: selected.length };
+  }
   revoke(p: Principal, id: string) {
     this.owner(p);
     const d = this.device(id);
     d.revoked = true;
+    for (const child of this.state.devices.filter(
+      (child) => child.gatewayId === id && !child.revoked,
+    ))
+      this.revoke(p, child.id);
     this.state.grants = this.state.grants.filter((g) => g.deviceId !== id);
     for (const a of this.state.actions)
       if (
@@ -1081,7 +1219,11 @@ export class Hub {
         );
       return old;
     }
-    if (this.now() - d.lastSeen >= 45000)
+    if (
+      d.gatewayId
+        ? d.gatewayAvailable === false || !this.gatewayOnline(d.gatewayId)
+        : d.gatewayConnected === false || this.now() - d.lastSeen >= 45000
+    )
       throw new Fault("offline", 409, "Device offline; no action queued");
     const a: Action = {
       id: crypto.randomUUID(),
@@ -1152,6 +1294,154 @@ export class Hub {
     this.audit("action.cancelled", id, p.id);
     return a;
   }
+  private gatewayOnline(id: string) {
+    const parent = this.state.devices.find((device) => device.id === id);
+    return (
+      !!parent &&
+      !parent.revoked &&
+      parent.gatewayConnected !== false &&
+      this.now() - parent.lastSeen < 45000
+    );
+  }
+  private gateway(id: string) {
+    const parent = this.device(id);
+    if (
+      parent.gatewayId ||
+      !parent.kind.startsWith("gateway.") ||
+      !parent.gatewayDeviceLimit
+    )
+      throw new Fault("forbidden", 403, "Device is not an approved gateway");
+    return parent;
+  }
+  gatewayChildren(id: string, children: { key: string; manifest: unknown }[]) {
+    const parent = this.gateway(id);
+    return children.map(({ key, manifest: input }) => {
+      try {
+        const manifest = manifestSchema.parse(input);
+        if (manifest.kind.startsWith("gateway."))
+          throw new Fault("invalid", 400, "Nested gateways are not supported");
+        const child = this.state.devices.find(
+          (device) => device.gatewayId === id && device.gatewayKey === key,
+        );
+        if (child?.revoked)
+          return {
+            key,
+            deviceId: child.id,
+            revoked: true,
+            grantsRevoked: false,
+          };
+        if (child) {
+          this.capacity({
+            devices: this.state.devices.map((d) =>
+              d.id === child.id
+                ? {
+                    ...d,
+                    ...manifest,
+                    functions: manifest.functions,
+                    gatewayAvailable: true,
+                  }
+                : d,
+            ),
+          });
+          const receipt = this.publishManifest(child.id, manifest);
+          child.gatewayAvailable = true;
+          return {
+            key,
+            deviceId: child.id,
+            revoked: false,
+            grantsRevoked: receipt.grantsRevoked,
+          };
+        }
+        // Revoked records still count, bounding permanent key tombstones.
+        if (
+          this.state.devices.filter((device) => device.gatewayId === id)
+            .length >= parent.gatewayDeviceLimit!
+        )
+          throw new Fault("limit", 429, "Gateway device limit reached");
+        const created: Device = {
+          ...manifest,
+          id: crypto.randomUUID(),
+          tokenHash: "",
+          revoked: false,
+          lastSeen: this.now(),
+          gatewayId: id,
+          gatewayKey: key,
+          gatewayAvailable: true,
+        };
+        this.capacity({ devices: [...this.state.devices, created] });
+        this.state.devices.push(created);
+        this.audit("gateway.child_discovered", created.id, "device");
+        return {
+          key,
+          deviceId: created.id,
+          revoked: false,
+          grantsRevoked: false,
+        };
+      } catch (error) {
+        return {
+          key,
+          error: {
+            code: error instanceof Fault ? error.code : "invalid",
+            message:
+              error instanceof Fault ? error.message : "Invalid child manifest",
+          },
+        };
+      }
+    });
+  }
+  gatewayStatus(id: string, online: boolean, keys?: string[]) {
+    const parent = this.gateway(id);
+    z.boolean().parse(online);
+    if (keys)
+      z.array(
+        z
+          .string()
+          .min(1)
+          .max(192)
+          .regex(/^[a-zA-Z0-9_.:-]+$/),
+      )
+        .max(2000)
+        .parse(keys);
+    const active = keys ? new Set(keys) : undefined;
+    const removed = new Set(
+      this.state.devices
+        .filter(
+          (d) =>
+            d.gatewayId === id &&
+            !d.revoked &&
+            d.gatewayAvailable !== false &&
+            active &&
+            !active.has(d.gatewayKey!),
+        )
+        .map((d) => d.id),
+    );
+    const devices = this.state.devices.map((d) =>
+      d.id === id
+        ? { ...d, gatewayConnected: online, lastSeen: this.now() }
+        : removed.has(d.id)
+          ? { ...d, gatewayAvailable: false }
+          : d,
+    );
+    const grants = this.state.grants.filter((g) => !removed.has(g.deviceId));
+    const actions = this.state.actions.map((a) =>
+      removed.has(a.deviceId) && ["queued", "received"].includes(a.status)
+        ? {
+            ...a,
+            status: (a.dispatchedAt ? "unknown" : "cancelled") as ActionState,
+          }
+        : a,
+    );
+    this.capacity({ devices, grants, actions }, "drain");
+    // Commit only after admitting the complete reconciliation; keep live object identities.
+    for (let n = 0; n < devices.length; n++)
+      Object.assign(this.state.devices[n]!, devices[n]);
+    for (let n = 0; n < actions.length; n++)
+      Object.assign(this.state.actions[n]!, actions[n]);
+    this.state.grants = grants;
+    for (const childId of removed)
+      this.audit("gateway.child_removed", childId, "device");
+    return { ok: true };
+  }
   heartbeat(deviceId: string) {
     const device = this.device(deviceId);
     device.lastSeen = this.now();
@@ -1161,7 +1451,16 @@ export class Hub {
     this.expire();
     const d = this.device(deviceId);
     const a = this.state.actions.find(
-      (a) => a.deviceId === deviceId && a.status === "queued",
+      (a) =>
+        (a.deviceId === deviceId ||
+          this.state.devices.some(
+            (child) =>
+              child.id === a.deviceId &&
+              child.gatewayId === deviceId &&
+              !child.revoked &&
+              child.gatewayAvailable !== false,
+          )) &&
+        a.status === "queued",
     );
     if (!a) {
       d.lastSeen = this.now();
@@ -1178,13 +1477,17 @@ export class Hub {
         !this.state.grants.some(
           (g) =>
             g.principal === principal &&
-            g.deviceId === deviceId &&
+            g.deviceId === a.deviceId &&
             g.capabilities.includes(a.capability) &&
             grantIsActive(g, this.now()),
         )) &&
       !a.ownerAuthorized
     ) {
       a.status = "cancelled";
+      d.lastSeen = this.now();
+      return null;
+    }
+    if (a.deviceId !== deviceId && d.gatewayConnected === false) {
       d.lastSeen = this.now();
       return null;
     }
@@ -1206,7 +1509,16 @@ export class Hub {
     this.expire();
     const device = this.device(deviceId);
     const a = this.state.actions.find(
-      (a) => a.id === id && a.deviceId === deviceId,
+      (a) =>
+        a.id === id &&
+        (a.deviceId === deviceId ||
+          this.state.devices.some(
+            (child) =>
+              child.id === a.deviceId &&
+              child.gatewayId === deviceId &&
+              !child.revoked &&
+              child.gatewayAvailable !== false,
+          )),
     );
     if (!a) throw new Fault("not_found", 404, "Action not found");
     if (a.status === status && canonical(a.result) === canonical(result)) {
@@ -1223,7 +1535,7 @@ export class Hub {
     if (encoded === undefined)
       throw new Fault("invalid", 400, "JSON result required");
     if (
-      isDesktopScreenshot(device.kind, a.capability)
+      isDesktopScreenshot(this.device(a.deviceId).kind, a.capability)
         ? new TextEncoder().encode(encoded).byteLength > DESKTOP_RESULT_BYTES
         : encoded.length > 4096
     )

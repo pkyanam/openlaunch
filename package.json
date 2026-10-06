@@ -34,7 +34,8 @@
     "check:site": "npm run validate --workspace @openlaunch/site && npm run audit --workspace @openlaunch/site && node scripts/check-docs-mcp.mjs",
     "setup": "npm ci && npm run build --workspace @openlaunch/web && node scripts/start-local.mjs",
     "start:local": "node scripts/start-local.mjs",
-    "test:cloud-storage": "node scripts/verify-cloud-storage.mjs"
+    "test:cloud-storage": "node scripts/verify-cloud-storage.mjs",
+    "test:home-assistant": "node scripts/test-home-assistant.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261003.1",

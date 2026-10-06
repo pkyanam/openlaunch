@@ -1,9 +1,10 @@
-import {
-  createDeviceEvents,
-  type DeviceEventSocketFactory,
-} from "./events.js";
+import { createDeviceEvents, type DeviceEventSocketFactory } from "./events.js";
 export { createDeviceEvents } from "./events.js";
-export type { DeviceEventOptions, DeviceEventSocket, DeviceEventSocketFactory } from "./events.js";
+export type {
+  DeviceEventOptions,
+  DeviceEventSocket,
+  DeviceEventSocketFactory,
+} from "./events.js";
 
 /** Small, provider-neutral SDK for openlaunch agent and device integrations. */
 
@@ -85,15 +86,31 @@ export function createAdapter(input: {
   handlers: Record<string, AdapterHandler>;
 } {
   const entries = Object.entries(input.tools);
-  const limit = input.kind === "linux" ? 24 : 16;
+  const limit = input.kind.startsWith("home-assistant.")
+    ? 64
+    : input.kind === "linux"
+      ? 24
+      : 16;
   if (entries.length < 1 || entries.length > limit)
-    throw new TypeError(`tools must contain 1–${limit} explicit function definitions`);
-  if (!input.name || input.name.length > 64 || !input.kind || input.kind.length > 64)
+    throw new TypeError(
+      `tools must contain 1–${limit} explicit function definitions`,
+    );
+  if (
+    !input.name ||
+    input.name.length > 64 ||
+    !input.kind ||
+    input.kind.length > 64
+  )
     throw new TypeError("adapter name and kind must be 1–64 characters");
   const functions = entries.map(([name, tool]) => {
     if (!/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/.test(name))
       throw new TypeError(`Invalid function name: ${name}`);
-    if (!tool.title || tool.title.length > 64 || !tool.description || tool.description.length > 240)
+    if (
+      !tool.title ||
+      tool.title.length > 64 ||
+      !tool.description ||
+      tool.description.length > 240
+    )
       throw new TypeError(`Invalid title or description for ${name}`);
     if (typeof tool.handler !== "function")
       throw new TypeError(`Function ${name} requires a handler`);
@@ -104,7 +121,9 @@ export function createAdapter(input: {
       !tool.inputSchema.properties ||
       !Array.isArray(tool.inputSchema.required)
     )
-      throw new TypeError(`Function ${name} requires an explicit closed object input schema`);
+      throw new TypeError(
+        `Function ${name} requires an explicit closed object input schema`,
+      );
     return {
       name,
       title: tool.title,
@@ -360,15 +379,26 @@ export function createClient(options: ClientOptions) {
  * The device setup token is used only for attach and is never returned.
  */
 export function createDevice(options: DeviceOptions) {
-  const tokenWorkspace = options.token ? sdkTokenWorkspace(options.token) : undefined;
-  if (options.token && (!tokenWorkspace || !options.token.startsWith("ol_sdk_")))
-    throw new TypeError("Use a device setup token (ol_sdk_); agent tokens cannot pair devices");
+  const tokenWorkspace = options.token
+    ? sdkTokenWorkspace(options.token)
+    : undefined;
+  if (
+    options.token &&
+    (!tokenWorkspace || !options.token.startsWith("ol_sdk_"))
+  )
+    throw new TypeError(
+      "Use a device setup token (ol_sdk_); agent tokens cannot pair devices",
+    );
   const workspace = tokenWorkspace ?? options.workspace;
   if (!workspace || !/^[a-f0-9]{64}$/.test(workspace))
     throw new TypeError(
       "workspace must be the 64-character ID from the openlaunch console",
     );
-  if (tokenWorkspace && options.workspace && options.workspace !== tokenWorkspace)
+  if (
+    tokenWorkspace &&
+    options.workspace &&
+    options.workspace !== tokenWorkspace
+  )
     throw new TypeError("workspace does not match the SDK token");
   if (options.credential && !options.deviceId)
     throw new TypeError("deviceId is required when resuming with a credential");
@@ -403,7 +433,9 @@ export function createDevice(options: DeviceOptions) {
     /** Start optional event wakeups; callers must still poll over HTTP. */
     openEvents(onWake: () => void) {
       if (!deviceId || !credential)
-        throw new TypeError("Attach or enroll this device before opening events");
+        throw new TypeError(
+          "Attach or enroll this device before opening events",
+        );
       return createDeviceEvents({
         url: base,
         workspace,
@@ -420,6 +452,30 @@ export function createDevice(options: DeviceOptions) {
         `/v1/device/${encodeURIComponent(deviceId ?? "")}/manifest`,
         json("POST", { manifest }),
       ),
+    /** A gateway uses its private credential to discover linked devices, never grants. */
+    gatewayChildren: (children: { key: string; manifest: DeviceManifest }[]) =>
+      deviceRequest<
+        Array<{
+          key: string;
+          deviceId?: string;
+          revoked?: boolean;
+          grantsRevoked?: boolean;
+          error?: { code: string; message: string };
+        }>
+      >(
+        `/v1/device/${encodeURIComponent(deviceId ?? "")}/children`,
+        json("POST", { children }),
+      ),
+    gatewayStatus: (online: boolean, keys?: string[]) =>
+      deviceRequest<{ ok: true }>(
+        `/v1/device/${encodeURIComponent(deviceId ?? "")}/children/status`,
+        json("POST", { online, ...(keys ? { keys } : {}) }),
+      ),
+    heartbeat: () =>
+      deviceRequest<{ lastSeen: number }>(
+        `/v1/device/${encodeURIComponent(deviceId ?? "")}/heartbeat`,
+        json("POST", {}),
+      ),
     /** Legacy: exchange a one-use enrollment token for a device credential. */
     async enroll(input: { token: string; manifest: DeviceManifest }) {
       if (!input.token || !input.manifest)
@@ -435,15 +491,15 @@ export function createDevice(options: DeviceOptions) {
     /** Attach with a device setup token; retries must reuse requestId and manifest. */
     async attach(manifest: DeviceManifest, requestId: string) {
       if (!options.token)
-        throw new TypeError("A device setup token is required to attach this device");
+        throw new TypeError(
+          "A device setup token is required to attach this device",
+        );
       if (deviceId && credential)
         throw new TypeError(
           "This device client already has an identity; create a new client to attach another device",
         );
       if (!manifest) throw new TypeError("manifest is required");
-      if (
-        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId)
-      )
+      if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId))
         throw new TypeError("requestId must be a UUID");
       const attached = await attachRequest<{ deviceId: string; token: string }>(
         "/v1/sdk/devices",

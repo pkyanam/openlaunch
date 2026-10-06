@@ -21,6 +21,14 @@ const property = z.discriminatedUnion("type", [
     })
     .strict(),
   z.object({ type: z.literal("boolean"), ...label }).strict(),
+  z
+    .object({
+      type: z.literal("object"),
+      ...label,
+      maxProperties: z.number().int().min(1).max(32),
+      additionalProperties: z.literal(true),
+    })
+    .strict(),
 ]);
 export const capabilityName = z
   .string()
@@ -113,6 +121,33 @@ export function functionArguments(
         : text;
     } else if (property.type === "boolean") {
       schema = z.boolean();
+    } else if (property.type === "object") {
+      const canonicalData = (value: unknown): unknown =>
+        Array.isArray(value)
+          ? value.map(canonicalData)
+          : value && typeof value === "object"
+            ? Object.fromEntries(
+                Object.keys(value)
+                  .sort()
+                  .map((key) => [
+                    key,
+                    canonicalData((value as Record<string, unknown>)[key]),
+                  ]),
+              )
+            : value;
+      schema = z
+        .record(z.string(), z.unknown())
+        .superRefine((value, ctx) => {
+          if (
+            Object.keys(value).length > property.maxProperties ||
+            !boundedJson(value)
+          )
+            ctx.addIssue({
+              code: "custom",
+              message: "JSON data exceeds safe depth, size or value limits",
+            });
+        })
+        .transform((value) => canonicalData(value) as Record<string, unknown>);
     } else {
       const number =
         property.type === "integer" ? z.number().int() : z.number();
@@ -123,4 +158,33 @@ export function functionArguments(
       : schema.optional();
   }
   return z.object(properties).strict().parse(input);
+}
+
+/** Bounded service data, including arrays/nested objects, never executable schema. */
+export function boundedJson(value: unknown): boolean {
+  let nodes = 0;
+  const visit = (item: unknown, depth: number): boolean => {
+    if (++nodes > 256 || depth > 6) return false;
+    if (item === null || typeof item === "boolean") return true;
+    if (typeof item === "number") return Number.isFinite(item);
+    if (typeof item === "string") return item.length <= 1024;
+    if (Array.isArray(item))
+      return item.length <= 32 && item.every((v) => visit(v, depth + 1));
+    if (!item || typeof item !== "object") return false;
+    return (
+      Object.entries(item).length <= 32 &&
+      Object.entries(item).every(
+        ([k, v]) =>
+          k.length <= 128 &&
+          !["__proto__", "constructor", "prototype"].includes(k) &&
+          visit(v, depth + 1),
+      )
+    );
+  };
+  if (!visit(value, 0)) return false;
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength <= 2048;
+  } catch {
+    return false;
+  }
 }
