@@ -1,3 +1,153 @@
-/* Keep docs, callouts, syntax highlighting and search monochrome too. */
-html { filter: grayscale(1); }
-.dark img[src='/icon.png'], [data-theme='dark'] img[src='/icon.png'] { filter: grayscale(1) invert(1); }
+/* Shared chrome and documentation use the same quiet, neutral palette. */
+:root {
+  --blume-border: #dedede;
+  --blume-radius: 0.375rem;
+  --blume-content-width: 44rem;
+  --blume-muted-foreground: #626262;
+}
+:root[data-theme="dark"] {
+  --blume-background: #111;
+  --blume-foreground: #eee;
+  --blume-muted: #1b1b1b;
+  --blume-muted-foreground: #aaa;
+  --blume-border: #3c3c3c;
+}
+html {
+  scroll-padding-top: 88px;
+}
+.dark img[src="/icon.png"],
+[data-theme="dark"] img[src="/icon.png"] {
+  filter: grayscale(1) invert(1);
+}
+[data-blume-nav-tree] a {
+  font-size: 13px;
+  line-height: 1.6;
+}
+#blume-content {
+  padding-top: 32px;
+  padding-bottom: 48px;
+}
+#blume-content .prose {
+  font-size: 14px;
+  line-height: 1.85;
+}
+#blume-content .prose h1 {
+  font-weight: 500;
+  letter-spacing: -1.2px;
+  line-height: 1.15;
+}
+#blume-content .prose h2 {
+  font-weight: 500;
+  letter-spacing: -0.55px;
+}
+#blume-content .prose h3 {
+  font-weight: 550;
+  letter-spacing: -0.25px;
+}
+#blume-content .prose a {
+  text-underline-offset: 4px;
+}
+#blume-content .prose table {
+  font-size: 12px;
+}
+[data-blume-page-end] {
+  margin-top: 32px;
+}
+[data-blume-page-end] > :first-child {
+  margin-top: 0;
+}
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline-offset: 4px;
+}
+@media (max-width: 650px) {
+  #blume-content {
+    padding-top: 24px;
+    padding-inline: 20px;
+  }
+  #blume-content .prose h1 {
+    letter-spacing: -0.8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
+
+/* One shared footer across public pages and generated error pages. */
+
+.site-footer {
+  border-top: 1px solid var(--blume-border, #ddd);
+  color: var(--blume-foreground, #171717);
+  background: var(--blume-background, #fff);
+}
+.footer-inner {
+  max-width: 1160px;
+  margin: auto;
+  padding: 28px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+.footer-brand {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  text-decoration: none;
+  color: inherit;
+  white-space: nowrap;
+}
+.footer-brand span {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--blume-muted-foreground, #666);
+  margin-top: 4px;
+}
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px 22px;
+}
+.site-footer nav a {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--blume-muted-foreground, #666);
+  text-decoration: none;
+}
+.site-footer a:hover {
+  color: var(--blume-foreground, #171717);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.site-footer a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 5px;
+}
+@media (max-width: 700px) {
+  .footer-inner {
+    padding: 24px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .site-footer nav {
+    justify-content: flex-start;
+    gap: 12px 20px;
+  }
+}
+
+[data-blume-page-end] nav[aria-label] {
+  border-top: 0;
+  margin-top: 28px;
+  padding-top: 0;
+}

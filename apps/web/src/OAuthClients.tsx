@@ -58,7 +58,7 @@ export function OAuthClients({
         separately on Devices.
       </p>
       {!available ? (
-        <p role="status">
+        <p role="status" aria-live="polite">
           OAuth client registration requires a configured hosted authorization
           provider. Agent API tokens remain available on local servers.
         </p>
@@ -256,7 +256,9 @@ export function OAuthClients({
       <div className="connection-list">
         <h3>Registered OAuth clients</h3>
         {clients.length === 0 ? (
-          <p>No custom OAuth clients registered.</p>
+          <p role="status" aria-live="polite">
+            No custom OAuth clients registered.
+          </p>
         ) : (
           clients.map((client) => (
             <article className="oauth-client-card" key={client.id}>

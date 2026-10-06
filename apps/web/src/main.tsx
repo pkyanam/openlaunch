@@ -154,6 +154,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
   const [page, setPage] = useState<
     "Devices" | "Connections" | "Activity" | "Build"
   >("Devices");
+  const [devicesLoadState, setDevicesLoadState] = useState<
+    "idle" | "loading" | "loaded" | "error"
+  >("idle");
   const [connectionTab, setConnectionTab] =
     useState<(typeof connectionTabs)[number]>("Prompt");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
@@ -417,56 +420,64 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     action?.status,
     receipts.some((item) => ["queued", "received"].includes(item.status)),
   ]);
-  const refresh = () =>
-    run(async () => {
-      const [
-        inventory,
-        agentConnections,
-        setupTokens,
-        activity,
-        savedGrants,
-        oauthClients,
-      ] = await Promise.all([
-        api("/v1/devices"),
-        api("/v1/agent-connections"),
-        api("/v1/device-setup-tokens"),
-        api("/v1/actions"),
-        api("/v1/grants"),
-        api("/v1/oauth-clients"),
-      ]);
-      setDevices(inventory);
-      setConnections(agentConnections);
-      setOAuthConnections(oauthClients.clients);
-      setOAuthRegistrationAvailable(oauthClients.available);
-      setDeviceSetupTokens(setupTokens);
-      setReceipts(activity);
-      setGrants(savedGrants);
-      if (pairingBaseline !== null) {
-        const paired = (inventory as Device[]).find(
-          (device) => !pairingBaseline.includes(device.id),
-        );
-        if (paired) {
-          setSelectedDeviceId(paired.id);
-          setPage("Devices");
-          setDetailTab("Access");
-          setEnrollment(null);
-          setSetupConnection(null);
-          if (secretContext === "device") setConnectionSecret(null);
-          setEnrollmentRevealed(false);
-          setPairingBaseline(null);
-          setAddOpen(false);
-          setNotice(
-            `${paired.name} is connected. Review its saved access; device setup credentials do not grant permission to use functions.`,
+  const refresh = () => {
+    setDevicesLoadState("loading");
+    return run(async () => {
+      try {
+        const [
+          inventory,
+          agentConnections,
+          setupTokens,
+          activity,
+          savedGrants,
+          oauthClients,
+        ] = await Promise.all([
+          api("/v1/devices"),
+          api("/v1/agent-connections"),
+          api("/v1/device-setup-tokens"),
+          api("/v1/actions"),
+          api("/v1/grants"),
+          api("/v1/oauth-clients"),
+        ]);
+        setDevices(inventory);
+        setDevicesLoadState("loaded");
+        setConnections(agentConnections);
+        setOAuthConnections(oauthClients.clients);
+        setOAuthRegistrationAvailable(oauthClients.available);
+        setDeviceSetupTokens(setupTokens);
+        setReceipts(activity);
+        setGrants(savedGrants);
+        if (pairingBaseline !== null) {
+          const paired = (inventory as Device[]).find(
+            (device) => !pairingBaseline.includes(device.id),
           );
-        } else {
-          setNotice(
-            "Inventory refreshed. Your device has not appeared yet; keep its adapter running and refresh again.",
-          );
+          if (paired) {
+            setSelectedDeviceId(paired.id);
+            setPage("Devices");
+            setDetailTab("Access");
+            setEnrollment(null);
+            setSetupConnection(null);
+            if (secretContext === "device") setConnectionSecret(null);
+            setEnrollmentRevealed(false);
+            setPairingBaseline(null);
+            setAddOpen(false);
+            setNotice(
+              `${paired.name} is connected. Review its saved access; device setup credentials do not grant permission to use functions.`,
+            );
+          } else {
+            setNotice(
+              "Inventory refreshed. Your device has not appeared yet; keep its adapter running and refresh again.",
+            );
+          }
+          return;
         }
-        return;
+        setNotice("");
+      } catch (error) {
+        setDevicesLoadState("error");
+        throw error;
       }
-      setNotice("");
     });
+  };
   const startDeviceSetup = () =>
     run(async () => {
       if (!deviceSetupKind) throw new Error("Choose a device type first.");
@@ -654,6 +665,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 onClick={() => {
                   setToken("");
                   setDevices([]);
+                  setDevicesLoadState("idle");
                   setConnections([]);
                   setOAuthConnections([]);
                   setOAuthRegistrationAvailable(false);
@@ -760,7 +772,40 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   </select>
                 </label>
               </div>
-              {devices.length === 0 ? (
+              {devices.length === 0 && devicesLoadState === "error" ? (
+                <section className="empty-state panel" role="alert">
+                  <h2>Devices could not be loaded</h2>
+                  <p>Check the connection and try again.</p>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={refresh}
+                  >
+                    Retry
+                  </button>
+                </section>
+              ) : devices.length === 0 &&
+                (devicesLoadState === "loading" ||
+                  (devicesLoadState === "idle" && !!session)) ? (
+                <section
+                  className="empty-state panel"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <h2>Loading devices</h2>
+                  <p>Retrieving the current device inventory.</p>
+                </section>
+              ) : devices.length === 0 &&
+                !session &&
+                devicesLoadState === "idle" ? (
+                <section className="empty-state panel">
+                  <h2>Connect to your server</h2>
+                  <p>
+                    Enter your development owner token above to load devices.
+                  </p>
+                </section>
+              ) : devices.length === 0 ? (
                 <section className="empty-state panel">
                   <h2>Connect your first device</h2>
                   <p>
@@ -984,7 +1029,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                             ))}
                         </ul>
                       ) : (
-                        <p>No saved grants for this device.</p>
+                        <p role="status" aria-live="polite">
+                          No saved grants for this device.
+                        </p>
                       )}
                       <details className="grant-editor">
                         <summary>Grant an agent access</summary>
@@ -1203,17 +1250,23 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       onKeyDown={(event) => {
                         if (
                           event.key !== "ArrowLeft" &&
-                          event.key !== "ArrowRight"
+                          event.key !== "ArrowRight" &&
+                          event.key !== "Home" &&
+                          event.key !== "End"
                         )
                           return;
                         event.preventDefault();
                         const current = connectionTabs.indexOf(tab);
-                        const offset = event.key === "ArrowRight" ? 1 : -1;
-                        const next =
-                          connectionTabs[
-                            (current + offset + connectionTabs.length) %
-                              connectionTabs.length
-                          ]!;
+                        const nextIndex =
+                          event.key === "Home"
+                            ? 0
+                            : event.key === "End"
+                              ? connectionTabs.length - 1
+                              : (current +
+                                  (event.key === "ArrowRight" ? 1 : -1) +
+                                  connectionTabs.length) %
+                                connectionTabs.length;
+                        const next = connectionTabs[nextIndex]!;
                         setConnectionTab(next);
                         document
                           .getElementById(
@@ -1543,7 +1596,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               ))}
                           </ul>
                         ) : (
-                          <p>No active agent API tokens.</p>
+                          <p role="status" aria-live="polite">
+                            No active agent API tokens.
+                          </p>
                         )}
                       </section>
                       <details className="advanced-token-settings">
@@ -1616,7 +1671,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                                 ))}
                             </ul>
                           ) : (
-                            <p>No active device setup tokens.</p>
+                            <p role="status" aria-live="polite">
+                              No active device setup tokens.
+                            </p>
                           )}
                         </section>
                         {connections.some(
@@ -1850,7 +1907,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     ))}
                   </ul>
                 ) : (
-                  <p>No actions recorded yet.</p>
+                  <p role="status" aria-live="polite">
+                    No actions recorded yet.
+                  </p>
                 )}
               </section>
               {selectedReceipt && (
@@ -2058,10 +2117,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             </>
           )}
           <footer>
-            openlaunch ·{" "}
-            <a href="https://www.openlaunch.dev/docs">Documentation</a>
-            {" · "}
-            <a href="/docs/terms">Terms</a>
+            openlaunch · <a href="/docs/terms">Terms</a>
             {" · "}
             <a href="/docs/privacy">Privacy</a>
           </footer>
@@ -2072,6 +2128,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         ref={connectDialog}
         className="connect-dialog"
         aria-labelledby="connect-title"
+        aria-describedby="connect-description"
         onCancel={(event) => {
           event.preventDefault();
           setAddOpen(false);
@@ -2089,7 +2146,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                   ? "Legacy enrollment"
                   : "Add a device"}
             </h2>
-            <p>
+            <p id="connect-description">
               {setupConnection
                 ? "This short-lived setup token only attaches the device. Use a separate agent API token or OAuth connection for agent requests."
                 : enrollment
@@ -2510,13 +2567,14 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         ref={confirmationDialog}
         className="confirmation-dialog"
         aria-labelledby="confirmation-title"
+        aria-describedby="confirmation-description"
         onCancel={(event) => {
           event.preventDefault();
           finishConfirmation(false);
         }}
       >
         <h2 id="confirmation-title">Review request</h2>
-        <p>{confirmation?.message}</p>
+        <p id="confirmation-description">{confirmation?.message}</p>
         <div className="row">
           <button
             className="secondary"
@@ -2721,82 +2779,131 @@ function FunctionForm({
     </form>
   );
 }
+function AuthFooter({
+  includeLegalLinks = true,
+}: {
+  includeLegalLinks?: boolean;
+}) {
+  return (
+    <nav className="auth-footer" aria-label="Account resources">
+      <a href="/docs">Documentation</a>
+      {includeLegalLinks && (
+        <>
+          <a href="/docs/terms">Terms</a>
+          <a href="/docs/privacy">Privacy</a>
+        </>
+      )}
+    </nav>
+  );
+}
+
+function AuthCardFrame({
+  children,
+  signedIn = false,
+  includeLegalLinks = true,
+}: {
+  children: React.ReactNode;
+  signedIn?: boolean;
+  includeLegalLinks?: boolean;
+}) {
+  return (
+    <main className="auth-screen">
+      <section className="auth-card account-status-card">
+        <a className="auth-brand" href="/">
+          <img src={logoUrl} width="48" height="42" alt="" />
+          <span>openlaunch</span>
+        </a>
+        {signedIn && (
+          <div className="auth-account-control">
+            <span>Signed in</span>
+            <UserButton />
+          </div>
+        )}
+        {children}
+        <AuthFooter includeLegalLinks={includeLegalLinks} />
+      </section>
+    </main>
+  );
+}
+
 function GoogleSignIn() {
   const { signIn, fetchStatus } = useSignIn();
   const [error, setError] = useState("");
   const callback = new URLSearchParams(window.location.search).get("sso");
   if (callback === "callback")
     return (
-      <main className="auth-screen">
-        <div className="auth-card">
-          <p>Finishing your sign-in…</p>
-          <HandleSSOCallback
-            navigateToApp={({ decorateUrl }) => {
-              window.location.assign(decorateUrl("/console/"));
-            }}
-            navigateToSignIn={() =>
-              window.location.assign("/console/?sso=verify")
-            }
-            navigateToSignUp={() =>
-              window.location.assign("/console/?sso=verify")
-            }
-          />
-        </div>
-      </main>
+      <AuthCardFrame>
+        <p role="status" aria-live="polite">
+          Finishing your sign-in…
+        </p>
+        <HandleSSOCallback
+          navigateToApp={({ decorateUrl }) => {
+            window.location.assign(decorateUrl("/console/"));
+          }}
+          navigateToSignIn={() =>
+            window.location.assign("/console/?sso=verify")
+          }
+          navigateToSignUp={() =>
+            window.location.assign("/console/?sso=verify")
+          }
+        />
+      </AuthCardFrame>
     );
   return (
-    <main className="auth-screen">
-      <section className="auth-card">
-        <a className="auth-brand" href="/">
-          <img src={logoUrl} width="48" height="42" alt="ol" />
-          <span>openlaunch</span>
-        </a>
-        <h1>Sign in to openlaunch</h1>
-        <p>Sign in to connect a device and choose what your agents can do.</p>
-        <p className="auth-policy">
-          By continuing, you agree to the{" "}
-          <a href="/docs/terms">Terms of Service</a>
-          {" and acknowledge the "}
-          <a href="/docs/privacy">Privacy Policy</a>.
+    <AuthCardFrame includeLegalLinks={false}>
+      <h1>Sign in to openlaunch</h1>
+      <p>Sign in to connect a device and choose what your agents can do.</p>
+      <p className="auth-policy">
+        By continuing, you agree to the{" "}
+        <a href="/docs/terms">Terms of Service</a>
+        {" and acknowledge the "}
+        <a href="/docs/privacy">Privacy Policy</a>.
+      </p>
+      {callback === "verify" ? (
+        <SignIn
+          routing="hash"
+          fallbackRedirectUrl="/console/"
+          signUpFallbackRedirectUrl="/console/"
+        />
+      ) : (
+        <button
+          className="google-sign-in"
+          disabled={fetchStatus === "fetching"}
+          onClick={async () => {
+            setError("");
+            try {
+              const result = await signIn.sso({
+                strategy: "oauth_google",
+                redirectUrl: "/console/",
+                redirectCallbackUrl: "/console/?sso=callback",
+              });
+              if (result.error)
+                setError(
+                  result.error.longMessage ??
+                    result.error.message ??
+                    "Google sign-in could not start.",
+                );
+            } catch {
+              setError("Google sign-in could not start. Please try again.");
+            }
+          }}
+        >
+          {fetchStatus === "fetching"
+            ? "Opening Google sign-in…"
+            : "Continue with Google"}
+        </button>
+      )}
+      {fetchStatus === "fetching" && callback !== "verify" && (
+        <p role="status" aria-live="polite">
+          Waiting for Google sign-in to open.
         </p>
-        {callback === "verify" ? (
-          <SignIn
-            routing="hash"
-            fallbackRedirectUrl="/console/"
-            signUpFallbackRedirectUrl="/console/"
-          />
-        ) : (
-          <button
-            className="google-sign-in"
-            disabled={fetchStatus === "fetching"}
-            onClick={async () => {
-              setError("");
-              try {
-                const result = await signIn.sso({
-                  strategy: "oauth_google",
-                  redirectUrl: "/console/",
-                  redirectCallbackUrl: "/console/?sso=callback",
-                });
-                if (result.error)
-                  setError(
-                    result.error.longMessage ??
-                      result.error.message ??
-                      "Google sign-in could not start.",
-                  );
-              } catch {
-                setError("Google sign-in could not start. Please try again.");
-              }
-            }}
-          >
-            Continue with Google
-          </button>
-        )}
-        {error && <p role="alert">{error}</p>}
-        <a className="auth-docs" href="/docs">
-          Read the docs
-        </a>
-      </section>
-    </main>
+      )}
+      {error && (
+        <p role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
+    </AuthCardFrame>
   );
 }
 function HostedApp() {
@@ -2829,36 +2936,50 @@ function HostedApp() {
       active = false;
     };
   }, [isLoaded, isSignedIn, getToken]);
-  if (!isLoaded) return <main>Loading your account…</main>;
+  if (!isLoaded)
+    return (
+      <AuthCardFrame>
+        <section role="status" aria-live="polite" aria-busy="true">
+          <h1>Loading your account</h1>
+          <p>Checking your sign-in status.</p>
+        </section>
+      </AuthCardFrame>
+    );
   if (!isSignedIn) return <GoogleSignIn />;
   if (accountError)
     return (
-      <main>
-        <h1>Account connection</h1>
-        <p role="alert">{accountError}</p>
-        <UserButton />
-        <a href="/docs/troubleshooting">Get help</a>
-      </main>
+      <AuthCardFrame signedIn>
+        <h1>Account connection failed</h1>
+        <p role="alert" aria-live="assertive">
+          {accountError}
+        </p>
+        <p>Reload this page to retry the account check.</p>
+        <div className="auth-actions">
+          <button type="button" onClick={() => window.location.reload()}>
+            Reload and retry
+          </button>
+          <a href="/docs/troubleshooting">Troubleshooting guide</a>
+        </div>
+      </AuthCardFrame>
     );
-  if (!account) return <main>Connecting your account…</main>;
+  if (!account)
+    return (
+      <AuthCardFrame signedIn>
+        <section role="status" aria-live="polite" aria-busy="true">
+          <h1>Connecting your account</h1>
+          <p>Retrieving the account’s device-control status.</p>
+        </section>
+      </AuthCardFrame>
+    );
   if (!account.deviceControlsEnabled)
     return (
-      <>
-        <header>
-          <a className="brand" href="/">
-            openlaunch
-          </a>
-          <UserButton />
-        </header>
-        <main>
-          <h1>Account connected</h1>
-          <p>
-            Your sign-in has been verified. Device linking opens after this
-            deployment completes its connection checks.
-          </p>
-          <a href="/docs">Explore the docs</a>
-        </main>
-      </>
+      <AuthCardFrame signedIn>
+        <h1>Device controls unavailable</h1>
+        <p>
+          Your account is signed in, but device controls are not enabled on this
+          hosted service.
+        </p>
+      </AuthCardFrame>
     );
   return <App session={getToken} />;
 }

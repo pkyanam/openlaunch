@@ -1,6 +1,6 @@
 # openlaunch
 
-Connect your agents to your hardware. openlaunch is an open source bridge for ChatGPT, Codex, and other agents. Pair a board, choose the capabilities an agent may use, and inspect each action's result.
+Connect your agents to your hardware. Expose the functions your devices can perform, choose what each agent may use, and follow every action to a result. Free to use, MIT-licensed and self-hostable from the same public codebase.
 
 ## Get started
 
@@ -17,10 +17,10 @@ curl -fsSL https://www.openlaunch.dev/install.sh | bash
 ## Hardware
 
 - [Uno R4 WiFi](/docs/uno-r4): health, built-in LED, and ASCII matrix text. Stock and repaired console-mux builds are isolated.
-- [Raspberry Pi 4 Model B, 4GB or 8GB](/docs/pi): health through the Go agent.
+- [Raspberry Pi 4 Model B](/docs/pi): health through the Go device adapter, or explicitly enabled host functions through the Linux adapter. Follow the target acceptance checklist.
 - Any board can connect through the [device SDK](/docs/sdk) or its documented HTTP protocol. A custom adapter needs to implement the functions it advertises.
 
-Device pairing creates a private device credential. The owner separately grants an agent specific functions on that device. Devices poll every 10 seconds. A queued action has not completed: inspect its final result.
+Device pairing creates a private device credential. The owner separately grants an agent specific functions on that device. Polling adapters check for work every 10 seconds; supported transports also use WebSocket wake hints. A queued action has not completed: inspect its final result.
 
 ## API, MCP and CLI
 

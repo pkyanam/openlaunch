@@ -223,6 +223,18 @@ try {
   for (const page of pages) {
     const path = page.route === "/" ? "index.md" : page.route.slice(1) + ".md";
     await access(fileURLToPath(new URL(path, root)));
+    const htmlPath =
+      page.route === "/" ? "index.html" : page.route.slice(1) + "/index.html";
+    const pageHtml = await readFile(new URL(htmlPath, root), "utf8");
+    assert.equal(
+      (pageHtml.match(/<footer(?:\s|>)/g) ?? []).length,
+      1,
+      `${page.route}: render exactly one footer`,
+    );
+    assert(
+      pageHtml.includes("data-openlaunch-footer"),
+      `${page.route}: use the shared footer`,
+    );
     const result = await client.callTool({
       name: "get_page",
       arguments: { route: page.route },
@@ -230,6 +242,9 @@ try {
     assert(!result.isError, page.route);
     assert(result.content[0].text.length > 50, page.route);
   }
+  const notFoundHtml = await readFile(new URL("404.html", root), "utf8");
+  assert.equal((notFoundHtml.match(/<footer(?:\s|>)/g) ?? []).length, 1);
+  assert(notFoundHtml.includes("data-openlaunch-footer"));
   const results = await client.callTool({
     name: "search_docs",
     arguments: { query: "enrollment" },

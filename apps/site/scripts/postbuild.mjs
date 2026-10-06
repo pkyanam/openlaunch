@@ -157,11 +157,19 @@ function pinGeneratedLinks(directory) {
       // at the site root; publish relative links so previews retain their host.
       if (entry.name.endsWith(".html"))
         pinned = pinned.replace(/<a\b[^>]*>/g, (tag) => {
-          for (const route of ["/console/", "/changelog", "/pricing"])
-            tag = tag.replaceAll(
-              `href="https://www.openlaunch.dev${route}"`,
-              `href="${route}"`,
-            );
+          for (const route of ["/console/", "/changelog", "/pricing"]) {
+            if (tag.includes(`href="https://www.openlaunch.dev${route}"`)) {
+              tag = tag.replaceAll(
+                `href="https://www.openlaunch.dev${route}"`,
+                `href="${route}"`,
+              );
+              // These are same-site navigation, including in a local preview.
+              tag = tag.replace(
+                /\s+(?:target="_blank"|rel="noreferrer"|aria-describedby="blume-new-tab-hint")/g,
+                "",
+              );
+            }
+          }
           return tag.replaceAll('href="/docs/pricing"', 'href="/pricing"');
         });
       if (pinned !== original) writeFileSync(path, pinned);
@@ -226,6 +234,20 @@ writeFileSync(
       /\bwidth=/.test(tag)
         ? tag
         : tag.replace("<img", '<img width="1280" height="1280"'),
+  ),
+);
+
+// Blume 2.1.1's generated 404 also bypasses the Footer override. Reuse
+// the rendered shared footer; its styling lives in the global theme sheet.
+const sharedFooter = readFileSync("dist/client/index.html", "utf8").match(
+  /<footer\b[\s\S]*?<\/footer>/,
+)?.[0];
+if (!sharedFooter) throw new Error("Shared site footer missing from homepage");
+writeFileSync(
+  notFoundPath,
+  readFileSync(notFoundPath, "utf8").replace(
+    /<footer\b[\s\S]*?<\/footer>/,
+    sharedFooter,
   ),
 );
 

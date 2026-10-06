@@ -297,12 +297,12 @@ small,
 .console-main {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   width: 100%;
   min-width: 0;
   max-width: 1450px;
   margin: 0 auto;
-  padding: 34px clamp(24px, 5vw, 76px) 52px;
+  padding: 38px clamp(24px, 5vw, 76px) 52px;
 }
 
 .page-header {
@@ -393,7 +393,7 @@ small,
   gap: 14px;
   min-height: 40px;
   margin: 0;
-  padding: 9px 12px;
+  padding: 10px 13px;
   color: #444444;
   background: #f6f6f6;
   border: 1px solid #e5e5e5;
@@ -566,10 +566,10 @@ code {
   display: grid;
   justify-items: start;
   gap: 8px;
-  min-height: 170px;
-  padding: 28px;
-  background: #fafafa;
-  border: 1px dashed #c8c8c8;
+  min-height: 150px;
+  padding: 26px;
+  background: #fbfbfb;
+  border: 1px dashed #d3d3d3;
   border-radius: 8px;
 }
 
@@ -1036,8 +1036,8 @@ pre code {
 .table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #dedede;
-  border-radius: 7px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
 }
 
 table {
@@ -1049,7 +1049,7 @@ table {
 th,
 td {
   min-width: 100px;
-  padding: 13px 15px;
+  padding: 12px 14px;
   border-bottom: 1px solid #e5e5e5;
   vertical-align: top;
   overflow-wrap: anywhere;
@@ -1059,7 +1059,7 @@ th {
   color: #555555;
   background: #f8f8f8;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 tr:last-child td {
@@ -1114,6 +1114,36 @@ tr:last-child td {
   box-shadow: 0 8px 32px #0000000a;
 }
 
+.account-status-card > h1,
+.account-status-card section > h1 {
+  font-size: 25px;
+  letter-spacing: -0.65px;
+}
+
+.auth-account-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -8px 0 20px;
+  padding: 10px 0;
+  color: #666666;
+  border-top: 1px solid #e8e8e8;
+  border-bottom: 1px solid #e8e8e8;
+  font-size: 13px;
+}
+
+.auth-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.auth-actions a {
+  color: #444444;
+}
+
 .auth-brand {
   display: block;
   margin-bottom: 24px;
@@ -1137,6 +1167,22 @@ tr:last-child td {
   color: #555555;
   font-size: 14px;
   text-align: center;
+}
+
+.auth-footer {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.auth-footer a {
+  color: #555555;
+  font-size: 13px;
+  text-underline-offset: 3px;
 }
 
 .brand {
@@ -1369,7 +1415,7 @@ footer {
 
 .console-layout {
   min-height: 100vh;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
 }
 
 .console-sidebar {
@@ -1377,8 +1423,9 @@ footer {
   top: 0;
   height: 100vh;
   min-height: 480px;
-  width: 224px;
-  padding: 20px 16px 16px;
+  width: 232px;
+  padding: 26px 18px 18px;
+  background: #fbfbfb;
   border-right-color: #e5e5e5;
 }
 
@@ -1386,7 +1433,7 @@ footer {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  margin: 3px 8px 36px;
+  margin: 2px 8px 40px;
   white-space: nowrap;
 }
 
@@ -1404,7 +1451,7 @@ footer {
 }
 
 .console-nav {
-  gap: 4px;
+  gap: 3px;
 }
 
 .console-nav a,
@@ -1470,12 +1517,13 @@ footer {
 
 .page-header {
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 4px;
 }
 
 .console-main h1 {
-  font-size: 26px;
-  letter-spacing: -0.8px;
+  margin-bottom: 6px;
+  font-size: clamp(25px, 2.3vw, 30px);
+  letter-spacing: -0.95px;
 }
 
 .panel,
@@ -1483,7 +1531,7 @@ footer {
 .device-detail,
 .help-panel {
   border-color: #e2e2e2;
-  border-radius: 8px;
+  border-radius: 7px;
 }
 
 .legacy-token-panel {
@@ -1637,9 +1685,10 @@ h1 {
 }
 
 button {
-  min-height: 38px;
+  min-height: 40px;
   padding: 8px 13px;
-  border-radius: 7px;
+  border-radius: 6px;
+  font-weight: 570;
 }
 
 .sidebar-bottom {
@@ -1685,6 +1734,13 @@ button {
 
 .console-main > footer {
   padding-top: 0;
+  color: #777777;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.console-main > footer a {
+  color: #555555;
 }
 
 .console-main .panel,
@@ -1952,9 +2008,10 @@ button {
 .connection-panel {
   padding: 0;
   overflow: hidden;
+  border-radius: 7px;
 }
 .connection-panel-heading {
-  padding: 22px 24px 8px;
+  padding: 24px 26px 10px;
 }
 .connection-panel-heading h2 {
   margin-bottom: 5px;
@@ -1966,14 +2023,14 @@ button {
 }
 .connection-tabs {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   overflow-x: auto;
-  padding: 0 20px;
+  padding: 0 22px;
   border-bottom: 1px solid #e5e5e5;
 }
 .connection-tabs [role="tab"] {
-  min-height: 42px;
-  padding: 9px 12px;
+  min-height: 46px;
+  padding: 9px 11px;
   color: #666;
   background: transparent;
   border: 0;
@@ -1983,10 +2040,11 @@ button {
 }
 .connection-tabs [role="tab"].active {
   color: #171717;
+  font-weight: 620;
   border-bottom-color: #171717;
 }
 .connection-tab-content {
-  padding: 22px 24px 24px;
+  padding: 24px 26px 26px;
 }
 .connection-method > p {
   max-width: 760px;
@@ -2074,10 +2132,11 @@ button {
 .oauth-client-created,
 .oauth-client-card {
   margin-top: 20px;
-  padding: 18px;
+  padding: 20px;
   border: 1px solid #e5e5e5;
   border-radius: 6px;
   overflow-wrap: anywhere;
+  background: #ffffff;
 }
 .oauth-client-created > *,
 .oauth-client-card > * {
@@ -2129,6 +2188,17 @@ button {
   outline: 3px solid #171717;
   outline-offset: 2px;
 }
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: #929292;
+}
+
+input[readonly] {
+  color: #414141;
+  background: #f8f8f8;
+}
 .device-filter {
   display: flex;
   align-items: center;
@@ -2179,10 +2249,11 @@ button {
     padding: 18px 16px 8px;
   }
   .connection-tabs {
-    padding: 0 12px;
+    gap: 3px;
+    padding: 0 10px;
   }
   .connection-tab-content {
-    padding: 18px 16px;
+    padding: 18px 16px 20px;
   }
   .connection-list li {
     align-items: flex-start;
@@ -2190,6 +2261,10 @@ button {
   .device-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+  .oauth-client-created,
+  .oauth-client-card {
+    padding: 15px;
   }
 }
 
