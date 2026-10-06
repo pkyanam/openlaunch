@@ -98,6 +98,7 @@ func TestDeviceEventsReconnectWithFreshTickets(t *testing.T) {
 	defer cancel()
 	var tickets syncatomic.Int32
 	var sockets syncatomic.Int32
+	reconnected := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "events-ticket") {
 			tickets.Add(1)
@@ -108,13 +109,17 @@ func TestDeviceEventsReconnectWithFreshTickets(t *testing.T) {
 		if err != nil {
 			return
 		}
-		sockets.Add(1)
+		if sockets.Add(1) == 2 {
+			close(reconnected)
+		}
 		conn.CloseNow()
 	}))
 	defer server.Close()
 	wake := startDeviceEvents(ctx, eventFixtureConfig(server.URL))
 	awaitEvent(t, wake)
 	awaitEvent(t, wake)
+	// Dial can return to the client before Accept returns to this handler.
+	awaitEvent(t, reconnected)
 	if tickets.Load() < 2 || sockets.Load() < 2 {
 		t.Fatal("reconnection did not acquire a fresh single-use ticket")
 	}
