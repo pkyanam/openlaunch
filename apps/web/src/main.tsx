@@ -59,6 +59,49 @@ type Grant = {
 };
 
 const consolePages = ["Devices", "Connections", "Activity", "Build"] as const;
+const consolePageFromHash = () =>
+  consolePages.find(
+    (item) => "#" + item.toLowerCase() === window.location.hash,
+  ) ?? "Devices";
+function DeviceIcon({ kind }: { kind: string }) {
+  return (
+    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      {kind.includes("home-assistant") ? (
+        <>
+          <path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7" />
+        </>
+      ) : kind === "linux" || kind.includes("pi") ? (
+        <>
+          <rect x="3" y="4" width="18" height="12" rx="2" />
+          <path d="M8 20h8M12 16v4m-5-9 2-2-2-2m4 4h5" />
+        </>
+      ) : (
+        <>
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+          <path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4" />
+        </>
+      )}
+    </svg>
+  );
+}
+const deviceKindLabel = (kind: string) =>
+  kind === "gateway.home-assistant"
+    ? "Home Assistant gateway"
+    : kind === "home-assistant.entity"
+      ? "Home Assistant entity"
+      : kind === "home-assistant.device"
+        ? "Home Assistant device"
+        : kind === "home-assistant.service"
+          ? "Home Assistant service"
+          : kind === "linux"
+            ? "Linux computer"
+            : kind === "uno-r4-wifi"
+              ? "Uno R4 WiFi"
+              : kind === "raspberry-pi" || kind === "raspberry-pi-4"
+                ? "Raspberry Pi"
+                : kind === "esp32"
+                  ? "ESP32"
+                  : kind;
 const connectionTabs = [
   "Prompt",
   "MCP URL",
@@ -158,7 +201,22 @@ function App({ session }: { session?: () => Promise<string | null> }) {
     [broadcastResults, setBroadcastResults] = useState<any[]>([]);
   const [page, setPage] = useState<
     "Devices" | "Connections" | "Activity" | "Build"
-  >("Devices");
+  >(consolePageFromHash);
+  useEffect(() => {
+    const sync = () => setPage(consolePageFromHash());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  useEffect(() => {
+    const hash = "#" + page.toLowerCase();
+    if (window.location.hash !== hash)
+      window.history.replaceState(null, "", hash);
+    document.title = page + " · openlaunch";
+  }, [page]);
+  const navigatePage = (next: (typeof consolePages)[number]) => {
+    window.location.hash = next.toLowerCase();
+    setPage(next);
+  };
   const [devicesLoadState, setDevicesLoadState] = useState<
     "idle" | "loading" | "loaded" | "error"
   >("idle");
@@ -608,7 +666,7 @@ function App({ session }: { session?: () => Promise<string | null> }) {
         </a>
         <div className="console-header-tools">
           <nav className="console-nav mobile-nav" aria-label="Console sections">
-            <ConsoleNavigation page={page} onSelect={setPage} />
+            <ConsoleNavigation page={page} onSelect={navigatePage} />
           </nav>
           {!session && (
             <span className="badge mobile-session-badge">
@@ -632,8 +690,24 @@ function App({ session }: { session?: () => Promise<string | null> }) {
             <img src={logoUrl} width="28" height="26" alt="" />
             <span>openlaunch</span>
           </a>
+          <p className="sidebar-label">Your workspace</p>
           <nav className="console-nav" aria-label="Console sections">
-            <ConsoleNavigation page={page} onSelect={setPage} />
+            <ConsoleNavigation page={page} onSelect={navigatePage} />
+          </nav>
+          <nav className="sidebar-resources" aria-label="Developer resources">
+            <p className="sidebar-label">Developers</p>
+            <a href="/docs/agents">
+              Connect an agent <span aria-hidden="true">↗</span>
+            </a>
+            <a href="/docs/home-assistant">
+              Home Assistant <span aria-hidden="true">↗</span>
+            </a>
+            <a href="/docs/reference">
+              API reference <span aria-hidden="true">↗</span>
+            </a>
+            <a href="/docs/cli">
+              ol CLI <span aria-hidden="true">↗</span>
+            </a>
           </nav>
           <div className="sidebar-bottom">
             <a href="/docs">
@@ -647,6 +721,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                 <path d="M4 14a2.5 2.5 0 0 1 2.5-2.5H15M7 6.5h4.5" />
               </svg>
               Documentation
+            </a>
+            <a href="https://github.com/pkyanam/openlaunch">
+              Source on GitHub <span aria-hidden="true">↗</span>
             </a>
             {!session && <span className="sidebar-session">Local owner</span>}
             {session && (
@@ -736,11 +813,17 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                     )}
                   </h1>
                   <p>
-                    Pair devices, inspect functions, and control access. Search
-                    includes linked Home Assistant entities and services.
+                    Your connected hardware and gateways. Inspect functions and
+                    choose what each agent can use.
                   </p>
                 </div>
                 <div className="row">
+                  <button
+                    className="secondary"
+                    onClick={() => navigatePage("Connections")}
+                  >
+                    Connect an agent
+                  </button>
                   <button
                     className="secondary"
                     disabled={busy || (!session && !token)}
@@ -876,11 +959,16 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                       key={d.id}
                     >
                       <div className="device-card-heading">
-                        <span className="device-card-icon" aria-hidden="true">
-                          <svg viewBox="0 0 24 24" focusable="false">
-                            <rect x="4" y="4" width="16" height="12" rx="2" />
-                            <path d="M9 20h6M12 16v4M8 9h8" />
-                          </svg>
+                        <span
+                          className={
+                            "device-card-icon" +
+                            (d.kind.includes("home-assistant")
+                              ? " ha-device-icon"
+                              : "")
+                          }
+                          aria-hidden="true"
+                        >
+                          <DeviceIcon kind={d.kind} />
                         </span>
                         <div className="device-card-title">
                           <button
@@ -901,7 +989,9 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                               <path d="m7 4 6 6-6 6" />
                             </svg>
                           </button>
-                          <span className="device-kind">{d.kind}</span>
+                          <span className="device-kind">
+                            {deviceKindLabel(d.kind)}
+                          </span>
                         </div>
                       </div>
                       <div className="device-card-footer">
@@ -910,6 +1000,11 @@ function App({ session }: { session?: () => Promise<string | null> }) {
                           {d.online ? "Online" : "Offline"}
                         </span>
                         <span>
+                          {d.gatewayDeviceLimit
+                            ? devices.filter(
+                                (child) => child.gatewayId === d.id,
+                              ).length + " linked · "
+                            : ""}
                           {d.capabilities.length}{" "}
                           {d.capabilities.length === 1
                             ? "function"

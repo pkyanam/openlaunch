@@ -1,43 +1,156 @@
 ---
-import PageLayout from "blume/components/layout/PageLayout.astro";
-import data from "blume:data";
-import Footer from "../components/Footer.astro";
-const { config } = data;
+import PublicLayout from "../components/PublicLayout.astro";
+const sections = [["Start with a device", "start"], ["Try it with your agent", "devices"], ["Connect the flow", "flow"], ["Choose an interface", "interfaces"], ["Build your own", "build"]];
+const buildPrompt = "Read https://www.openlaunch.dev/docs/sdk.md and https://www.openlaunch.dev/docs/functions.md. Help me build an openlaunch adapter for my device, publish its actual functions, and test an action end to end. Use the live API schemas. Keep device setup credentials, device credentials and agent credentials separate. Have me enter credentials privately in my terminal, never in chat.";
 ---
-<PageLayout site={{ title: config.title, description: config.description }} logo={{ ...config.logo, dimensions: { light: { width: 1280, height: 1280 }, dark: { width: 1280, height: 1280 } } }} navigation={data.navigation} favicon={config.favicon} fontCssVars={data.fontCssVars} themeMode={config.theme.mode} searchEnabled={config.search.enabled} siteUrl={config.site} ogEnabled={config.og.enabled} page={{ title: "openlaunch — Connect your agents to your hardware", description: config.description }}>
-<main class="workbench">
-  <section class="intro">
-    <p class="eyebrow">OPEN SOURCE · MIT LICENSED</p>
-    <h1>Connect your agents<br />to your hardware.</h1>
-    <p class="intro-copy">Expose the functions your devices can perform.<br class="desktop-break" /> Choose what each agent may use. Follow every action to a result.</p>
-    <nav class="hero-actions" aria-label="Get started"><a class="primary-link" href="/console/">Open console <span aria-hidden="true">→</span></a><a href="/docs/setup">Read the setup guide <span aria-hidden="true">→</span></a></nav>
-    <p class="intro-note">Free to use. Self-hostable. One public codebase. <a href="/pricing">See pricing →</a></p>
-  </section>
-  <section class="workflow" aria-label="How openlaunch works">
-    <article><span class="step">01</span><h2>Connect a device</h2><p>Run an adapter on your Pi or pair an Uno. A setup token attaches the device; it does not give an agent control.</p></article>
-    <article><span class="step">02</span><h2>Grant specific functions</h2><p>Connect an agent separately. Choose its devices, functions and access duration. Revoke access from your console.</p></article>
-    <article><span class="step">03</span><h2>Inspect the receipt</h2><p>Follow a command from request to result. A queued action is pending; a reported result is evidence from the adapter.</p></article>
-  </section>
-  <section class="hardware-section" aria-labelledby="hardware-title">
-    <div class="section-heading"><div><p class="eyebrow">START WITH YOUR HARDWARE</p><h2 id="hardware-title">A board. A computer.<br />Or something you build.</h2></div><a href="/docs/status">Hardware verification →</a></div>
-    <div class="boards">
-      <article><a class="board-image" href="/docs/uno-r4"><img src="/images/uno-r4-wifi.webp" alt="Generated monochrome illustration of an Uno R4 WiFi board" width="1536" height="1024" loading="lazy" /></a><h3>Uno R4 WiFi</h3><p>Read health, control the built-in LED and write ASCII matrix text. Stock and repaired console-mux profiles use separate builds.</p><a href="/docs/uno-r4">Set up your Uno →</a></article>
-      <article><a class="board-image" href="/docs/pi"><img src="/images/raspberry-pi-4.webp" alt="Generated monochrome illustration of a Raspberry Pi 4 Model B" width="1536" height="1024" loading="lazy" /></a><h3>Raspberry Pi 4</h3><p>Use the Go device adapter for health, or the Linux host adapter for explicitly enabled host functions. Start with the target acceptance checklist.</p><a href="/docs/pi">Set up your Pi →</a></article>
-    </div>
-    <p class="image-note">Generated illustrations. Follow manufacturer pinouts for wiring. Software checks and physical-device acceptance are documented separately.</p>
-  </section>
-  <section class="integration-section">
-    <div><p class="eyebrow">API · MCP · CLI</p><h2>One function catalog.<br />Your choice of interface.</h2></div>
-    <div><p>Connect an agent through MCP, call the HTTPS API from your application, or use <code>ol</code> in your terminal. Each discovers the functions its connection may use and returns action receipts.</p><nav class="links" aria-label="Interfaces"><a href="/docs/agents">Connect MCP →</a><a href="/docs/reference">Explore the API →</a><a href="/docs/cli">Install ol →</a></nav></div>
-  </section>
-  <section class="integration-section">
-    <div><p class="eyebrow">BUILD YOUR OWN FUNCTIONS</p><h2>Your device.<br />Your functions.</h2></div>
-    <div><p>Write a handler, describe its inputs and publish it from your adapter. Owner-approved functions appear as tools for connected agents. Use the JavaScript SDK, embedded ESP32 SDK or device HTTP protocol.</p><nav class="links" aria-label="Build resources"><a href="/docs/functions">Build a function →</a><a href="/docs/sdk">SDK quickstart →</a><a href="https://github.com/pkyanam/openlaunch">View the source ↗</a></nav></div>
-  </section>
-  <section class="closing"><h2>Start with one device.</h2><p>Pair it, grant one function and inspect the result.</p><a class="primary-link" href="/console/">Open your console <span aria-hidden="true">→</span></a><a class="updates-link" href="/changelog">Latest updates →</a></section>
-</main>
-<Footer slot="footer" />
-</PageLayout>
+<PublicLayout title="openlaunch · Your agents. Your devices." sections={sections}>
+  <div class="workbench">
+    <section class="intro">
+      <h1>Your agents. Your devices.</h1>
+      <p class="intro-copy">Hardware, Linux computers, and your Home Assistant home.<br class="desktop-break" /> Connected to the agents you already use.</p>
+      <div class="hero-actions">
+        <a class="primary-link" href="/console/">Get started <span aria-hidden="true">→</span></a>
+        <button class="build-prompt" type="button" data-copy-prompt={buildPrompt}>
+          <span class="agent-marks" aria-hidden="true"><img src="/logos/claude.svg" width="24" height="24" alt="" /><img src="/logos/codex.svg" width="24" height="24" alt="" /><img src="/logos/cursor.svg" width="24" height="24" alt="" /></span>
+          <span data-copy-label aria-live="polite">Build with your agent</span>
+          <span class="copy-glyph" aria-hidden="true"><svg class="copy-icon" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M13 7V3H3v10h4" /></svg><svg class="check-icon" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 10 4 4 10-10" /></svg></span>
+        </button>
+      </div>
+      <p class="intro-note">Keep it on your own machine? <a href="/docs/cli">CLI</a>, <a href="/docs/sdk">SDK</a>, or <a href="/docs/architecture#deployment">self-hosted <span aria-hidden="true">↓</span></a></p>
+      <p class="copy-fallback" hidden>Copy this prompt: <span>{buildPrompt}</span></p>
+    </section>
+    <section class="start-section" id="start" aria-labelledby="start-title">
+      <h2 id="start-title">Start with something useful.</h2>
+      <p class="section-copy">Connect a computer, bring your home into the loop, or add a device of your own.</p>
+      <div class="starter-grid">
+        <a class="starter" href="/docs/linux"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8m-4-4v4m-5-9 2-2-2-2m4 4h5" /></svg><h3>A Linux computer</h3><p>Inspect your Pi, open a browser, and control its desktop with the access you enable.</p><span>Set up Linux <span aria-hidden="true">↗</span></span></a>
+        <a class="starter" href="/docs/home-assistant"><svg class="ha-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7" /></svg><h3>Your Home Assistant home</h3><p>Discover entities, run scenes and scripts, and call your connected devices’ functions.</p><span>Connect Home Assistant <span aria-hidden="true">↗</span></span></a>
+        <a class="starter" href="/docs/sdk"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4" /></svg><h3>A device you build</h3><p>Start with an Uno or ESP32, or write an adapter for the hardware you have.</p><span>Explore the SDK <span aria-hidden="true">↗</span></span></a>
+      </div>
+    </section>
+    <section class="example-section" id="devices" aria-labelledby="example-title">
+      <h2 id="example-title">Ask for what you actually need.</h2>
+      <p class="section-copy">Your agent reads the device’s functions, requests an action, and follows its receipt.</p>
+      <div class="examples">
+        <article><span class="example-label">01 / Linux</span><blockquote>“Find my Pi’s specs, then open YouTube on its desktop.”</blockquote><p>System information, browser launch, and a screenshot to see the result.</p><a href="/docs/linux">See Linux functions <span aria-hidden="true">→</span></a></article>
+        <article><span class="example-label">02 / Home Assistant</span><blockquote>“Turn on the test toggle, read its state, then turn it off.”</blockquote><p>A real service call and state read. Start with a helper; no hardware needed.</p><a href="/docs/home-assistant#test-without-physical-devices">Try the test helper <span aria-hidden="true">→</span></a></article>
+        <article><span class="example-label">03 / Your hardware</span><blockquote>“Show ‘hello’ on my Uno, then check its health.”</blockquote><p>Built-in functions today. Add your own handlers as your project grows.</p><a href="/docs/uno-r4">Connect an Uno <span aria-hidden="true">→</span></a></article>
+      </div>
+      <p class="example-note">Example requests. Available functions depend on your adapter and saved grants. <a href="/docs/status">See what’s been verified →</a></p>
+    </section>
+    <section class="flow-section" id="flow" aria-labelledby="flow-title">
+      <h2 id="flow-title">Put your devices in the flow.</h2>
+      <p class="section-copy">One device or a whole Home Assistant installation. Your agent uses the same connection.</p>
+      <div class="flow-diagram" role="img" aria-label="Your agent connects to openlaunch, then to a device adapter or Home Assistant gateway, and on to your devices.">
+        <span>Your agent<small>ChatGPT · Codex · Any MCP client</small></span><b aria-hidden="true">→</b><span class="flow-hub">openlaunch<small>Functions · Access · Receipts</small></span><b aria-hidden="true">→</b><span>Adapter or gateway<small>Linux · Home Assistant · SDK</small></span><b aria-hidden="true">→</b><span>Your devices<small>Computers · Homes · Hardware</small></span>
+      </div>
+      <div class="flow-notes"><p><strong>Choose the access.</strong> Grant individual functions, choose an expiry, and revoke access from your console.</p><p><strong>Follow the result.</strong> See what was queued, delivered and reported. Device state and physical verification stay distinct.</p></div>
+    </section>
+    <section class="interface-section" id="interfaces" aria-labelledby="interface-title">
+      <h2 id="interface-title">Use the interface that fits.</h2>
+      <div class="interface-list">
+        <a href="/docs/agents"><span>MCP</span><p>Connect ChatGPT, Codex or another agent. Discover functions as you need them.</p><b aria-hidden="true">↗</b></a>
+        <a href="/docs/reference"><span>API</span><p>Build on the same device catalog, grants and action receipts over HTTPS.</p><b aria-hidden="true">↗</b></a>
+        <a href="/docs/cli"><span>ol CLI</span><p>Install once. Inspect devices and invoke their functions from your terminal.</p><b aria-hidden="true">↗</b></a>
+      </div>
+    </section>
+    <section class="build-section" id="build" aria-labelledby="build-title">
+      <div><h2 id="build-title">Your hardware.<br />Your functions.</h2><p class="section-copy">Describe the inputs. Write the handler. Connect your agent.</p></div>
+      <div><p>Adapters publish the functions they actually implement. Your agent discovers the current schema through MCP, API or CLI, with the same permission checks across all three.</p><div class="links"><a href="/docs/functions">Build a function →</a><a href="https://github.com/pkyanam/openlaunch">Read the source ↗</a></div></div>
+    </section>
+    <section class="closing"><h2>Start with one device.</h2><p>Free hosted access. MIT licensed. Self-host it when you want.</p><a class="primary-link" href="/console/">Open your console <span aria-hidden="true">→</span></a><a href="/pricing">See pricing →</a><a href="/changelog">Latest updates →</a></section>
+  </div>
+</PublicLayout>
+<script>
+  document.addEventListener("click", async (event) => {
+    const button = (event.target as Element)?.closest<HTMLButtonElement>("[data-copy-prompt]");
+    if (!button || button.disabled) return;
+    const label = button.querySelector("[data-copy-label]")!;
+    button.disabled = true;
+    try {
+      await navigator.clipboard.writeText(button.dataset.copyPrompt!);
+      button.dataset.copied = "true";
+      label.textContent = "Prompt copied";
+    } catch {
+      label.textContent = "Select the prompt below";
+      document.querySelector<HTMLElement>(".copy-fallback")!.hidden = false;
+    }
+    window.setTimeout(() => { label.textContent = "Build with your agent"; delete button.dataset.copied; button.disabled = false; }, 2500);
+  });
+</script>
 <style>
-.workbench{--ink:#171717;--muted:#626262;--line:#dedede;--paper:#fff;max-width:1160px;margin:auto;padding:64px 40px 56px;color:var(--ink);background:var(--paper);font-family:var(--font-sans,system-ui),sans-serif}.workbench *{box-sizing:border-box}.workbench a{color:inherit;text-underline-offset:4px;font-size:13px;text-decoration:none}.workbench a:hover{text-decoration:underline}.workbench a:focus-visible{outline:2px solid currentColor;outline-offset:5px}.eyebrow{font-size:10px;font-weight:600;letter-spacing:1.4px;line-height:1.6;color:var(--muted);margin:0 0 20px}.workbench h1{font-size:clamp(38px,5vw,64px);line-height:1.08;letter-spacing:-2.7px;font-weight:500;margin:0 0 26px}.intro-copy{font-size:17px;line-height:1.8;color:var(--muted);margin:0 0 28px}.hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:18px 28px}.workbench a.primary-link{display:inline-flex;justify-content:space-between;align-items:center;gap:32px;background:var(--ink);color:var(--paper);padding:13px 18px;min-height:46px;border:1px solid var(--ink);text-decoration:none}.primary-link:hover{opacity:.82}.intro-note{font-size:11px;color:var(--muted);margin:20px 0 0;line-height:1.8}.intro-note a{font-size:11px;margin-left:8px}.workflow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-block:1px solid var(--line);margin-top:52px}.workflow article{padding:28px 26px 28px 0}.workflow article+article{border-left:1px solid var(--line);padding-left:26px}.step{font-size:11px;color:var(--muted);display:block;margin-bottom:22px}.workflow h2{font-size:17px;line-height:1.3;letter-spacing:-.4px;font-weight:500;margin:0 0 12px}.workflow p,.boards p,.integration-section p:not(.eyebrow){font-size:13px;line-height:1.8;color:var(--muted);margin:0}.hardware-section{padding-top:48px}.section-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:28px}.section-heading h2,.integration-section h2,.closing h2{font-size:29px;line-height:1.2;letter-spacing:-.9px;font-weight:500;margin:0}.section-heading .eyebrow,.integration-section .eyebrow{margin-bottom:16px}.section-heading>a{font-size:12px;white-space:nowrap;margin-bottom:4px}.boards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:36px}.boards img{display:block;width:100%;height:auto;aspect-ratio:3/2;object-fit:contain;filter:grayscale(1)}.board-image{display:block;border:1px solid var(--line);background:#fff;margin-bottom:22px;overflow:hidden}.boards h3{font-size:22px;letter-spacing:-.6px;font-weight:500;margin:0 0 12px}.boards p{max-width:450px;margin-bottom:18px}.image-note{font-size:10px;line-height:1.8;color:var(--muted);margin:24px 0 0}.integration-section{display:grid;grid-template-columns:1fr 1.55fr;gap:60px;border-top:1px solid var(--line);padding:44px 0;margin-top:38px}.integration-section+.integration-section{margin-top:0}.links{display:flex;flex-wrap:wrap;gap:16px 24px;margin-top:22px}.workbench code{font-size:.95em}.closing{border-top:1px solid var(--line);padding-top:42px}.updates-link{display:inline-block;margin-left:24px}.closing p{font-size:13px;color:var(--muted);line-height:1.8;margin:12px 0 22px}:global(.dark) .workbench,:global([data-theme='dark']) .workbench{--ink:#eee;--muted:#aaa;--line:#3c3c3c;--paper:#111}:global(.dark) .board-image,:global([data-theme='dark']) .board-image{background:#eee}@media(max-width:850px){.workbench{padding:40px 24px}.workflow article{padding-right:18px}.workflow article+article{padding-left:18px}.integration-section{gap:30px}}@media(max-width:650px){.workbench h1{letter-spacing:-1.6px}.desktop-break{display:none}.workflow{grid-template-columns:1fr;margin-top:36px}.workflow article,.workflow article+article{border-left:0;padding:22px 0}.workflow article+article{border-top:1px solid var(--line)}.step{margin-bottom:12px}.section-heading{flex-direction:column;align-items:flex-start;gap:18px}.boards{grid-template-columns:1fr;gap:32px}.integration-section{grid-template-columns:1fr;gap:22px;padding:32px 0}.section-heading h2,.integration-section h2,.closing h2{font-size:26px}.intro-copy{font-size:15px}}
+  .workbench { --ink: var(--blume-foreground, #171717); --muted: var(--blume-muted-foreground, #666); --line: var(--blume-border, #dedede); --paper: var(--blume-background, #fff); max-width: 1220px; margin: auto; padding: 72px clamp(32px, 5vw, 88px) 64px; color: var(--ink); }
+  .workbench * { box-sizing: border-box; }
+  .workbench a { color: inherit; text-decoration: none; text-underline-offset: 4px; }
+  .workbench a:hover { text-decoration: underline; }
+  .workbench :is(a, button):focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+  .workbench h1 { font-size: clamp(34px, 4vw, 49px); font-weight: 650; letter-spacing: -1.9px; line-height: 1.15; margin: 0 0 24px; }
+  .intro-copy { color: var(--muted); font-size: 19px; line-height: 1.75; margin: 0 0 30px; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .primary-link, .build-prompt { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 48px; padding: 12px 18px; border-radius: 8px; font: inherit; font-size: 15px; }
+  .workbench .primary-link { color: var(--paper); background: var(--ink); border: 1px solid var(--ink); text-decoration: none; }
+  .build-prompt { color: var(--muted); background: transparent; border: 1px dashed var(--line); cursor: pointer; }
+  .build-prompt:hover { border-color: var(--muted); color: var(--ink); }
+  .build-prompt:disabled { cursor: default; }
+  .agent-marks { display: inline-flex; padding-left: 5px; }
+  .agent-marks img { width: 24px; height: 24px; padding: 3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px var(--line); object-fit: contain; margin-left: -5px; }
+  .copy-glyph { position: relative; width: 17px; height: 17px; }
+  .copy-glyph svg { position: absolute; inset: 0; }
+  .check-icon { opacity: 0; color: #397954; }
+  [data-copied="true"] .copy-icon { opacity: 0; }
+  [data-copied="true"] .check-icon { opacity: 1; }
+  .copy-fallback { font-size: 12px; line-height: 1.8; padding: 16px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); margin: 16px 0 0; }
+  .copy-fallback span { display: block; user-select: all; }
+  .intro-note { margin: 20px 0 0; color: var(--muted); font-size: 13px; line-height: 1.8; }
+  .intro-note a { text-decoration: underline; }
+  .workbench section + section { margin-top: 54px; border-top: 1px solid var(--line); padding-top: 40px; scroll-margin-top: 30px; }
+  .workbench h2 { margin: 0 0 16px; font-size: 27px; letter-spacing: -.75px; font-weight: 620; line-height: 1.25; }
+  .section-copy { color: var(--muted); font-size: 15px; line-height: 1.8; margin: 0 0 26px; }
+  .starter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .starter { padding: 24px; min-width: 0; display: flex; flex-direction: column; text-decoration: none !important; }
+  .starter + .starter { border-left: 1px solid var(--line); }
+  .starter:hover { background: var(--blume-muted, #fafafa); }
+  .starter > svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); margin-bottom: 20px; }
+  .starter > .ha-icon { color: #168db9; }
+  .starter h3 { font-size: 15px; font-weight: 600; margin: 0 0 10px; line-height: 1.5; }
+  .starter p { font-size: 13px; line-height: 1.8; color: var(--muted); margin: 0 0 20px; }
+  .starter > span { margin-top: auto; font-size: 12px; color: var(--ink); }
+  .examples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; margin-top: 30px; }
+  .example-label { color: var(--muted); font-size: 11px; font-family: var(--font-mono, ui-monospace), monospace; }
+  .examples blockquote { margin: 18px 0 14px; font-size: 18px; line-height: 1.6; letter-spacing: -.35px; }
+  .examples p { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 0 0 14px; }
+  .examples a { font-size: 12px; }
+  .example-note { font-size: 11px; line-height: 1.8; color: var(--muted); margin: 28px 0 0; }
+  .example-note a { text-decoration: underline; }
+  .flow-diagram { display: flex; align-items: stretch; justify-content: space-between; gap: 9px; margin: 30px 0; }
+  .flow-diagram > span { flex: 1; min-width: 0; padding: 17px 12px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; font-weight: 550; line-height: 1.5; }
+  .flow-diagram .flow-hub { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .flow-diagram > b { align-self: center; font-weight: 400; color: var(--muted); }
+  .flow-diagram small { display: block; font-size: 9px; line-height: 1.7; font-weight: 400; margin-top: 6px; opacity: .7; }
+  .flow-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+  .flow-notes p { font-size: 13px; line-height: 1.8; margin: 0; color: var(--muted); }
+  .flow-notes strong { font-weight: 550; color: var(--ink); }
+  .interface-list { margin-top: 28px; }
+  .interface-list a { display: grid; grid-template-columns: 82px 1fr 20px; gap: 20px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid var(--line); text-decoration: none !important; }
+  .interface-list a:hover p { color: var(--ink); }
+  .interface-list span { font-size: 15px; font-weight: 550; }
+  .interface-list p { font-size: 13px; line-height: 1.8; margin: 0; color: var(--muted); }
+  .interface-list b { font-weight: 400; }
+  .build-section { display: grid; grid-template-columns: 1fr 1.2fr; gap: 44px; }
+  .build-section .section-copy { margin: 0; font-size: 13px; }
+  .build-section > div > p:not(.section-copy) { font-size: 14px; line-height: 1.8; margin: 0; color: var(--muted); }
+  .links { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 22px; font-size: 12px; }
+  .closing p { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+  .closing > a:not(.primary-link) { display: inline-block; margin-left: 24px; font-size: 12px; }
+  @media (max-width: 1150px) { .starter { padding: 20px 16px; } .intro-copy { font-size: 17px; } .examples { gap: 22px; } .flow-diagram { gap: 6px; } }
+  @media (max-width: 800px) { .workbench { padding: 42px 24px; } .workbench h1 { font-size: 36px; letter-spacing: -1.2px; } }
+  @media (max-width: 580px) {
+    .desktop-break { display: none; } .workbench h1 { max-width: 9em; } .intro-copy { font-size: 16px; }
+    .workbench section + section { margin-top: 36px; padding-top: 30px; } .workbench h2 { font-size: 25px; }
+    .starter-grid, .examples, .flow-notes, .build-section { grid-template-columns: 1fr; }
+    .starter { padding: 22px; } .starter + .starter { border-left: 0; border-top: 1px solid var(--line); } .starter > svg { margin-bottom: 14px; }
+    .examples { gap: 28px; } .flow-notes { gap: 18px; } .build-section { gap: 22px; }
+    .flow-diagram { flex-direction: column; align-items: stretch; } .flow-diagram > b { transform: rotate(90deg); } .flow-diagram small { font-size: 11px; }
+    .interface-list a { grid-template-columns: 60px 1fr 14px; gap: 14px; }
+  }
 </style>

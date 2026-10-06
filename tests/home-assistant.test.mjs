@@ -451,10 +451,15 @@ test("HA runner survives lost result response without repeating a service; setup
     });
     for (
       let n = 0;
-      n < 100 && !f.hub.state.devices.some((d) => d.gatewayId === i.deviceId);
+      n < 100 &&
+      !f.hub.list(owner).some((d) => d.gatewayId === i.deviceId && d.online);
       n++
     )
       await new Promise((r) => setTimeout(r, 10));
+    assert.ok(
+      f.hub.list(owner).some((d) => d.gatewayId === i.deviceId && d.online),
+      "Wait for completed inventory publication and gateway readiness",
+    );
     f.hub.gatewayGrants(owner, i.deviceId, agent.id, "control");
     const child = f.hub
       .list(agent)

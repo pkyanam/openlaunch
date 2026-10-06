@@ -1,6 +1,6 @@
 # openlaunch
 
-Connect your agents to your hardware. Expose the functions your devices can perform, choose what each agent may use, and follow every action to a result. Free to use, MIT-licensed and self-hostable from the same public codebase.
+Your agents. Your devices. Connect hardware, Linux computers and Home Assistant to the agents you already use. Discover functions, choose access and follow each action to a result. Free to use, MIT-licensed and self-hostable from the same public codebase.
 
 ## Get started
 
@@ -14,7 +14,10 @@ curl -fsSL https://www.openlaunch.dev/install.sh | bash
 
 [Pricing](/pricing) · [Setup guide](/docs/setup) · [Source](https://github.com/pkyanam/openlaunch) · [Downloads and resources](/docs/resources)
 
-## Hardware
+## Start with something useful
+
+- [Linux computers](/docs/linux): system information, command execution and desktop control with owner-enabled access.
+- [Home Assistant](/docs/home-assistant): devices, entities, scenes, scripts and services through a local outbound gateway. Test with a Toggle helper before connecting physical devices.
 
 - [Uno R4 WiFi](/docs/uno-r4): health, built-in LED, and ASCII matrix text. Stock and repaired console-mux builds are isolated.
 - [Raspberry Pi 4 Model B](/docs/pi): health through the Go device adapter, or explicitly enabled host functions through the Linux adapter. Follow the target acceptance checklist.
@@ -27,6 +30,12 @@ Device pairing creates a private device credential. The owner separately grants 
 [Endpoint reference](/docs/reference) · [OpenAPI contract](/device-api.json) · [MCP connection guide](/docs/agents) · [ol CLI installer and guide](/docs/cli) · [Updates](/changelog)
 
 The API, MCP and CLI discover the same granted functions and share action receipts. Install ol with `curl -fsSL https://www.openlaunch.dev/install-cli.sh | bash`, open a new terminal and run `ol login`.
+
+## Build with your agent
+
+Copy this prompt into your coding agent:
+
+> Read https://www.openlaunch.dev/docs/sdk.md and https://www.openlaunch.dev/docs/functions.md. Help me build an openlaunch adapter for my device, publish its actual functions, and test an action end to end. Use the live API schemas. Keep device setup credentials, device credentials and agent credentials separate. Have me enter credentials privately in my terminal, never in chat.
 
 ## Build and learn
 
